@@ -16,14 +16,20 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
 h1 { font-family: Georgia, "Times New Roman", serif; font-size: clamp(40px, 4.8vw, 74px); font-weight: 400; letter-spacing: -.045em; margin: 17px 0 8px; }
 h1 span { color: #7cafbd; }
 .title p { margin: 0; color: #8faebf; font-size: 13px; letter-spacing: .07em; }
-footer { position: absolute; bottom: 8%; left: 5%; right: 5%; display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+footer { position: absolute; bottom: 8%; left: 5%; right: 5%; display: flex; justify-content: flex-end; align-items: center; gap: 24px; }
 .caption { display: flex; align-items: center; gap: 16px; color: #89a8ba; font: italic 15px Georgia, serif; }
 .line { width: 32px; height: 1px; background: #82abbc66; }
 .controls { display: flex; flex-wrap: wrap; width: 555px; align-items: center; gap: 4px; padding: 7px; border: 1px solid #91c5df22; border-radius: 18px; background: #061c3566; backdrop-filter: blur(24px); }
-.day-controls { flex-basis: 100%; display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 7px 12px 0; border-top: 1px solid #8eb4ce20; font-size: 12px; color: #bad1dc; }
-.day-controls select, .day-controls input { min-height: 36px; min-width: 0; border: 1px solid #91c5df33; border-radius: 8px; background: #061c35; color: #deedf3; font: inherit; padding: 5px 8px; }
-.day-controls input { width: 115px; font-variant-numeric: tabular-nums; }
-.day-controls input:disabled { opacity: .65; }
+.day-controls, .species-controls { flex-basis: 100%; display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 7px 12px 0; border-top: 1px solid #8eb4ce20; font-size: 12px; color: #bad1dc; }
+.day-controls select { min-height: 36px; min-width: 0; border: 1px solid #91c5df33; border-radius: 8px; background: #061c35; color: #deedf3; font: inherit; padding: 5px 8px; }
+.species-controls { flex-wrap: wrap; }
+.species-controls label { display: flex; align-items: center; gap: 5px; min-height: 36px; cursor: pointer; }
+.species-controls input { accent-color: #9bd1df; width: 16px; height: 16px; margin: 0; }
+.day-controls { flex-wrap: wrap; }
+.time-slider { display: flex; flex: 1 1 180px; align-items: center; gap: 8px; }
+.time-slider input[type="range"] { flex: 1; min-width: 60px; width: 100%; margin: 0; }
+.time-endpoint { font-size: 10px; color: #89a8ba; font-variant-numeric: tabular-nums; }
+#light-time-value { min-width: 5ch; color: #deedf3; font-variant-numeric: tabular-nums; font-size: 13px; }
 select:focus-visible { outline: 2px solid #aee6f1; outline-offset: 3px; }
 button { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 42px; padding: 0 14px; border: 0; border-radius: 11px; color: #bad1dc; background: transparent; font: 12px "Segoe UI", system-ui, sans-serif; cursor: pointer; transition: background .2s, color .2s; }
 button:hover { color: white; background: #a5daff12; }
@@ -31,10 +37,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid #aee6f1; outline-
 button svg, .speed svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .speed { display: flex; align-items: center; gap: 12px; padding: 0 16px; height: 30px; border-inline: 1px solid #8eb4ce20; color: #90b2c4; }
 input[type="range"] { width: 72px; height: 28px; accent-color: #9bd1df; cursor: pointer; }
-.shark-count { display: flex; align-items: center; gap: 12px; min-height: 42px; padding: 0 12px; border-left: 1px solid #8eb4ce20; color: #bad1dc; font-size: 12px; }
-.shark-count span { white-space: nowrap; }
-.shark-count output { display: inline-block; min-width: 2ch; margin-left: 4px; font-variant-numeric: tabular-nums; }
-.shark-count input { width: 90px; }
+.count-controls { display: flex; flex-basis: 100%; gap: 16px; padding: 0 12px; border-top: 1px solid #8eb4ce20; }
+.population-count { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; min-height: 42px; color: #bad1dc; font-size: 12px; }
+.population-count span { white-space: nowrap; }
+.population-count output { display: inline-block; min-width: 4ch; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.population-count input { flex: 1; min-width: 40px; width: 100%; }
 .hint { position: absolute; bottom: 2.5%; width: 100%; text-align: center; color: #698ba2; font-size: 10px; letter-spacing: .035em; pointer-events: none; }
 body.immersed { cursor: none; }
 body.immersed .chrome { opacity: 0; transform: translateY(5px); pointer-events: none; }
@@ -54,11 +61,11 @@ body.immersed .chrome { opacity: 0; transform: translateY(5px); pointer-events: 
   button { padding: 0 11px; }
   .speed { padding: 0 11px; gap: 8px; }
   input[type="range"] { width: 50px; }
-  .shark-count { flex-basis: 100%; border-left: 0; border-top: 1px solid #8eb4ce20; margin-top: 4px; padding: 4px 11px 0; justify-content: space-between; }
-  .shark-count input { flex: 1; max-width: 190px; }
-  .day-controls { justify-content: space-between; gap: 6px; padding: 7px 8px 2px; }
+  .count-controls { flex-direction: column; gap: 0; margin-top: 4px; padding: 0 11px; }
+  .day-controls, .species-controls { justify-content: space-between; gap: 6px; padding: 7px 8px 2px; }
   .day-controls select { width: 115px; }
-  .day-controls input { width: 103px; }
+  .species-controls > span { flex-basis: 100%; }
+  .time-slider { flex-basis: calc(100% - 60px); }
   .hint { bottom: 3%; font-size: 9px; padding: 0 20px; }
 }
 @media (max-width: 360px) {
