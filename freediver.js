@@ -528,6 +528,9 @@
         uniform float uPikeAngle;
         uniform float uHeadYaw;
         uniform float uDepthCompression;
+        uniform float uMonoBladeFlex;
+        uniform float uBiBladeFlexL;
+        uniform float uBiBladeFlexR;
         varying vec3 vDiverWorldPos;
         varying float vBladeFlex;
         varying float vKickWeight;
@@ -587,17 +590,18 @@
         }
 
         // 4. Undulation & compliant kicks (along local X)
-        // High elastohydrodynamic compliance with traveling phase lag along the carbon blade
+        // High elastohydrodynamic compliance with physical elastodynamic blade flex
         if (abs(legSide) > 0.5) {
-          // Bi-fin scissor kick with soft, compliant carbon blade whip
+          // Bi-fin scissor kick with physical elastodynamic blade flex
           float legScissor = legSide * sin(uKickPhase) * uKickAmp * pow(kickWeight, 1.15) * 0.28;
-          float bladeLag = legSide * sin(uKickPhase - bladeFlex * 1.60) * uKickAmp * pow(bladeFlex, 1.7) * 0.44;
-          transformed.x += legScissor + bladeLag;
+          float dynBladeFlex = (legSide > 0.0) ? uBiBladeFlexR : uBiBladeFlexL;
+          float bladeDisplacement = dynBladeFlex * pow(bladeFlex, 1.7) * 0.52;
+          transformed.x += legScissor + bladeDisplacement;
         } else {
-          // Monofin travelling dolphin wave with compliant, whip-like carbon-wing flex
+          // Monofin travelling dolphin wave with physical elastodynamic blade flex
           float bodyWave = sin(uKickPhase - kickWeight * 3.6) * uKickAmp * pow(kickWeight, 1.45) * 0.26;
-          float wingFlex = sin(uKickPhase - kickWeight * 3.6 - bladeFlex * 1.50) * uKickAmp * pow(bladeFlex, 1.8) * 0.48;
-          transformed.x += bodyWave + wingFlex;
+          float wingDisplacement = uMonoBladeFlex * pow(bladeFlex, 1.8) * 0.58;
+          transformed.x += bodyWave + wingDisplacement;
         }
 
         vec4 dWPos = modelMatrix * vec4(transformed, 1.0);
@@ -983,6 +987,9 @@
       uHeadYaw: { value: 0 },
       uDepthCompression: { value: 0 },
       uBioShimmer: { value: 0 },
+      uMonoBladeFlex: { value: 0 },
+      uBiBladeFlexL: { value: 0 },
+      uBiBladeFlexR: { value: 0 },
       uTime: { value: 0 }
     };
     const mainMaterial = createDiverMaterial(T, mainUniforms);
@@ -1045,6 +1052,9 @@
       uHeadYaw: { value: 0 },
       uDepthCompression: { value: 0 },
       uBioShimmer: { value: 0 },
+      uMonoBladeFlex: { value: 0 },
+      uBiBladeFlexL: { value: 0 },
+      uBiBladeFlexR: { value: 0 },
       uTime: { value: 0 }
     };
     const safeMaterial = createDiverMaterial(T, safeUniforms);
@@ -1295,6 +1305,65 @@
     let lastUpdateTime = undefined;
     let monoKickPhase = 0.0;
     let biKickPhase = 0.0;
+
+    // Preallocated 2nd-Order Inertial Tracking States
+    const mainInertial = {
+      y: { pos: 14.3, vel: 0 },
+      x: { pos: RIG_X - 0.78, vel: 0 },
+      theta: { pos: 0.08, vel: 0 },
+      pike: { pos: 0, vel: 0 },
+      arm: { pos: 0.85, vel: 0 },
+      yaw: { pos: 0, vel: 0 },
+      pitch: { pos: -0.05, vel: 0 }
+    };
+    const safeInertial = {
+      y: { pos: 14.2, vel: 0 },
+      x: { pos: RIG_X + 0.82, vel: 0 },
+      theta: { pos: 0.06, vel: 0 },
+      pike: { pos: 0, vel: 0 },
+      arm: { pos: 0.0, vel: 0 },
+      yaw: { pos: 0, vel: 0 },
+      pitch: { pos: -0.05, vel: 0 }
+    };
+
+    // Preallocated Elastodynamic Fin States
+    const monoFinState = { pos: 0, vel: 0 };
+    const biFinLState = { pos: 0, vel: 0 };
+    const biFinRState = { pos: 0, vel: 0 };
+
+    function stepInertial(state, targetPos, omegaN, zeta, dt) {
+      if (dt <= 0.0) return state.pos;
+      const f = 1.0 + 2.0 * dt * zeta * omegaN;
+      const oo = omegaN * omegaN;
+      const detInv = 1.0 / (f + dt * dt * oo);
+      const newPos = (state.pos + dt * state.vel + dt * dt * oo * targetPos) * detInv;
+      state.vel = (state.vel + dt * oo * (targetPos - state.pos)) * detInv;
+      state.pos = newPos;
+      return state.pos;
+    }
+
+    function stepFinOscillator(state, targetFoot, dt) {
+      if (dt <= 0.0) return;
+      const substeps = Math.ceil(dt / 0.016);
+      const subDt = dt / substeps;
+      const kStiff = 36.0;
+      const cDamp = 8.5;
+      for (let s = 0; s < substeps; s++) {
+        const spring = -kStiff * (state.pos - targetFoot);
+        const damp = -cDamp * state.vel;
+        const drag = -Math.sign(state.vel) * Math.min(12.0, state.vel * state.vel * 1.8);
+        const acc = spring + damp + drag;
+        state.vel += acc * subDt;
+        state.pos += state.vel * subDt;
+        if (state.pos < -1.2) {
+          state.pos = -1.2;
+          if (state.vel < 0.0) state.vel = 0.0;
+        } else if (state.pos > 1.2) {
+          state.pos = 1.2;
+          if (state.vel > 0.0) state.vel = 0.0;
+        }
+      }
+    }
 
     // Preallocated Trajectory Results
     const deepTraj = {
@@ -1693,9 +1762,30 @@
         }
       }
 
+      let dtPhase = (lastUpdateTime !== undefined && time > lastUpdateTime) ? Math.min(time - lastUpdateTime, 0.1) : 0.016;
+      if (paused) dtPhase = 0.0;
+
+      // 2nd-Order Inertial Tracking for Monofin Diver
+      stepInertial(mainInertial.theta, monoTraj.theta, 9.0, 1.1, dtPhase);
+      stepInertial(mainInertial.y, monoTraj.y, 14.0, 1.05, dtPhase);
+      stepInertial(mainInertial.x, monoX, 8.0, 1.15, dtPhase);
+      stepInertial(mainInertial.pike, monoTraj.pikeAngle, 10.0, 1.1, dtPhase);
+      stepInertial(mainInertial.arm, monoTraj.armRelax, 8.5, 1.1, dtPhase);
+      stepInertial(mainInertial.yaw, monoTraj.gazeYaw, 7.5, 1.1, dtPhase);
+      stepInertial(mainInertial.pitch, monoTraj.gazePitch, 7.5, 1.1, dtPhase);
+
+      // 2nd-Order Inertial Tracking for Bi-Fin Diver
+      stepInertial(safeInertial.theta, biTraj.theta, 9.0, 1.1, dtPhase);
+      stepInertial(safeInertial.y, biTraj.y, 14.0, 1.05, dtPhase);
+      stepInertial(safeInertial.x, biX, 8.0, 1.15, dtPhase);
+      stepInertial(safeInertial.pike, biTraj.pikeAngle, 10.0, 1.1, dtPhase);
+      stepInertial(safeInertial.arm, biTraj.armRelax, 8.5, 1.1, dtPhase);
+      stepInertial(safeInertial.yaw, biTraj.gazeYaw, 7.5, 1.1, dtPhase);
+      stepInertial(safeInertial.pitch, biTraj.gazePitch, 7.5, 1.1, dtPhase);
+
       // Position & Orient Monofin Diver (Left side, facing +X toward rope)
-      mainDiverMesh.position.set(monoX, monoTraj.y, RIG_Z);
-      orientDiver(mainDiverMesh, monoTraj.theta, 1.0);
+      mainDiverMesh.position.set(mainInertial.x.pos, mainInertial.y.pos, RIG_Z);
+      orientDiver(mainDiverMesh, mainInertial.theta.pos, 1.0);
 
       // Bioluminescent fin shear shimmer at night
       const nightBioFactor = smoothstep(0.35, 0.02, daylightVal);
@@ -1703,32 +1793,47 @@
       safeUniforms.uBioShimmer.value = nightBioFactor * Math.min(1.0, biTraj.kickAmp * 1.35);
 
       // Boyle's Law hydrostatic compression: 0 at surface (y = 14.3), 1 at bottom plate (y = -16.8)
-      const monoDepthComp = Math.max(0.0, Math.min(1.0, (14.3 - monoTraj.y) / 31.1));
-      const biDepthComp = Math.max(0.0, Math.min(1.0, (14.3 - biTraj.y) / 31.1));
+      const monoDepthComp = Math.max(0.0, Math.min(1.0, (14.3 - mainInertial.y.pos) / 31.1));
+      const biDepthComp = Math.max(0.0, Math.min(1.0, (14.3 - safeInertial.y.pos) / 31.1));
       mainUniforms.uDepthCompression.value = monoDepthComp;
       safeUniforms.uDepthCompression.value = biDepthComp;
 
-      let dtPhase = (lastUpdateTime !== undefined && time > lastUpdateTime) ? Math.min(time - lastUpdateTime, 0.1) : 0.016;
-      if (paused) dtPhase = 0.0;
       monoKickPhase += monoTraj.kickPhaseRate * dtPhase;
       biKickPhase += biTraj.kickPhaseRate * dtPhase;
 
+      // Elastodynamic Fin Dynamics (Spring-Damper-Mass Oscillators)
+      const targetFootMono = Math.sin(monoKickPhase - 1.2) * monoTraj.kickAmp * 0.55;
+      const targetFootBiL = -Math.sin(biKickPhase) * biTraj.kickAmp * 0.48;
+      const targetFootBiR = Math.sin(biKickPhase) * biTraj.kickAmp * 0.48;
+
+      stepFinOscillator(monoFinState, targetFootMono, dtPhase);
+      stepFinOscillator(biFinLState, targetFootBiL, dtPhase);
+      stepFinOscillator(biFinRState, targetFootBiR, dtPhase);
+
+      mainUniforms.uMonoBladeFlex.value = monoFinState.pos;
+      mainUniforms.uBiBladeFlexL.value = 0.0;
+      mainUniforms.uBiBladeFlexR.value = 0.0;
+
+      safeUniforms.uMonoBladeFlex.value = 0.0;
+      safeUniforms.uBiBladeFlexL.value = biFinLState.pos;
+      safeUniforms.uBiBladeFlexR.value = biFinRState.pos;
+
       mainUniforms.uKickPhase.value = monoKickPhase;
       mainUniforms.uKickAmp.value = monoTraj.kickAmp;
-      mainUniforms.uArmRelax.value = monoTraj.armRelax;
-      mainUniforms.uPikeAngle.value = monoTraj.pikeAngle;
-      mainUniforms.uHeadYaw.value = monoTraj.gazeYaw;
+      mainUniforms.uArmRelax.value = mainInertial.arm.pos;
+      mainUniforms.uPikeAngle.value = mainInertial.pike.pos;
+      mainUniforms.uHeadYaw.value = mainInertial.yaw.pos;
       mainUniforms.uTime.value = time;
 
       // Position & Orient Bi-fin Diver (Right side, facing -X toward rope)
-      safetyDiverMesh.position.set(biX, biTraj.y, RIG_Z);
-      orientDiver(safetyDiverMesh, biTraj.theta, -1.0);
+      safetyDiverMesh.position.set(safeInertial.x.pos, safeInertial.y.pos, RIG_Z);
+      orientDiver(safetyDiverMesh, safeInertial.theta.pos, -1.0);
 
       safeUniforms.uKickPhase.value = biKickPhase;
       safeUniforms.uKickAmp.value = biTraj.kickAmp;
-      safeUniforms.uArmRelax.value = biTraj.armRelax;
-      safeUniforms.uPikeAngle.value = biTraj.pikeAngle;
-      safeUniforms.uHeadYaw.value = biTraj.gazeYaw;
+      safeUniforms.uArmRelax.value = safeInertial.arm.pos;
+      safeUniforms.uPikeAngle.value = safeInertial.pike.pos;
+      safeUniforms.uHeadYaw.value = safeInertial.yaw.pos;
       safeUniforms.uTime.value = time;
 
       // 4. Forehead Torch & Camera Glint (Active ONLY on current Deep Diver at NIGHT)
@@ -1737,11 +1842,11 @@
 
       if (isMonofinDeep) {
         // Monofin is Deep Diver: Torch ON
-        mainTorchGroup.rotation.y = deepTraj.gazeYaw;
-        mainTorchGroup.rotation.z = deepTraj.gazePitch;
+        mainTorchGroup.rotation.y = mainInertial.yaw.pos;
+        mainTorchGroup.rotation.z = mainInertial.pitch.pos;
         let fade = 1.0;
-        if (deepTraj.y > 13.5) {
-          fade = 1.0 - Math.min(1.0, (deepTraj.y - 13.5) / 1.5) * 0.85;
+        if (mainInertial.y.pos > 13.5) {
+          fade = 1.0 - Math.min(1.0, (mainInertial.y.pos - 13.5) / 1.5) * 0.85;
         }
         mainTorchUniforms.uTorchPower.value = torchBasePower * fade;
 
@@ -1757,11 +1862,11 @@
         safeGlintUniforms.uGlintIntensity.value = 0.0;
       } else {
         // Bi-fin is Deep Diver: Torch ON
-        safeTorchGroup.rotation.y = deepTraj.gazeYaw;
-        safeTorchGroup.rotation.z = deepTraj.gazePitch;
+        safeTorchGroup.rotation.y = safeInertial.yaw.pos;
+        safeTorchGroup.rotation.z = safeInertial.pitch.pos;
         let fade = 1.0;
-        if (deepTraj.y > 13.5) {
-          fade = 1.0 - Math.min(1.0, (deepTraj.y - 13.5) / 1.5) * 0.85;
+        if (safeInertial.y.pos > 13.5) {
+          fade = 1.0 - Math.min(1.0, (safeInertial.y.pos - 13.5) / 1.5) * 0.85;
         }
         safeTorchUniforms.uTorchPower.value = torchBasePower * fade;
 
@@ -1781,23 +1886,23 @@
       // Part A: Surface splash droplets at buoy (points 0..23)
       let activeSplash = false;
       let splashProgress = 0.0;
-      let splashCenterX = isMonofinDeep ? monoX : biX;
+      let splashCenterX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
 
       if (cycle >= 2.0 && cycle <= 4.4) {
         // Deep diver duck-dive
         activeSplash = true;
         splashProgress = (cycle - 2.0) / 2.4;
-        splashCenterX = isMonofinDeep ? monoX : biX;
+        splashCenterX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
       } else if (cycle >= 17.5 && cycle <= 19.9) {
         // Safety diver duck-dive
         activeSplash = true;
         splashProgress = (cycle - 17.5) / 2.4;
-        splashCenterX = isMonofinDeep ? biX : monoX;
+        splashCenterX = isMonofinDeep ? safeInertial.x.pos : mainInertial.x.pos;
       } else if (cycle >= 41.5 && cycle <= 45.0) {
         // Divers surfacing
         activeSplash = true;
         splashProgress = (cycle - 41.5) / 3.5;
-        splashCenterX = isMonofinDeep ? monoX : biX;
+        splashCenterX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
       }
 
       for (let k = 0; k < 24; k++) {
@@ -1815,16 +1920,16 @@
 
       // Part B: Entrained wake bubbles dragged down on duck-dive (points 24..55)
       let activeTrail = false;
-      let trailDiverX = isMonofinDeep ? monoX : biX;
-      let trailDiverY = deepTraj.y;
+      let trailDiverX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
+      let trailDiverY = isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos;
 
       if (cycle >= 2.2 && cycle <= 8.5) {
-        trailDiverX = isMonofinDeep ? monoX : biX;
-        trailDiverY = deepTraj.y;
+        trailDiverX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
+        trailDiverY = isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos;
         activeTrail = true;
       } else if (cycle >= 17.7 && cycle <= 23.0) {
-        trailDiverX = isMonofinDeep ? biX : monoX;
-        trailDiverY = safeTraj.y;
+        trailDiverX = isMonofinDeep ? safeInertial.x.pos : mainInertial.x.pos;
+        trailDiverY = isMonofinDeep ? safeInertial.y.pos : mainInertial.y.pos;
         activeTrail = true;
       }
 
@@ -1869,17 +1974,17 @@
       }
 
       const isDeepAscending = (cycle >= 26.2 && cycle <= 42.0);
-      const deepFaceX = isMonofinDeep ? monoX : biX;
-      const deepFaceY = deepTraj.y + 0.65;
+      const deepFaceX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
+      const deepFaceY = (isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos) + 0.65;
       const deepFaceZ = RIG_Z + 0.10;
-      const deepDepth = Math.max(0.0, 15.0 - deepTraj.y);
+      const deepDepth = Math.max(0.0, 15.0 - (isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos));
       const deepP = 1.0 + deepDepth * 0.10;
 
       const isSafeAscending = (cycle >= 35.2 && cycle <= 42.0);
-      const safeFaceX = isMonofinDeep ? biX : monoX;
-      const safeFaceY = safeTraj.y + 0.65;
+      const safeFaceX = isMonofinDeep ? safeInertial.x.pos : mainInertial.x.pos;
+      const safeFaceY = (isMonofinDeep ? safeInertial.y.pos : mainInertial.y.pos) + 0.65;
       const safeFaceZ = RIG_Z + 0.10;
-      const safeDepth = Math.max(0.0, 15.0 - safeTraj.y);
+      const safeDepth = Math.max(0.0, 15.0 - (isMonofinDeep ? safeInertial.y.pos : mainInertial.y.pos));
       const safeP = 1.0 + safeDepth * 0.10;
 
       // 1. Clinging Mask Air Pockets (Points 54 & 55)
@@ -2103,7 +2208,8 @@
       activeDeepMesh.matrixWorld.copy(activeDeepMesh.matrix);
       diverLanyardPoint.set(0.10, 0.08, 0.0).applyMatrix4(activeDeepMesh.matrixWorld);
 
-      evalRopePoint(deepTraj.y, time, tugAmount, ropeCarabinerPoint);
+      const activeDeepY = isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos;
+      evalRopePoint(activeDeepY, time, tugAmount, ropeCarabinerPoint);
 
       lanyardPositions[0] = diverLanyardPoint.x;
       lanyardPositions[1] = diverLanyardPoint.y;
@@ -2124,7 +2230,7 @@
       );
       prevMainPos.copy(mainDiverMesh.position);
       mainDiverState.position.copy(mainDiverMesh.position);
-      mainDiverState.heading.set(Math.sin(monoTraj.theta), Math.cos(monoTraj.theta), 0.0).normalize();
+      mainDiverState.heading.set(Math.sin(mainInertial.theta.pos), Math.cos(mainInertial.theta.pos), 0.0).normalize();
       mainDiverState.kickAmp = monoTraj.kickAmp;
       mainDiverState.visible = group.visible;
 
@@ -2135,7 +2241,7 @@
       );
       prevSafePos.copy(safetyDiverMesh.position);
       safetyDiverState.position.copy(safetyDiverMesh.position);
-      safetyDiverState.heading.set(-Math.sin(biTraj.theta), Math.cos(biTraj.theta), 0.0).normalize();
+      safetyDiverState.heading.set(-Math.sin(safeInertial.theta.pos), Math.cos(safeInertial.theta.pos), 0.0).normalize();
       safetyDiverState.kickAmp = biTraj.kickAmp;
       safetyDiverState.visible = group.visible;
 
