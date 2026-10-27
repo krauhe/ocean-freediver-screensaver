@@ -553,6 +553,19 @@
           // Angle forearms slightly inward toward the dive rope line:
           float ropeInward = (uArmRelax > 0.35) ? smoothstep(0.0, 1.0, armWeight) * 0.030 * sign(position.z) : 0.0;
           vec3 rotatedArm = vec3(relArm.x * cA + relArm.y * sA, -relArm.x * sA + relArm.y * cA, relArm.z - ropeInward);
+
+          // Natural organic elbow compliance (soft natural bend when relaxed)
+          float elbowBend = (uArmRelax > 0.15) ? sin(smoothstep(0.35, 0.85, armWeight) * 3.14159) * 0.042 * uArmRelax : 0.0;
+          rotatedArm.x += elbowBend;
+
+          // Living palm & wrist sculling
+          float wristScull = (uArmRelax > 0.25) ? sin(uTime * 2.6 + sign(position.z) * 1.6) * 0.024 * smoothstep(0.60, 1.0, armWeight) * uArmRelax : 0.0;
+          rotatedArm.z += wristScull;
+
+          // Subtle overhead streamline micro-resonance matching kinetic body wave
+          float armMicro = (1.0 - uArmRelax) * sin(uKickPhase + 1.2) * uKickAmp * armWeight * 0.014;
+          rotatedArm.x += armMicro;
+
           transformed = mix(transformed, shoulderPivot + rotatedArm, armWeight);
         }
 
@@ -608,16 +621,50 @@
         // 4. Undulation & compliant kicks (along local X)
         // High elastohydrodynamic compliance with physical elastodynamic blade flex
         if (abs(legSide) > 0.5) {
-          // Bi-fin scissor kick with physical elastodynamic blade flex
-          float legScissor = legSide * sin(uKickPhase) * uKickAmp * pow(kickWeight, 1.15) * 0.28;
+          // Bi-fin scissor kick with natural compliant knee flexion and elastodynamic blade flex
+          float scissorPhase = uKickPhase + (legSide > 0.0 ? 0.0 : 3.14159);
+          float sPhase = sin(scissorPhase);
+
+          // Primary hip flexion/extension stroke
+          float hipStroke = sPhase * uKickAmp * pow(kickWeight, 1.15) * 0.25;
+
+          // Anatomical Knee Flexion:
+          // Knee flexes forward on the downstroke (sPhase > 0) and straightens on the recovery stroke
+          float kneeCompliant = max(0.0, sPhase) * uKickAmp * 0.082
+                              * smoothstep(-0.25, -0.55, position.y)
+                              * (1.0 - smoothstep(-0.55, -0.88, position.y));
+
+          // Dynamic long bi-fin blade flex (progressive parabolic flex)
           float dynBladeFlex = (legSide > 0.0) ? uBiBladeFlexR : uBiBladeFlexL;
-          float bladeDisplacement = dynBladeFlex * pow(bladeFlex, 1.7) * 0.52;
-          transformed.x += legScissor + bladeDisplacement;
+          float bladeFlexDisp = dynBladeFlex * pow(bladeFlex, 1.85) * 0.52;
+
+          transformed.x += hipStroke + kneeCompliant + bladeFlexDisp;
+
+          // Subtle torso roll/sway counter-torque in bi-fins (prevents wooden upper body)
+          if (position.y > -0.15 && position.y < 0.58) {
+            float torsoRoll = sin(uKickPhase) * uKickAmp * 0.016 * (1.0 - smoothstep(0.10, 0.58, position.y));
+            transformed.z += torsoRoll;
+          }
         } else {
-          // Monofin travelling dolphin wave with physical elastodynamic blade flex
-          float bodyWave = sin(uKickPhase - kickWeight * 3.6) * uKickAmp * pow(kickWeight, 1.45) * 0.26;
-          float wingDisplacement = uMonoBladeFlex * pow(bladeFlex, 1.8) * 0.58;
-          transformed.x += bodyWave + wingDisplacement;
+          // Monofin continuous kinetic wave (Thorax -> Lumbar -> Hips -> Knæ -> Monofin Blade)
+          // 1. Upper chest/thorax subtle counter-undulation (+-0.026m)
+          float wChestWave = smoothstep(0.58, 0.35, position.y) * (1.0 - smoothstep(0.35, 0.05, position.y));
+          float chestWave = sin(uKickPhase + 0.75) * uKickAmp * wChestWave * 0.026;
+
+          // 2. Lumbar spine wave
+          float wLumbar = smoothstep(0.38, 0.15, position.y) * (1.0 - smoothstep(0.15, -0.15, position.y));
+          float lumbarWave = sin(uKickPhase - 0.45) * uKickAmp * wLumbar * 0.056;
+
+          // 3. Pelvis & hips core wave
+          float wPelvis = smoothstep(0.05, -0.15, position.y) * (1.0 - smoothstep(-0.15, -0.45, position.y));
+          float pelvisWave = sin(uKickPhase - 1.35) * uKickAmp * wPelvis * 0.092;
+
+          transformed.x += chestWave + lumbarWave + pelvisWave;
+
+          // 4. Legs travelling wave with parabolic kulfiber blade deformation
+          float legWave = sin(uKickPhase - kickWeight * 3.4) * uKickAmp * pow(kickWeight, 1.35) * 0.25;
+          float wingDisplacement = uMonoBladeFlex * pow(bladeFlex, 2.0) * 0.58;
+          transformed.x += legWave + wingDisplacement;
         }
 
         vec4 dWPos = modelMatrix * vec4(transformed, 1.0);
@@ -907,7 +954,15 @@
         vec3 absorption = exp(-vec3(0.035, 0.012, 0.003) * depth);
         float distToLamp = abs(vRopeWorldY - (-17.5));
         float lampLight = exp(-distToLamp * 1.3) * uLampPower * 0.65;
-        gl_FragColor.rgb = gl_FragColor.rgb * absorption + vec3(0.5, 0.85, 1.0) * lampLight;
+
+        // Official Competition Depth Tape Markers (at 10m, 20m, 30m depth):
+        float m10 = smoothstep(0.07, 0.0, abs(depth - 10.0));
+        float m20 = smoothstep(0.07, 0.0, abs(depth - 20.0));
+        float m30 = smoothstep(0.07, 0.0, abs(depth - 30.0));
+        float depthTape = max(m10, max(m20, m30));
+        vec3 ropeBaseColor = mix(gl_FragColor.rgb, vec3(0.10, 0.12, 0.15), depthTape * 0.88);
+
+        gl_FragColor.rgb = ropeBaseColor * absorption + vec3(0.5, 0.85, 1.0) * lampLight;
         #include <opaque_fragment>
         `
       );
@@ -938,6 +993,22 @@
     });
     const collarMesh = new T.Mesh(collarGeom, collarMat);
     plateGroup.add(collarMesh);
+
+    // Official Competition Velcro Bottom Tags (dangling under the bottom plate)
+    const tagMat = new T.MeshStandardMaterial({
+      color: 0xff6600,
+      roughness: 0.60,
+      side: T.DoubleSide
+    });
+    for (let ti = 0; ti < 3; ti++) {
+      const tagGeom = new T.PlaneGeometry(0.045, 0.22);
+      tagGeom.translate(0, -0.11, 0);
+      const tagMesh = new T.Mesh(tagGeom, tagMat);
+      const tagAngle = (ti / 3.0) * Math.PI * 2.0 + 0.35;
+      tagMesh.position.set(Math.cos(tagAngle) * 0.40, -0.025, Math.sin(tagAngle) * 0.40);
+      tagMesh.rotation.y = tagAngle;
+      plateGroup.add(tagMesh);
+    }
 
     group.add(plateGroup);
 
