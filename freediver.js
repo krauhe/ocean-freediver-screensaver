@@ -1247,34 +1247,35 @@
           // Remap coordinates so (0,0) is center, +Y is UP (top dome), -Y is DOWN (flat base)
           vec2 p = vec2(gl_PointCoord.x * 2.0 - 1.0, 1.0 - gl_PointCoord.y * 2.0);
 
-          // 1. Fluid Dynamics Shape: Spherical Cap / Medusa-Gople (Round convex top dome, flattened bottom with indented vortex base)
-          float yScaled = p.y < 0.0 ? p.y * 2.45 : p.y * 1.06;
+          // 1. Fluid Dynamics Shape: Oblate Spherical Cap (Clift-Grace-Weber E ≈ 0.38 - 0.42)
+          // Hydrodynamic stagnation pressure flattens the dome, while the toroidal wake indents the rear base:
+          float indent = (p.y < 0.0) ? (1.0 - p.x * p.x) * 0.08 : 0.0;
+          float effY = p.y - indent;
+          float yScaled = effY < 0.0 ? effY * 3.40 : effY * 1.85;
           float capDist2 = p.x * p.x + yScaled * yScaled;
           if (capDist2 > 1.0) discard;
 
-          // Reconstruct 3D surface normal of the spherical cap
+          // Reconstruct 3D surface normal of the flattened cap
           float nz = sqrt(max(0.0, 1.0 - capDist2));
-          vec3 normalLocal = normalize(vec3(p.x, yScaled, nz * 1.15));
+          vec3 normalLocal = normalize(vec3(p.x, yScaled * 1.30, nz * 0.90));
 
           // 2. Air-water Total Internal Reflection (TIR) & Silvery Mirror Rim:
-          // Water (n=1.333) to Air (n=1.0) has critical angle theta_c = 48.6 deg.
-          // Grazing rays reflect 100%, producing a brilliant chrome-silver boundary rim!
-          float fresnelRim = pow(1.0 - normalLocal.z, 2.4);
-          float tirMirror = smoothstep(0.68, 0.98, 1.0 - normalLocal.z) * 0.95;
+          // Water (n=1.333) to Air (n=1.0) critical angle theta_c = 48.6 deg produces total reflection on grazing rays:
+          float fresnelRim = pow(1.0 - normalLocal.z, 2.2);
+          float tirMirror = smoothstep(0.60, 0.96, 1.0 - normalLocal.z) * 0.95;
 
           // 3. Internal Water-Mirror Interface ("Vandspejl inden i goplen"):
-          // Large spherical cap bubbles have a flat/slightly concave horizontal liquid interface at the bottom
-          // with strong internal reflection and a meniscus rim line:
-          float baseMirror = smoothstep(0.08, -0.02, p.y) * (1.0 - p.x * p.x * 1.25) * 0.45;
-          float meniscusLine = smoothstep(0.035, 0.0, abs(p.y - (-0.14))) * (1.0 - p.x * p.x * 1.2) * 0.70;
+          // Flat horizontal liquid interface at the bottom with intense reflection & crisp meniscus line:
+          float baseMirror = smoothstep(0.04, -0.06, p.y) * (1.0 - p.x * p.x * 1.25) * 0.50;
+          float meniscusLine = smoothstep(0.025, 0.0, abs(p.y - (-0.08))) * (1.0 - p.x * p.x * 1.2) * 0.75;
 
           float core = exp(-capDist2 * 2.8) * 0.15;
 
           // 4. Specular Sun Reflection & Glint (when sun aligns with observer)
           vec3 halfVector = normalize(vLightDirView + vViewDir);
           float nDotH = max(0.0, dot(normalLocal, halfVector));
-          float specGlint = pow(nDotH, 28.0) * (0.35 + 0.65 * smoothstep(-0.1, 0.5, p.y));
-          float broadSheen = pow(max(0.0, dot(normalLocal, vLightDirView)), 5.0) * 0.35 * smoothstep(-0.2, 0.4, p.y);
+          float specGlint = pow(nDotH, 28.0) * (0.35 + 0.65 * smoothstep(-0.06, 0.35, p.y));
+          float broadSheen = pow(max(0.0, dot(normalLocal, vLightDirView)), 5.0) * 0.35 * smoothstep(-0.1, 0.3, p.y);
           float solarHighlight = (specGlint * 2.4 + broadSheen) * sunPower * daylight;
 
           // Edge anti-aliasing
