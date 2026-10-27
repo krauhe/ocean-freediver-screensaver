@@ -1040,6 +1040,43 @@
     mainGlintMesh.position.set(0.055, 0.023, 0.0);
     mainTorchGroup.add(mainGlintMesh);
 
+    function createSnorkel(T) {
+      const snorkelMat = new T.MeshStandardMaterial({
+        color: 0x181a1d,
+        roughness: 0.55,
+        metalness: 0.15
+      });
+      const snorkelGroup = new T.Group();
+      snorkelGroup.position.set(-0.02, 0.72, 0.10);
+
+      // Curved lower J-tube
+      const lowerGeom = new T.CylinderGeometry(0.010, 0.010, 0.09, 10);
+      lowerGeom.rotateX(0.70);
+      snorkelGroup.add(new T.Mesh(lowerGeom, snorkelMat));
+
+      // Main vertical barrel rising up along the head
+      const barrelGeom = new T.CylinderGeometry(0.011, 0.011, 0.28, 10);
+      barrelGeom.translate(0, 0.14, 0);
+      barrelGeom.rotateZ(-0.06);
+      barrelGeom.rotateX(-0.10);
+      snorkelGroup.add(new T.Mesh(barrelGeom, snorkelMat));
+
+      // Orange hi-vis safety tip at top
+      const tipMat = new T.MeshStandardMaterial({
+        color: 0xff6600,
+        roughness: 0.4,
+        metalness: 0.1
+      });
+      const tipGeom = new T.CylinderGeometry(0.0115, 0.0115, 0.045, 10);
+      tipGeom.translate(0, 0.26, 0);
+      tipGeom.rotateZ(-0.06);
+      tipGeom.rotateX(-0.10);
+      snorkelGroup.add(new T.Mesh(tipGeom, tipMat));
+
+      return snorkelGroup;
+    }
+
+    mainDiverMesh.add(createSnorkel(T));
     mainDiverMesh.add(mainTorchGroup);
     group.add(mainDiverMesh);
 
@@ -1094,6 +1131,7 @@
     safeGlintMesh.position.set(0.055, 0.023, 0.0);
     safeTorchGroup.add(safeGlintMesh);
 
+    safetyDiverMesh.add(createSnorkel(T));
     safetyDiverMesh.add(safeTorchGroup);
     group.add(safetyDiverMesh);
 
@@ -1583,23 +1621,30 @@
     }
 
     // Helper: Safety Diver Trajectory (50s Cycle)
+    // Procedure: Lying prone on surface with snorkel, watching down the line until the deep diver
+    // tugs on the rope at the bottom turn (cycle 24.8s). Then duck-dives, descends to ~10m depth,
+    // turns and escorts the diver face-to-face up to the surface.
     function evalSafetyTrajectory(cycle, deepY, waveY, time) {
-      if (cycle < 17.5) {
-        // Hovers at surface beside buoy
+      if (cycle < 24.8) {
+        // 1. Surface Watch with Snorkel (0.0 - 24.8s):
+        // Floating prone beside the buoy with head in water, breathing through snorkel,
+        // gaze locked straight DOWN the vertical rope watching for the deep diver.
         safeTraj.y = 14.2 + waveY * 0.8;
-        safeTraj.theta = 0.06;
+        safeTraj.theta = 0.04; // Prone surface posture (face down)
         safeTraj.pikeAngle = 0.0;
-        safeTraj.kickAmp = 0.20;
-        safeTraj.kickPhaseRate = 2.2;
-        safeTraj.armRelax = 0.0;
-        safeTraj.gazeYaw = 0.0;
-        safeTraj.gazePitch = -0.05;
-      } else if (cycle < 19.7) {
-        // Safety duck-dive down the rope (gliding, uninterrupted continuous descent)
-        const s = (cycle - 17.5) / 2.2;
+        safeTraj.kickAmp = 0.04; // Gentle idle surface sculling to hold station beside buoy
+        safeTraj.kickPhaseRate = 1.4;
+        safeTraj.armRelax = 0.75; // Relaxed arms resting beside buoy
+        safeTraj.gazeYaw = 0.04 * Math.sin(time * 0.75); // Alert scanning down the line
+        safeTraj.gazePitch = -0.38; // Looking straight down the vertical rope!
+      } else if (cycle < 27.2) {
+        // 2. Alert & Athletic Duck-Dive on Bottom Rope Tug (24.8 - 27.2s):
+        // Deep diver grabs rope plate at bottom (cycle 24.0 - 26.0s), shaking the buoy.
+        // Safety diver reacts immediately to the tug, removes snorkel, pikes hips and plunges!
+        const s = (cycle - 24.8) / 2.4;
         const y0 = 14.2 + waveY * 0.8;
         safeTraj.y = y0 - (y0 - 11.4) * Math.pow(s, 1.25);
-        safeTraj.theta = 0.06 + smoothstep(0.0, 0.65, s) * (Math.PI - 0.06);
+        safeTraj.theta = 0.04 + smoothstep(0.0, 0.65, s) * (Math.PI - 0.04);
         if (s <= 0.38) {
           const u = s / 0.38;
           safeTraj.pikeAngle = smoothstep(0, 1, u) * 1.35;
@@ -1610,60 +1655,41 @@
         if (s <= 0.65) {
           safeTraj.kickAmp = 0.05;
         } else {
-          safeTraj.kickAmp = 0.05 + smoothstep(0.65, 1.0, s) * 0.85;
+          safeTraj.kickAmp = 0.05 + smoothstep(0.65, 1.0, s) * 0.90;
         }
-        safeTraj.kickPhaseRate = 3.6;
+        safeTraj.kickPhaseRate = 3.8;
         safeTraj.armRelax = 0.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = -0.15;
-      } else if (cycle < 26.5) {
-        // Safety descent to 1/3 depth (y: 11.4 -> +4.2)
-        const t = (cycle - 19.7) / 6.8;
+      } else if (cycle < 34.5) {
+        // 3. High-Speed Bi-fin Safety Descent to 10m depth (27.2 - 34.5s):
+        // Descends rapidly down the rope from y = 11.4 to y = 4.2m (depth ~10.8m)
+        const t = (cycle - 27.2) / 7.3;
         safeTraj.y = 11.4 + t * (4.2 - 11.4);
         safeTraj.theta = Math.PI;
         safeTraj.pikeAngle = 0.0;
-        safeTraj.kickAmp = 0.85;
-        safeTraj.kickPhaseRate = 3.6;
+        safeTraj.kickAmp = 0.95;
+        safeTraj.kickPhaseRate = 3.8;
         safeTraj.armRelax = 0.0;
         safeTraj.gazeYaw = 0.0;
-        safeTraj.gazePitch = -0.15;
-      } else if (cycle < 35.0) {
-        // Safety turn & hover at 1/3 depth (y ≈ +3.8m), watching down into the blue
-        if (cycle < 28.5) {
-          const t = (cycle - 26.5) / 2.0;
-          safeTraj.pikeAngle = smoothstep(0, 1, t) * 1.10;
-          safeTraj.theta = Math.PI * (1.0 - smoothstep(0, 1, t) * 0.75);
-          safeTraj.y = 4.2 + (3.8 - 4.2) * t;
-          safeTraj.kickAmp = 0.85 - 0.60 * t;
-          safeTraj.kickPhaseRate = 3.0;
-          safeTraj.gazePitch = -0.15 - 0.10 * t;
-        } else {
-          const t = (cycle - 28.5) / 6.5;
-          safeTraj.pikeAngle = 1.10 * (1.0 - smoothstep(0, 1, Math.min(1.0, t * 2.5)));
-          safeTraj.theta = (Math.PI * 0.25) * (1.0 - smoothstep(0, 1, Math.min(1.0, t * 2.0)));
-          safeTraj.y = 3.8 + 0.12 * Math.sin((cycle - 28.5) * 1.5);
-          safeTraj.kickAmp = 0.22;
-          safeTraj.kickPhaseRate = 2.4;
-          safeTraj.gazePitch = -0.28; // Looking down the line watching for the deep diver
-        }
-        safeTraj.armRelax = 0.0;
-        safeTraj.gazeYaw = 0.0;
-      } else if (cycle < 37.4) {
-        // C2-smooth acceleration into escort ascent: meets deep diver and slots in slightly below
-        const wAscent = smoothstep(35.2, 37.4, cycle);
-        const hoverY = 3.8 + 0.12 * Math.sin((cycle - 28.5) * 1.5);
+        safeTraj.gazePitch = -0.15; // Eyes fixed down the line watching deep diver approach
+      } else if (cycle < 36.8) {
+        // 4. Turn & Rendezvous Intercept (34.5 - 36.8s):
+        // Sweeping 180° turn around y ≈ 4.0m to meet ascending deep diver
+        const t = (cycle - 34.5) / 2.3;
+        safeTraj.pikeAngle = Math.sin(t * Math.PI) * 1.15;
+        safeTraj.theta = Math.PI * (1.0 - smoothstep(0, 1, t)); // Smooth 180° pivot from down to up!
+        const hoverY = 4.2 - 0.25 * Math.sin(t * Math.PI);
         const targetEscortY = deepY - 0.55;
-        safeTraj.y = hoverY * (1.0 - wAscent) + targetEscortY * wAscent;
-        safeTraj.theta = 0.0;
-        safeTraj.pikeAngle = 0.0;
-        safeTraj.kickAmp = 0.22 + wAscent * 0.25;
-        safeTraj.kickPhaseRate = 3.2;
+        safeTraj.y = hoverY * (1.0 - t) + targetEscortY * t;
+        safeTraj.kickAmp = 0.45;
+        safeTraj.kickPhaseRate = 3.0;
         safeTraj.armRelax = 0.0;
         safeTraj.gazeYaw = 0.0;
-        safeTraj.gazePitch = -0.28 * (1.0 - wAscent) + 0.22 * wAscent; // Eyes transition up to diver
+        safeTraj.gazePitch = -0.15 * (1.0 - t) + 0.22 * t; // Eyes transition up to meet diver
       } else if (cycle < 42.5) {
-        // Escorted ascent side-by-side, positioned SLIGHTLY UNDER the deep diver
-        // In shallow buoyant zone (< 11m depth), safety diver eases kicks into a relaxed companion escort glide
+        // 5. Escorted Ascent Side-by-Side (36.8 - 42.5s):
+        // Positioned slightly below deep diver, face-to-face, airway watching
         safeTraj.y = deepY - 0.55;
         safeTraj.theta = 0.0;
         safeTraj.pikeAngle = 0.0;
@@ -1672,18 +1698,18 @@
         safeTraj.kickPhaseRate = 3.2 * (1.0 - wGlide) + 2.0 * wGlide;
         safeTraj.armRelax = 0.0;
         safeTraj.gazeYaw = 0.0;
-        safeTraj.gazePitch = 0.22; // Eyes fixed directly on deep diver's face, mask, and airway
+        safeTraj.gazePitch = 0.22; // Direct visual contact on deep diver's eyes and mask
       } else {
-        // Surface recovery at buoy
+        // 6. Surface Recovery & Protocol at Buoy (42.5 - 50.0s)
         const tSurf = smoothstep(42.5, 44.5, cycle);
         safeTraj.y = (14.2 - 0.55) * (1.0 - tSurf) + (14.2 + waveY * 0.8) * tSurf;
-        safeTraj.theta = 0.05 + 0.01 * ((cycle - 42.5) / 7.5);
+        safeTraj.theta = 0.04;
         safeTraj.pikeAngle = 0.0;
-        safeTraj.kickAmp = 0.08 * (1.0 - tSurf) + 0.20 * tSurf;
-        safeTraj.kickPhaseRate = 2.0;
-        safeTraj.armRelax = 0.0;
+        safeTraj.kickAmp = 0.08 * (1.0 - tSurf) + 0.04 * tSurf;
+        safeTraj.kickPhaseRate = 1.4;
+        safeTraj.armRelax = 0.75 * tSurf;
         safeTraj.gazeYaw = 0.0;
-        safeTraj.gazePitch = 0.22 * (1.0 - tSurf) - 0.05 * tSurf;
+        safeTraj.gazePitch = 0.22 * (1.0 - tSurf) - 0.38 * tSurf; // Returns gaze down line
       }
     }
 
@@ -2017,7 +2043,7 @@
         // 2a. Duck-Dive Surface Air Shedding (depth 0 - 2.5m, y: 14.8 -> 12.2m)
         // Trapped surface air sheds as the diver submerges headfirst, then floats UP towards the surface waves
         const isDeepDuck = (cycle >= 2.0 && cycle <= 4.8 && deepFaceY > 12.2);
-        const isSafeDuck = (cycle >= 17.5 && cycle <= 20.2 && safeFaceY > 12.2);
+        const isSafeDuck = (cycle >= 24.8 && cycle <= 27.5 && safeFaceY > 12.2);
 
         if (isDeepDuck) {
           deepDuckTimer += dt;
