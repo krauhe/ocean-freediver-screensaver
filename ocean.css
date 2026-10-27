@@ -20,7 +20,7 @@ footer { position: absolute; bottom: 8%; left: 5%; right: 5%; display: flex; jus
 .caption { display: flex; align-items: center; gap: 16px; color: #89a8ba; font: italic 15px Georgia, serif; }
 .line { width: 32px; height: 1px; background: #82abbc66; }
 .controls { display: flex; flex-wrap: wrap; width: 555px; align-items: center; gap: 4px; padding: 7px; border: 1px solid #91c5df22; border-radius: 18px; background: #061c3566; backdrop-filter: blur(24px); }
-.day-controls, .species-controls { flex-basis: 100%; display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 7px 12px 0; border-top: 1px solid #8eb4ce20; font-size: 12px; color: #bad1dc; }
+.day-controls, .species-controls, .quality-controls { flex-basis: 100%; display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 7px 12px 0; border-top: 1px solid #8eb4ce20; font-size: 12px; color: #bad1dc; flex-wrap: wrap; }
 .day-controls select { min-height: 36px; min-width: 0; border: 1px solid #91c5df33; border-radius: 8px; background: #061c35; color: #deedf3; font: inherit; padding: 5px 8px; }
 .species-controls { flex-wrap: wrap; }
 .species-controls label { display: flex; align-items: center; gap: 5px; min-height: 36px; cursor: pointer; }
@@ -28,8 +28,11 @@ footer { position: absolute; bottom: 8%; left: 5%; right: 5%; display: flex; jus
 .day-controls { flex-wrap: wrap; }
 .time-slider { display: flex; flex: 1 1 180px; align-items: center; gap: 8px; }
 .time-slider input[type="range"] { flex: 1; min-width: 60px; width: 100%; margin: 0; }
+.quality-slider { display: flex; flex: 1 1 160px; align-items: center; gap: 8px; }
+.quality-slider input[type="range"] { flex: 1; min-width: 60px; width: 100%; margin: 0; }
 .time-endpoint { font-size: 10px; color: #89a8ba; font-variant-numeric: tabular-nums; }
 #light-time-value { min-width: 5ch; color: #deedf3; font-variant-numeric: tabular-nums; font-size: 13px; }
+#quality-value { min-width: 15ch; text-align: right; color: #deedf3; font-variant-numeric: tabular-nums; font-size: 12px; white-space: nowrap; }
 select:focus-visible { outline: 2px solid #aee6f1; outline-offset: 3px; }
 button { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 42px; padding: 0 14px; border: 0; border-radius: 11px; color: #bad1dc; background: transparent; font: 12px "Segoe UI", system-ui, sans-serif; cursor: pointer; transition: background .2s, color .2s; }
 button:hover { color: white; background: #a5daff12; }
@@ -62,10 +65,12 @@ body.immersed .chrome { opacity: 0; transform: translateY(5px); pointer-events: 
   .speed { padding: 0 11px; gap: 8px; }
   input[type="range"] { width: 50px; }
   .count-controls { flex-direction: column; gap: 0; margin-top: 4px; padding: 0 11px; }
-  .day-controls, .species-controls { justify-content: space-between; gap: 6px; padding: 7px 8px 2px; }
+  .day-controls, .species-controls, .quality-controls { justify-content: space-between; gap: 6px; padding: 7px 8px 2px; }
   .day-controls select { width: 115px; }
   .species-controls > span { flex-basis: 100%; }
   .time-slider { flex-basis: calc(100% - 60px); }
+  .quality-slider { flex-basis: 100%; order: 3; }
+  #quality-value { min-width: 0; font-size: 11px; }
   .hint { bottom: 3%; font-size: 9px; padding: 0 20px; }
 }
 @media (max-width: 360px) {

@@ -25,12 +25,12 @@
   const T = window.THREE;
   let renderer;
   try {
-    renderer = new T.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'low-power' });
+    renderer = new T.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
   } catch (error) {
     showError('The browser could not start 3D. Open index.html in Chrome or Edge with graphics acceleration enabled.');
     return;
   }
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.6));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.35));
   renderer.outputColorSpace = T.SRGBColorSpace;
   renderer.toneMapping = T.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.14;
@@ -170,10 +170,11 @@
           float angle=hash(vec2(seed,12.71))*6.283185;
           vec2 heading=vec2(cos(angle),sin(angle));
           float frequency=.38*pow(1.53,seed)*(1.+hash(vec2(seed,3.83))*.18);
+          float filtered=1.-smoothstep(.65,2.0,footprint*frequency);
+          if(filtered<=.001)break;
           float amplitude=.76*pow(.54,seed);
           float phase=dot(p,heading)*frequency-sqrt(9.81*frequency)*time*.18
             +hash(vec2(seed,5.19))*6.283185;
-          float filtered=1.-smoothstep(.65,2.0,footprint*frequency);
           field.x+=amplitude*filtered*sin(phase);
           field.yz+=amplitude*filtered*cos(phase)*heading*frequency;
         }
@@ -199,7 +200,12 @@
 
       vec3 oceanRadiance(vec3 direction){
         float elevation=pow(clamp(direction.y*.85+.54,0.,1.),2.);
-        return mix(vec3(.0004,.003,.013),vec3(.010,.078,.17),elevation)*(.50+.50*daylight);
+        vec3 deepAbyss=vec3(.0003,.0022,.0145);
+        vec3 shallowScatter=vec3(.010,.080,.175);
+        vec3 radiance=mix(deepAbyss,shallowScatter,elevation);
+        float downAbsorption=clamp(-direction.y,0.,1.);
+        radiance*=mix(vec3(1.),vec3(.70,.88,1.08),downAbsorption);
+        return radiance*(.50+.50*daylight);
       }
       vec3 skyRadiance(vec3 direction){
         float elevation=clamp(direction.y,0.,1.);
@@ -298,6 +304,91 @@
   waterSurface.frustumCulled=false;
   scene.add(waterSurface);
 
+  // Project a sheet of sunlight through the actual wave field. Folded triangles
+  // add together where rays converge; expanded triangles receive less light.
+  // Three receiver depths share the RGB channels of one fixed-size texture.
+  // This avoids tracing waves for every shark pixel or allocating per shark.
+  const causticSpan=128;
+  const causticOrigin=new T.Vector2(0,-32);
+  const causticDepths=new T.Vector3(5,15,30);
+  const causticTarget=new T.WebGLRenderTarget(512,512,{
+    type:T.UnsignedByteType,minFilter:T.LinearMipmapLinearFilter,magFilter:T.LinearFilter,
+    depthBuffer:false,stencilBuffer:false,generateMipmaps:true
+  });
+  causticTarget.texture.name='Wave-focused sunlight at three depths';
+
+  const causticGeometries=[80,112,144,168].map(seg=>new T.PlaneGeometry(causticSpan,causticSpan,seg,seg));
+  const qualityPresets = [
+    { label: 'Eco · 24 fps', aria: 'Eco, 24 fps', fps: 24, maxDpr: 1.0, causticSize: 512, causticGridIndex: 0, causticGrid: 80, causticEvery: 2, multiTap: 0, shafts: 72, fish: 60, maxOptical: 10, lodDist: 34 },
+    { label: 'Balanced · 30 fps', aria: 'Balanced, 30 fps', fps: 30, maxDpr: 1.35, causticSize: 512, causticGridIndex: 1, causticGrid: 112, causticEvery: 1, multiTap: 1, shafts: 108, fish: 95, maxOptical: 16, lodDist: 48 },
+    { label: 'High · 40 fps', aria: 'High, 40 fps', fps: 40, maxDpr: 1.6, causticSize: 512, causticGridIndex: 2, causticGrid: 144, causticEvery: 1, multiTap: 1, shafts: 132, fish: 110, maxOptical: 24, lodDist: 64 },
+    { label: 'Ultra · 60 fps', aria: 'Ultra, 60 fps', fps: 60, maxDpr: 2.0, causticSize: 1024, causticGridIndex: 3, causticGrid: 168, causticEvery: 1, multiTap: 1, shafts: 132, fish: 110, maxOptical: 24, lodDist: 999 }
+  ];
+  let currentQuality = qualityPresets[1]; // Default: Balanced · 30 fps
+
+  // Shared 24-animal optical field across sharks, jellyfish, light shafts and particles.
+  const animalFieldCount=24;
+  const animalStates=Array.from({length:animalFieldCount},()=>new T.Vector4(0,0,0,0));
+  const animalMotions=Array.from({length:animalFieldCount},()=>new T.Vector4(0,0,0,0));
+  const animalHeadings=Array.from({length:animalFieldCount},()=>new T.Vector4(1,0,0,0));
+  const oceanOptics={
+    causticMap:{value:causticTarget.texture},
+    causticOrigin:{value:causticOrigin},
+    causticSpan:{value:causticSpan},
+    causticDepths:{value:causticDepths},
+    causticMultiTap:{value:currentQuality.multiTap},
+    activeSharkCount:{value:0},
+    activeAnimalCount:{value:0},
+    animalStates:{value:animalStates},
+    animalMotions:{value:animalMotions},
+    animalHeadings:{value:animalHeadings}
+  };
+
+  const solarOcclusionGLSL=`
+    uniform int activeSharkCount;
+    uniform vec4 animalStates[24];
+    uniform vec4 animalHeadings[24];
+    float sharkSolarOcclusion(vec3 worldPos,vec3 sunRayDir,vec3 selfOrigin){
+      float occlusion=1.;
+      for(int k=0;k<24;k++){
+        if(k>=activeSharkCount)break;
+        vec4 st=animalStates[k];
+        vec4 hd=animalHeadings[k];
+        if(st.w<=.01||hd.w<=.01)continue;
+        if(distance(st.xyz,selfOrigin)<1.4)continue;
+        vec3 toCaster=st.xyz-worldPos;
+        float tRay=dot(toCaster,sunRayDir);
+        if(tRay>.8&&tRay<42.){
+          vec3 rayPoint=worldPos+sunRayDir*tRay;
+          vec3 rel=rayPoint-st.xyz;
+          float along=clamp(dot(rel,hd.xyz),-hd.w,hd.w);
+          float distToSpine=length(rel-hd.xyz*along);
+          float coreR=st.w*.36;
+          float penumbraR=st.w*(.66+.035*tRay);
+          float block=1.-smoothstep(coreR,penumbraR,distToSpine);
+          occlusion*=1.-.70*block*exp(-tRay*.042);
+        }
+      }
+      return occlusion;
+    }
+    float shaftBodyClearance(vec3 worldPos){
+      float clearFactor=1.;
+      for(int k=0;k<24;k++){
+        if(k>=activeSharkCount)break;
+        vec4 st=animalStates[k];
+        vec4 hd=animalHeadings[k];
+        if(st.w<=.01||hd.w<=.01)continue;
+        vec3 rel=worldPos-st.xyz;
+        float maxR=hd.w+st.w*2.4;
+        if(dot(rel,rel)>maxR*maxR)continue;
+        float along=clamp(dot(rel,hd.xyz),-hd.w,hd.w);
+        float distToSpine=length(rel-hd.xyz*along);
+        clearFactor*=smoothstep(st.w*.75,st.w*2.15,distToSpine);
+      }
+      return clearFactor;
+    }
+  `;
+
   // Soft shafts occupy the water itself, including the first few metres in
   // front of the camera. Every entry point samples the same wave field as the
   // surface, so Snell refraction gives each shaft its own changing direction.
@@ -318,17 +409,23 @@
     shaftEntries.set([x,z,.35+shaftRandom(i+401)*.85],i*3);
   }
   shaftGeometry.setAttribute('entry',new T.InstancedBufferAttribute(shaftEntries,3));
-  shaftGeometry.instanceCount=shaftCount;
+  shaftGeometry.instanceCount=currentQuality.shafts;
   const shaftMaterial=new T.ShaderMaterial({
     uniforms:{time:waterUniforms.time,solarDirection:waterUniforms.solarDirection,
+      lightDirection:waterUniforms.lightDirection,
       sunColor:waterUniforms.sunColor,sunPower:waterUniforms.sunPower,
-      eyePosition:waterUniforms.eyePosition},
+      eyePosition:waterUniforms.eyePosition,
+      activeSharkCount:oceanOptics.activeSharkCount,
+      animalStates:oceanOptics.animalStates,
+      animalHeadings:oceanOptics.animalHeadings},
     transparent:true,depthWrite:false,depthTest:true,side:T.DoubleSide,
     blending:T.AdditiveBlending,toneMapped:false,
     vertexShader:`
-      uniform float time;uniform vec3 solarDirection;uniform vec3 eyePosition;
+      uniform float time;uniform vec3 solarDirection;uniform vec3 lightDirection;uniform vec3 eyePosition;
       attribute vec3 entry;
       varying vec2 shaftUV;varying float shaftEnergy;varying vec3 shaftWorld;
+      varying float shaftOcclusion;
+      ${solarOcclusionGLSL}
       ${waveFunctions}
       void main(){
         vec3 wave=waveField(entry.xy,.32);
@@ -346,11 +443,13 @@
         shaftEnergy=clamp(entry.z/radius,.3,1.8)*max(dot(normal,solarDirection),0.);
         shaftWorld=origin+ray*travel+across*position.x*radius*2.5;
         shaftUV=vec2(position.x,position.y);
+        shaftOcclusion=sharkSolarOcclusion(shaftWorld,lightDirection,vec3(9999.))*shaftBodyClearance(shaftWorld);
         gl_Position=projectionMatrix*viewMatrix*vec4(shaftWorld,1.);
       }`,
     fragmentShader:`
       uniform vec3 sunColor;uniform float sunPower;uniform vec3 eyePosition;
       varying vec2 shaftUV;varying float shaftEnergy;varying vec3 shaftWorld;
+      varying float shaftOcclusion;
       void main(){
         float distanceToEye=length(shaftWorld-eyePosition);
         float edge=exp(-shaftUV.x*shaftUV.x*5.)*(1.-smoothstep(.8,1.,abs(shaftUV.x)));
@@ -358,32 +457,18 @@
         float transmission=exp(-distanceToEye*.012-shaftUV.y*.7);
         // Fade before the camera crosses a strip, avoiding near-plane flashes.
         float nearFade=smoothstep(.8,3.,distanceToEye);
-        float alpha=edge*ends*transmission*nearFade*shaftEnergy*sunPower*.038;
+        float alpha=edge*ends*transmission*nearFade*shaftEnergy*sunPower*.038*shaftOcclusion;
         gl_FragColor=vec4(sunColor,alpha);
       }`
   });
   const lightShafts=new T.Mesh(shaftGeometry,shaftMaterial);
   lightShafts.name='Refracted light shafts';lightShafts.frustumCulled=false;
   lightShafts.renderOrder=1;scene.add(lightShafts);
-
-  // Project a sheet of sunlight through the actual wave field. Folded triangles
-  // add together where rays converge; expanded triangles receive less light.
-  // Three receiver depths share the RGB channels of one fixed-size texture.
-  // This avoids tracing waves for every shark pixel or allocating per shark.
-  const causticSpan=128;
-  const causticGridSegments=192;
-  const causticOrigin=new T.Vector2(0,-32);
-  const causticDepths=new T.Vector3(5,15,30);
-  const causticTarget=new T.WebGLRenderTarget(1024,1024,{
-    type:T.UnsignedByteType,minFilter:T.LinearFilter,magFilter:T.LinearFilter,
-    depthBuffer:false,stencilBuffer:false,generateMipmaps:false
-  });
-  causticTarget.texture.name='Wave-focused sunlight at three depths';
   const causticUniforms={
     time:waterUniforms.time,solarDirection:waterUniforms.solarDirection,
     lightDirection:waterUniforms.lightDirection,
     mapOrigin:{value:causticOrigin},mapSpan:{value:causticSpan},
-    waveFootprint:{value:causticSpan/causticGridSegments},
+    waveFootprint:{value:causticSpan/currentQuality.causticGrid},
     receiverDepth:{value:5},layerColor:{value:new T.Vector3(1,0,0)}
   };
   const causticMaterial=new T.ShaderMaterial({
@@ -399,55 +484,74 @@
       uniform vec2 mapOrigin;
       uniform float mapSpan;
       uniform float waveFootprint;
-      varying vec2 sourcePosition;
-      varying vec2 receiverPosition;
-      varying float surfaceExposure;
+      varying float vIrradiance;
       ${waveFunctions}
+      vec3 causticWaves(vec2 p,float fp){
+        vec3 weather=noiseGradient(p*.037+vec2(time*.005,-time*.003));
+        float envelope=.68+weather.x*.32;
+        vec2 envelopeGradient=weather.yz*.037*.32;
+        vec3 field=vec3(0.);
+        for(int i=0;i<6;i++){
+          float seed=float(i);
+          float angle=hash(vec2(seed,12.71))*6.283185;
+          vec2 heading=vec2(cos(angle),sin(angle));
+          float frequency=.38*pow(1.53,seed)*(1.+hash(vec2(seed,3.83))*.18);
+          float filtered=1.-smoothstep(.26,.82,fp*frequency);
+          if(filtered<=.001)break;
+          float amplitude=.76*pow(.54,seed);
+          float phase=dot(p,heading)*frequency-sqrt(9.81*frequency)*time*.18
+            +hash(vec2(seed,5.19))*6.283185;
+          field.x+=amplitude*filtered*sin(phase);
+          field.yz+=amplitude*filtered*cos(phase)*heading*frequency;
+        }
+        return vec3(field.x*envelope,field.yz*envelope+field.x*envelopeGradient);
+      }
+      vec2 projectCausticRay(vec2 src){
+        vec2 entry=src+mapOrigin;
+        vec3 w=causticWaves(entry,waveFootprint);
+        vec3 n=normalize(vec3(-w.y,1.,-w.z));
+        vec3 ray=refract(-solarDirection,n,1.00029/1.333);
+        float dist=(receiverDepth+w.x)/max(.15,-ray.y);
+        return src+ray.xz*dist+lightDirection.xz*receiverDepth/max(.2,lightDirection.y);
+      }
       void main(){
-        sourcePosition=position.xy;
-        vec2 entry=sourcePosition+mapOrigin;
-        // Filter waves smaller than a source triangle. They are visible in the
-        // surface shader, but would alias in this finite-resolution light map.
-        vec3 wave=waveField(entry,waveFootprint);
-        vec3 normal=normalize(vec3(-wave.y,1.,-wave.z));
-        vec3 ray=refract(-solarDirection,normal,1.00029/1.333);
-        float distanceToReceiver=(receiverDepth+wave.x)/max(.15,-ray.y);
-        // Remove the mean solar displacement. All depth layers then share a
-        // surface-aligned coordinate system and need no repeating/scrolling map.
-        receiverPosition=sourcePosition+ray.xz*distanceToReceiver
-          +lightDirection.xz*receiverDepth/max(.2,lightDirection.y);
-        surfaceExposure=clamp(dot(normal,solarDirection)
-          /max(.15,normal.y*solarDirection.y),0.,3.);
-        gl_Position=vec4(receiverPosition/(mapSpan*.5),0.,1.);
+        float stepSize=max(waveFootprint*1.15,.95);
+        vec2 r0=projectCausticRay(position.xy);
+        vec2 rx=projectCausticRay(position.xy+vec2(stepSize,0.));
+        vec2 ry=projectCausticRay(position.xy+vec2(0.,stepSize));
+        vec2 drx=(rx-r0)/stepSize;
+        vec2 dry=(ry-r0)/stepSize;
+        float receiverArea=max(abs(drx.x*dry.y-drx.y*dry.x),.12);
+        float rawFocus=1./receiverArea;
+        // Soft-knee compression prevents harsh blinking spikes at wave cusps
+        float smoothFocus=rawFocus/(1.+rawFocus*.10);
+        vec3 w0=causticWaves(position.xy+mapOrigin,waveFootprint);
+        vec3 n0=normalize(vec3(-w0.y,1.,-w0.z));
+        float surfaceExposure=clamp(dot(n0,solarDirection)/max(.15,n0.y*solarDirection.y),0.,2.6);
+        vIrradiance=smoothFocus*surfaceExposure;
+        gl_Position=vec4(r0/(mapSpan*.5),0.,1.);
       }`,
     fragmentShader:`
       uniform vec3 layerColor;
-      varying vec2 sourcePosition;
-      varying vec2 receiverPosition;
-      varying float surfaceExposure;
+      varying float vIrradiance;
       void main(){
-        vec2 sx=dFdx(sourcePosition),sy=dFdy(sourcePosition);
-        vec2 rx=dFdx(receiverPosition),ry=dFdy(receiverPosition);
-        float sourceArea=abs(sx.x*sy.y-sx.y*sy.x);
-        float receiverArea=max(abs(rx.x*ry.y-rx.y*ry.x),.000001);
-        float irradiance=min(sourceArea/receiverArea,12.)*surfaceExposure;
-        // Encode 0..16 in a portable byte texture. Additive blending also
-        // handles the multiple ray paths at a caustic fold without a depth test.
-        gl_FragColor=vec4(layerColor*irradiance/16.,0.);
+        gl_FragColor=vec4(layerColor*(vIrradiance/16.),0.);
       }`
   });
   const causticScene=new T.Scene();
-  const causticMesh=new T.Mesh(new T.PlaneGeometry(causticSpan,causticSpan,causticGridSegments,causticGridSegments),causticMaterial);
+  const causticMesh=new T.Mesh(causticGeometries[currentQuality.causticGridIndex],causticMaterial);
   causticMesh.frustumCulled=false;causticScene.add(causticMesh);
   const causticCamera=new T.Camera();
   const savedClearColor=new T.Color();
   const previousCausticSun=new T.Vector3();
   let previousCausticTime=NaN;
+  let causticFrameCounter=0;
   function updateCaustics(){
     // Particles also sample the light map, including with the shark slider at 0.
     if(waterUniforms.sunPower.value<=0)return;
-    if(previousCausticTime===waterUniforms.time.value
-      && previousCausticSun.equals(waterUniforms.solarDirection.value))return;
+    const sunUnchanged=previousCausticSun.equals(waterUniforms.solarDirection.value);
+    if(previousCausticTime===waterUniforms.time.value && sunUnchanged)return;
+    if(!isNaN(previousCausticTime) && !redrawNeeded && (++causticFrameCounter % currentQuality.causticEvery !== 0) && sunUnchanged)return;
     const previousTarget=renderer.getRenderTarget();
     const savedClearAlpha=renderer.getClearAlpha();
     renderer.getClearColor(savedClearColor);
@@ -507,9 +611,14 @@
   const bellyColor = new T.Color(0xe0ddd0);
 
   function processPart(geometry, solidColor, jawWeight=0, surfaceRoughness=.64) {
-    const flat = geometry.index ? geometry.toNonIndexed() : geometry;
-    const positions = flat.getAttribute('position');
-    const normals = flat.getAttribute('normal');
+    const g = geometry;
+    const positions = g.getAttribute('position');
+    if (!g.index) {
+      const seq = new Uint16Array(positions.count);
+      for (let i = 0; i < positions.count; i++) seq[i] = i;
+      g.setIndex(new T.BufferAttribute(seq, 1));
+    }
+    const normals = g.getAttribute('normal');
     const colors = new Float32Array(positions.count * 3);
     const color = new T.Color();
     for (let i = 0; i < positions.count; i++) {
@@ -525,15 +634,17 @@
       }
       colors.set([color.r, color.g, color.b], i * 3);
     }
-    flat.setAttribute('color', new T.BufferAttribute(colors, 3));
-    flat.setAttribute('skinDetail', new T.BufferAttribute(new Float32Array(positions.count).fill(solidColor === undefined ? 1 : 0), 1));
-    flat.setAttribute('surfaceRoughness',new T.BufferAttribute(new Float32Array(positions.count).fill(surfaceRoughness),1));
-    flat.setAttribute('gillMask',new T.BufferAttribute(new Float32Array(positions.count),1));
-    flat.setAttribute('mouthRegion',new T.BufferAttribute(new Float32Array(positions.count),1));
-    flat.setAttribute('oralDetail',new T.BufferAttribute(new Float32Array(positions.count),1));
+    g.setAttribute('color', new T.BufferAttribute(colors, 3));
+    g.setAttribute('skinDetail', new T.BufferAttribute(new Float32Array(positions.count).fill(solidColor === undefined ? 1 : 0), 1));
+    g.setAttribute('surfaceRoughness',new T.BufferAttribute(new Float32Array(positions.count).fill(surfaceRoughness),1));
+    g.setAttribute('gillMask',new T.BufferAttribute(new Float32Array(positions.count),1));
+    g.setAttribute('mouthRegion',new T.BufferAttribute(new Float32Array(positions.count),1));
+    g.setAttribute('oralDetail',new T.BufferAttribute(new Float32Array(positions.count),1));
+    if (!g.hasAttribute('finThinness')) g.setAttribute('finThinness', new T.BufferAttribute(new Float32Array(positions.count), 1));
+    if (!g.hasAttribute('finFlex')) g.setAttribute('finFlex', new T.BufferAttribute(new Float32Array(positions.count), 1));
     // Keep articulation with the vertices when parts are merged. Only the lower
     // jaw and its teeth move; the head, eyes and upper teeth remain attached.
-    if (!flat.hasAttribute('jawWeight')) {
+    if (!g.hasAttribute('jawWeight')) {
       const weights=new Float32Array(positions.count);
       const slopes=new Float32Array(positions.count);
       for(let i=0;i<weights.length;i++){
@@ -543,21 +654,20 @@
         // Only soft tissue has a spatially varying hinge rotation.
         if(typeof jawWeight==='function')slopes[i]=(jawWeight(x+.0001)-jawWeight(x-.0001))/.0002;
       }
-      flat.setAttribute('jawWeight',new T.BufferAttribute(weights,1));
-      flat.setAttribute('jawSlope',new T.BufferAttribute(slopes,1));
+      g.setAttribute('jawWeight',new T.BufferAttribute(weights,1));
+      g.setAttribute('jawSlope',new T.BufferAttribute(slopes,1));
     }
-    if (flat !== geometry) geometry.dispose();
-    return flat;
+    return g;
   }
 
-  function bodyGeometry(anatomy) {
+  function bodyGeometry(anatomy, lowDetail = false) {
     activeAnatomy=anatomy;
     const sections = anatomy.profile;
     const curve = new T.CatmullRomCurve3(sections.map(s => new T.Vector3(s[0],s[1],s[2])));
     bodyProfile=curve;
-    if(anatomy.jaw)return markBodySkin(pointedBodyGeometry(anatomy));
+    if(anatomy.jaw)return markBodySkin(pointedBodyGeometry(anatomy, lowDetail));
     const vertices = [], indices = [];
-    const rings = 112, sides = 48;
+    const rings = lowDetail ? 44 : 112, sides = lowDetail ? 20 : 48;
     for (let i = 0; i <= rings; i++) {
       const cross = curve.getPoint(i / rings);
       for (let j = 0; j <= sides; j++) {
@@ -602,8 +712,8 @@
     return bodyProfile.getPoint((low+high)/2);
   }
 
-  function hammerGeometry() {
-    const vertices=[],indices=[],rings=96,sides=40;
+  function hammerGeometry(lowDetail = false) {
+    const vertices=[],indices=[],rings=lowDetail ? 40 : 96,sides=lowDetail ? 18 : 40;
     for(let i=0;i<=rings;i++) {
       const z=(i/rings*2-1)*1.78;
       const lateral=Math.abs(z)/1.78;
@@ -665,16 +775,19 @@
     g.setAttribute('position',new T.Float32BufferAttribute(vertices,3));
     g.setIndex(indices);g.computeVertexNormals();return g;
   }
-  function pointedBodyGeometry(anatomy){
+  function pointedBodyGeometry(anatomy, lowDetail = false){
     const jaw=anatomy.jaw,tail=anatomy.profile[0][0],nose=anatomy.profile.at(-1)[0];
     const patches=[];
+    const nBody = lowDetail ? 28 : 80;
+    const nJaw = lowDetail ? 14 : 40;
+    const nNose = lowDetail ? 7 : 17;
     for(const lower of [false,true]){
       // Include the hinge and mouth tip as exact stations. A triangle spanning
       // across the tip would bridge the opening and leave a small triangular gap.
-      const stations=Array.from({length:80},(_,i)=>T.MathUtils.lerp(tail,jaw.rear,i/80))
-        .concat(Array.from({length:40},(_,i)=>T.MathUtils.lerp(jaw.rear,jaw.front,i/40)))
-        .concat(lower?[jaw.front]:Array.from({length:17},(_,i)=>T.MathUtils.lerp(jaw.front,nose,i/16)));
-      const rows=stations.length-1,columns=lower?24:48;
+      const stations=Array.from({length:nBody},(_,i)=>T.MathUtils.lerp(tail,jaw.rear,i/nBody))
+        .concat(Array.from({length:nJaw},(_,i)=>T.MathUtils.lerp(jaw.rear,jaw.front,i/nJaw)))
+        .concat(lower?[jaw.front]:Array.from({length:nNose},(_,i)=>T.MathUtils.lerp(jaw.front,nose,i/(nNose-1))));
+      const rows=stations.length-1,columns=lower?(lowDetail ? 12 : 24):(lowDetail ? 24 : 48);
       const g=gridGeometry(rows,columns,(u,v)=>{
         const x=stations[Math.round(u*rows)],cut=mouthCut(x,jaw);
         const angle=lower?T.MathUtils.lerp(cut,2*Math.PI-cut,v):T.MathUtils.lerp(-cut,cut,v);
@@ -716,7 +829,7 @@
     return mergeParts(patches);
   }
 
-  function pointedHeadDetails(parts,anatomy){
+  function pointedHeadDetails(parts,anatomy,lowDetail=false){
     const jaw=anatomy.jaw,weight=x=>jawInfluence(x,jaw);
     // One continuous lining is shared by the roof/floor, gums and tooth roots.
     // This keeps inner rows attached instead of floating above an unrelated bowl.
@@ -734,14 +847,14 @@
     // A concave roof and floor close the mouth internally. The last cross-strip
     // joins them at the throat; no background can show through an open jaw.
     for(const lower of [false,true]){
-      const g=gridGeometry(50,32,(u,v)=>{
+      const g=gridGeometry(lowDetail ? 20 : 50, lowDetail ? 14 : 32,(u,v)=>{
         return liningPoint(u,v*2-1,lower);
       },!lower);
       parts.push(liningPart(g,lower?0x665853:0x514849,lower));
       // Rounded gum pads merge into the lining at both edges, with a muted
       // fleshy colour. They are not a separate bright ring around the lips.
       for(const side of [-1,1]){
-        const gum=gridGeometry(64,12,(u,v)=>{
+        const gum=gridGeometry(lowDetail ? 24 : 64, lowDetail ? 6 : 12,(u,v)=>{
           const station=.025+u*.95,lateral=side*(.67+v*.32);
           const point=liningPoint(station,lateral,lower);
           point.y+=(lower?1:-1)*.025*Math.sin(v*Math.PI)*Math.sin(station*Math.PI);
@@ -758,13 +871,15 @@
       rimPoints.push(mouthRim(t,side,jaw));
     }
     const lipCurve=new T.CatmullRomCurve3(rimPoints);
-    parts.push(processPart(new T.TubeGeometry(lipCurve,100,.009,8,false),0x656a67,0,.76));
-    parts.push(processPart(new T.TubeGeometry(lipCurve,100,.012,8,false),0x999e94,weight,.76));
+    parts.push(processPart(new T.TubeGeometry(lipCurve,lowDetail ? 36 : 100,.009,lowDetail ? 5 : 8,false),0x656a67,0,.76));
+    parts.push(processPart(new T.TubeGeometry(lipCurve,lowDetail ? 36 : 100,.012,lowDetail ? 5 : 8,false),0x999e94,weight,.76));
+    const dentitionRows = lowDetail ? anatomy.dentition.rows.slice(0, 1) : anatomy.dentition.rows;
+    const toothSubdiv = lowDetail ? 3 : 10;
     for(const lower of [false,true])for(const side of [-1,1]){
       const arc=new T.CatmullRomCurve3(Array.from({length:49},(_,i)=>mouthRim(i/48,side,jaw)));
       // Teeth are broad triangular blades above, narrower below. Their roots
       // sit inside the skin; they appear as the mouth opens, not as an outer grin.
-      for(const [rowIndex,row] of anatomy.dentition.rows.entries())for(let i=0;i<anatomy.dentition.teethPerSide;i++){
+      for(const [rowIndex,row] of dentitionRows.entries())for(let i=0;i<anatomy.dentition.teethPerSide;i++){
         const t=.14+i*.064+(lower?.019:0)+rowIndex*.009;
         const root=arc.getPointAt(t),tangent=arc.getTangentAt(t);
         const wear=.88+.12*Math.sin(i*2.41+side*1.7+(lower?.9:0)+rowIndex);
@@ -786,12 +901,12 @@
         // Small edge notches break the perfect triangular silhouette. Their
         // size is restrained so serrations do not turn into distant white noise.
         const outline=[a,b];
-        for(let j=1;j<=10;j++){
-          const f=j/10,p=b.clone().lerp(tip,f);
+        for(let j=1;j<=toothSubdiv;j++){
+          const f=j/toothSubdiv,p=b.clone().lerp(tip,f);
           p.addScaledVector(tangent,j%2?-.0025*size:0);outline.push(p);
         }
-        for(let j=1;j<10;j++){
-          const f=j/10,p=tip.clone().lerp(a,f);
+        for(let j=1;j<toothSubdiv;j++){
+          const f=j/toothSubdiv,p=tip.clone().lerp(a,f);
           p.addScaledVector(tangent,j%2?.0025*size:0);outline.push(p);
         }
         const vertices=[];
@@ -815,12 +930,12 @@
         .sub(bodySurface(anatomy.eye.x-.002,anatomy.eye.angle,side,0));
       const normal=across.cross(along).multiplyScalar(side).normalize();
       const orientation=new T.Quaternion().setFromUnitVectors(new T.Vector3(0,0,1),normal);
-      const eye=new T.SphereGeometry(1,28,18);
+      const eye=new T.SphereGeometry(1,lowDetail ? 12 : 28,lowDetail ? 8 : 18);
       eye.scale(...anatomy.eye.radii);eye.applyQuaternion(orientation);eye.translate(...center.toArray());
       parts.push(processPart(eye,0x0c1417,0,.28));
       // A shallow skin fold covers the upper eye instead of a bright circular
       // ring. It follows the socket surface and keeps the eye recessed.
-      const lid=gridGeometry(28,8,(u,v)=>{
+      const lid=gridGeometry(lowDetail ? 14 : 28,lowDetail ? 4 : 8,(u,v)=>{
         const angle=.10+u*(Math.PI-.20),radius=T.MathUtils.lerp(.91,1.36,v);
         const local=new T.Vector3(Math.cos(angle)*anatomy.eye.radii[0]*radius,
           Math.sin(angle)*anatomy.eye.radii[1]*radius,
@@ -830,29 +945,35 @@
       // The fold belongs to the grey skull even where its local normal faces
       // downwards; the general belly-colour rule would paint a white eye ring.
       parts.push(processPart(lid,0x5c6a70,0,.70));
-      const nostril=new T.SphereGeometry(1,18,10);
+      const nostril=new T.SphereGeometry(1,lowDetail ? 12 : 18,lowDetail ? 8 : 10);
       const nostrilCenter=bodySurface(anatomy.nostril.x,anatomy.nostril.angle,side,.003);
       nostril.scale(...anatomy.nostril.radii);nostril.translate(...nostrilCenter.toArray());
       parts.push(processPart(nostril,0x384348));
     }
   }
 
-  function sweptFin(sections, horizontal=false, side=1, thickness=.09) {
+  function sweptFin(sections, horizontal=false, side=1, thickness=.09, flexScale=1, lowDetail=false) {
     const curve=new T.CatmullRomCurve3(sections.map(s=>new T.Vector3(...s)));
     const vertices=[],indices=[],centers=[];
-    const rings=38,sides=20;
+    const thinness=[],flexibility=[];
+    const rings=lowDetail ? 16 : 38,sides=lowDetail ? 10 : 20;
     for(let i=0;i<=rings;i++) {
-      const section=curve.getPoint(i/rings);
+      const u=i/rings;
+      const section=curve.getPoint(u);
       const span=section.x,mid=(section.y+section.z)*.5;
       const halfChord=Math.max(.003,(section.y-section.z)*.5);
       const droop=horizontal?-.17-.15*Math.pow(Math.abs(span),1.25):0;
       centers.push(horizontal?new T.Vector3(mid,droop,span*side):new T.Vector3(mid,span,0));
+      const flex=u*u*flexScale;
       for(let j=0;j<=sides;j++) {
         const angle=j/sides*Math.PI*2;
         const x=mid+Math.cos(angle)*halfChord;
         const cross=Math.sin(angle)*halfChord*thickness;
         if(horizontal)vertices.push(x,droop+cross,span*side);
         else vertices.push(x,span,cross);
+        const thin=Math.min(1, Math.pow(u, 1.15) * .62 + Math.pow(.5 - .5 * Math.cos(angle), 1.6) * (.28 + .55 * u));
+        thinness.push(thin);
+        flexibility.push(flex);
       }
     }
     for(let i=0;i<rings;i++)for(let j=0;j<sides;j++){
@@ -861,6 +982,8 @@
     }
     const geometry=new T.BufferGeometry();
     geometry.setAttribute('position',new T.Float32BufferAttribute(vertices,3));
+    geometry.setAttribute('finThinness',new T.Float32BufferAttribute(thinness,1));
+    geometry.setAttribute('finFlex',new T.Float32BufferAttribute(flexibility,1));
     geometry.setIndex(indices);geometry.computeVertexNormals();
     const p=geometry.attributes.position,n=geometry.attributes.normal;
     let outward=0;
@@ -877,7 +1000,9 @@
 
   function mergeParts(geometries) {
     const merged=new T.BufferGeometry();
-    for(const attribute of ['position','normal','color','skinDetail','jawWeight','jawSlope','surfaceRoughness','gillMask','mouthRegion','oralDetail']) {
+    const totalVertices=geometries.reduce((sum,g)=>sum+g.getAttribute('position').count,0);
+    const totalIndices=geometries.reduce((sum,g)=>sum+g.index.count,0);
+    for(const attribute of ['position','normal','color','skinDetail','jawWeight','jawSlope','surfaceRoughness','gillMask','mouthRegion','oralDetail','finThinness','finFlex']) {
       const length=geometries.reduce((sum,g)=>sum+g.getAttribute(attribute).array.length,0);
       const values=new Float32Array(length); let offset=0;
       for(const geometry of geometries) {
@@ -886,50 +1011,61 @@
       }
       merged.setAttribute(attribute,new T.BufferAttribute(values,['position','normal','color'].includes(attribute)?3:1));
     }
+    const mergedIndices=totalVertices>65535?new Uint32Array(totalIndices):new Uint16Array(totalIndices);
+    let indexOffset=0,vertexOffset=0;
+    for(const geometry of geometries){
+      const idxArr=geometry.index.array,count=geometry.index.count;
+      for(let m=0;m<count;m++){
+        mergedIndices[indexOffset+m]=idxArr[m]+vertexOffset;
+      }
+      indexOffset+=count;
+      vertexOffset+=geometry.getAttribute('position').count;
+    }
+    merged.setIndex(new T.BufferAttribute(mergedIndices,1));
     merged.computeBoundingSphere();
     merged.boundingSphere.radius+=1.4;
     geometries.forEach(g=>g.dispose());
     return merged;
   }
 
-  function buildSharkGeometry(species) {
+  function buildSharkGeometry(species, lowDetail = false) {
     const anatomy=sharkAnatomies[species];
-    const parts = [bodyGeometry(anatomy)];
+    const parts = [bodyGeometry(anatomy, lowDetail)];
     if (anatomy.head === 'hammer') {
-      parts.push(hammerGeometry());
+      parts.push(hammerGeometry(lowDetail));
     } else {
-      pointedHeadDetails(parts,anatomy);
+      pointedHeadDetails(parts,anatomy,lowDetail);
     }
-    parts.push(sweptFin([[.46,.45,-1.22],[.80,.21,-.71],[1.22,-.04,-.55],[1.75,-.27,-.48],[2.15,-.42,-.435]],false,1,.20));
+    parts.push(sweptFin([[.46,.45,-1.22],[.80,.21,-.71],[1.22,-.04,-.55],[1.75,-.27,-.48],[2.15,-.42,-.435]],false,1,.20, 1.0, lowDetail));
     for(const side of [-1,1]){
-      parts.push(sweptFin([[.36,.90,-.52],[.72,.60,-.70],[1.20,.05,-.95],[1.75,-.64,-1.20],[2.18,-1.27,-1.28]],true,side,.15));
-      parts.push(sweptFin([[.23,-1.64,-2.34],[.51,-1.86,-2.38],[.79,-2.31,-2.40],[.85,-2.42,-2.425]],true,side,.15));
+      parts.push(sweptFin([[.36,.90,-.52],[.72,.60,-.70],[1.20,.05,-.95],[1.75,-.64,-1.20],[2.18,-1.27,-1.28]],true,side,.15, 1.0, lowDetail));
+      parts.push(sweptFin([[.23,-1.64,-2.34],[.51,-1.86,-2.38],[.79,-2.31,-2.40],[.85,-2.42,-2.425]],true,side,.15, 0.45, lowDetail));
     }
-    parts.push(sweptFin([[.22,-2.17,-2.80],[.45,-2.33,-2.64],[.66,-2.49,-2.50]],false,1,.15));
-    parts.push(sweptFin([[-.15,-2.53,-3.0],[-.38,-2.73,-2.96],[-.54,-2.96,-2.97]],false,1,.15));
-    parts.push(sweptFin([[.00,-3.30,-4.08],[.40,-3.53,-4.11],[.88,-3.83,-4.31],[1.36,-4.15,-4.48],[1.95,-4.68,-4.69]],false,1,.15));
-    parts.push(sweptFin([[.02,-3.31,-4.08],[-.36,-3.57,-4.12],[-.70,-3.90,-4.30],[-1.10,-4.35,-4.36]],false,1,.15));
+    parts.push(sweptFin([[.22,-2.17,-2.80],[.45,-2.33,-2.64],[.66,-2.49,-2.50]],false,1,.15, 0.45, lowDetail));
+    parts.push(sweptFin([[-.15,-2.53,-3.0],[-.38,-2.73,-2.96],[-.54,-2.96,-2.97]],false,1,.15, 0.45, lowDetail));
+    parts.push(sweptFin([[.00,-3.30,-4.08],[.40,-3.53,-4.11],[.88,-3.83,-4.31],[1.36,-4.15,-4.48],[1.95,-4.68,-4.69]],false,1,.15, 0.35, lowDetail));
+    parts.push(sweptFin([[.02,-3.31,-4.08],[-.36,-3.57,-4.12],[-.70,-3.90,-4.30],[-1.10,-4.35,-4.36]],false,1,.15, 0.35, lowDetail));
 
     for(const side of [-1,1]) {
       if (anatomy.head === 'hammer') {
-        const socket=new T.SphereGeometry(.139,24,16);
+        const socket=new T.SphereGeometry(.139,lowDetail ? 12 : 24,lowDetail ? 8 : 16);
         socket.scale(1.2,.75,.8);socket.translate(2.21,.035,side*1.72);parts.push(processPart(socket));
-        const eye=new T.SphereGeometry(.089,24,16);
+        const eye=new T.SphereGeometry(.089,lowDetail ? 12 : 24,lowDetail ? 8 : 16);
         eye.scale(1,.88,.7); eye.translate(2.23,.041,side*1.81); parts.push(processPart(eye,0x09141a,0,.28));
-        const iris=new T.TorusGeometry(.079,.009,8,24);
+        const iris=new T.TorusGeometry(.079,.009,lowDetail ? 4 : 8,lowDetail ? 12 : 24);
         iris.translate(2.23,.041,side*1.85);parts.push(processPart(iris,0x344748,0,.38));
-        const glint=new T.SphereGeometry(.018,10,8);
+        const glint=new T.SphereGeometry(.018,lowDetail ? 6 : 10,lowDetail ? 4 : 8);
         glint.translate(2.255,.074,side*1.865); parts.push(processPart(glint,0x718b90,0,.34));
       }
 
       if (anatomy.head === 'hammer') {
-        const nostril=new T.SphereGeometry(1,16,10);
+        const nostril=new T.SphereGeometry(1,lowDetail ? 12 : 16,lowDetail ? 8 : 10);
         nostril.scale(.065,.012,.027);nostril.translate(2.37,-.102,side*1.37);parts.push(processPart(nostril,0x38474a));
       }
 
       // Gill creases are shaded on the continuous body with pixel-width
       // filtering below. Separate glossy tubes produced flickering wire edges.
-      if (anatomy.head === 'hammer') {
+      if (anatomy.head === 'hammer' && !lowDetail) {
         for(let i=0;i<19;i++){
           const z=side*(.36+i*.069);
           const pore=new T.SphereGeometry(.008,6,4);
@@ -986,7 +1122,12 @@
     return geometry;
   }
   const sharkGeometries=Object.fromEntries(Object.keys(sharkAnatomies).map(species=>{
-    const base=buildSharkGeometry(species);
+    const base=buildSharkGeometry(species,false);
+    const variants=Array.from({length:3},(_,i)=>shapeVariant(base,sharkAnatomies[species],i));
+    base.dispose();return [species,variants];
+  }));
+  const sharkGeometriesFar=Object.fromEntries(Object.keys(sharkAnatomies).map(species=>{
+    const base=buildSharkGeometry(species,true);
     const variants=Array.from({length:3},(_,i)=>shapeVariant(base,sharkAnatomies[species],i));
     base.dispose();return [species,variants];
   }));
@@ -1005,8 +1146,12 @@
     const uniforms={ swimTime:{value:0}, swimPhase:{value:config.phase}, swimPower:{value:config.power||1},
       individualSeed:{value:config.phase*13.7+sharks.length*1.73},
       jawAngle:{value:0},jawPivot:{value:new T.Vector3(...geometry.userData.jawPivot)},
-      dragBend:{value:new T.Vector2()}, sunColor:waterUniforms.sunColor,
+      dragBend:{value:new T.Vector2()}, finTurn:{value:new T.Vector2()}, sunColor:waterUniforms.sunColor,
       sunPower:waterUniforms.sunPower, lightDirection:waterUniforms.lightDirection,
+      daylight:waterUniforms.daylight, sharkSpeed:{value:0},
+      activeSharkCount:oceanOptics.activeSharkCount,
+      causticMultiTap:oceanOptics.causticMultiTap,
+      animalStates:oceanOptics.animalStates, animalHeadings:oceanOptics.animalHeadings,
       causticMap:{value:causticTarget.texture},causticOrigin:{value:causticOrigin},
       causticSpan:{value:causticSpan},causticDepths:{value:causticDepths} };
     const material=new T.MeshStandardMaterial({
@@ -1016,8 +1161,11 @@
       Object.assign(shader.uniforms,uniforms);
       shader.vertexShader=`uniform float swimTime; uniform float swimPhase; uniform float swimPower;
         uniform vec2 dragBend;
+        uniform vec2 finTurn;
         uniform float jawAngle;
         uniform vec3 jawPivot;
+        uniform vec3 lightDirection;
+        ${solarOcclusionGLSL}
         attribute float skinDetail;
         attribute float jawWeight;
         attribute float jawSlope;
@@ -1025,14 +1173,19 @@
         attribute float gillMask;
         attribute float mouthRegion;
         attribute float oralDetail;
+        attribute float finThinness;
+        attribute float finFlex;
         varying float sharkDetail;
         varying float sharkRoughness;
         varying float bodySkin;
         varying float mouthSkin;
         varying float mouthTissue;
+        varying float vFinThinness;
         varying vec3 sharkPosition;
         varying vec3 sharkWorldPosition;
         varying vec3 sharkWorldNormal;
+        varying vec3 vSharkForward;
+        varying float solarShadow;
         mat2 jawRotation(){float a=-jawAngle*jawWeight;return mat2(cos(a),sin(a),-sin(a),cos(a));}
         vec3 jawPosition(vec3 p){p.xy=jawPivot.xy+jawRotation()*(p.xy-jawPivot.xy);return p;}
         float bend(float x){
@@ -1058,12 +1211,19 @@
         }
         objectNormal.xy=jawRotation()*objectNormal.xy;
         float bentX=jawPosition(position).x;
-        objectNormal.x-=bendSlope(bentX)*objectNormal.z+elasticSlope(bentX)*dot(dragBend,objectNormal.yz);`);
+        objectNormal.x-=bendSlope(bentX)*objectNormal.z+elasticSlope(bentX)*dot(dragBend,objectNormal.yz);
+        float horizFin=step(.32,abs(position.z));
+        objectNormal.y-=finFlex*finTurn.y*horizFin*.85*sign(objectNormal.y+.001)*abs(objectNormal.z);
+        objectNormal.z-=finFlex*finTurn.x*(1.-horizFin)*.85*sign(objectNormal.z+.001)*abs(objectNormal.y);`);
       shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>',
         `#include <begin_vertex>
         transformed=jawPosition(transformed);
         transformed.z+=bend(transformed.x);
         transformed.yz+=dragBend*elasticWeight(transformed.x);
+        horizFin=step(.32,abs(position.z));
+        transformed.y+=finFlex*finTurn.y*horizFin;
+        transformed.z+=finFlex*finTurn.x*(1.-horizFin);
+        vFinThinness=finThinness*skinDetail;
         sharkPosition=position;
         sharkDetail=skinDetail;
         sharkRoughness=surfaceRoughness;
@@ -1071,26 +1231,37 @@
         mouthSkin=mouthRegion*smoothstep(.15,.60,-normal.y);
         mouthTissue=oralDetail;
         sharkWorldPosition=(modelMatrix*vec4(transformed,1.)).xyz;
-        sharkWorldNormal=normalize(mat3(modelMatrix)*objectNormal);`);
+        sharkWorldNormal=normalize(mat3(modelMatrix)*objectNormal);
+        vSharkForward=normalize(mat3(modelMatrix)*vec3(1.,0.,0.));
+        solarShadow=sharkSolarOcclusion(sharkWorldPosition,lightDirection,modelMatrix[3].xyz);`);
       // Procedural skin follows the model, not the screen. Colour variation, fine
       // denticles and uneven gloss preserve detail without external image files.
       shader.fragmentShader=`
         uniform vec3 sunColor;
         uniform vec3 lightDirection;
         uniform float sunPower;
+        uniform float daylight;
+        uniform float sharkSpeed;
         uniform float individualSeed;
+        uniform float swimTime;
+        uniform float swimPhase;
+        uniform float jawAngle;
         uniform sampler2D causticMap;
         uniform vec2 causticOrigin;
         uniform float causticSpan;
         uniform vec3 causticDepths;
+        uniform float causticMultiTap;
         varying float sharkDetail;
         varying float sharkRoughness;
         varying float bodySkin;
         varying float mouthSkin;
         varying float mouthTissue;
+        varying float vFinThinness;
         varying vec3 sharkPosition;
         varying vec3 sharkWorldPosition;
         varying vec3 sharkWorldNormal;
+        varying vec3 vSharkForward;
+        varying float solarShadow;
         float skinHash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
         float skinNoise(vec3 p){
           vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
@@ -1102,85 +1273,102 @@
         ${shader.fragmentShader}`;
       shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>',`
         #include <color_fragment>
-        vec3 individualOffset=vec3(individualSeed,individualSeed*.37,individualSeed*.79);
-        float skinFine=skinNoise(sharkPosition*vec3(125.,70.,70.)+individualOffset);
-        float skinMottle=skinNoise(sharkPosition*vec3(3.1,5.,5.)+individualOffset);
-        float broadMottle=skinNoise(sharkPosition*1.65+individualOffset*2.);
-        float detailVisibility=1.-smoothstep(.025,.09,max(length(dFdx(sharkPosition)),length(dFdy(sharkPosition))));
-        diffuseColor.rgb*=1.+sharkDetail*((skinMottle-.5)*.34+(broadMottle-.5)*.32+(skinFine-.5)*.08*detailVisibility);
-        diffuseColor.rgb*=mix(vec3(1.),vec3(.94+.04*sin(individualSeed),.98,1.01),sharkDetail);
+        float posDeriv = max(length(dFdx(sharkPosition)), length(dFdy(sharkPosition)));
+        float gillPixel = max(fwidth(sharkPosition.x), .002);
+        float foldPhase = sharkPosition.x * 34. + sin(sharkPosition.z * 17.) * .65;
+        float foldPixel = max(fwidth(foldPhase), .01);
+        float skinFine = .5, skinMottle = .5, broadMottle = .5, detailVisibility = 0., gillShade = 0., mouthShade = 0., scarMask = 0., tissueNoise = .5, tissueFolds = 0.;
+
+        if (sharkDetail > .001) {
+          vec3 individualOffset=vec3(individualSeed,individualSeed*.37,individualSeed*.79);
+          skinFine=skinNoise(sharkPosition*vec3(125.,70.,70.)+individualOffset);
+          skinMottle=skinNoise(sharkPosition*vec3(3.1,5.,5.)+individualOffset);
+          broadMottle=skinNoise(sharkPosition*1.65+individualOffset*2.);
+          detailVisibility=1.-smoothstep(.025,.09,posDeriv);
+          diffuseColor.rgb*=1.+sharkDetail*((skinMottle-.5)*.34+(broadMottle-.5)*.32+(skinFine-.5)*.08*detailVisibility);
+          diffuseColor.rgb*=mix(vec3(1.),vec3(.94+.04*sin(individualSeed),.98,1.01),sharkDetail);
+        }
 
         // Five coherent slits bow toward the tail (-X). Progressively shorter
         // rear slits share one shape on both sides, rather than independently
         // random curves. Pixel coverage softens each recessed edge in motion.
-        float gillAngle=atan(abs(sharkPosition.z),sharkPosition.y);
-        float gillShade=0.;
-        for(int i=0;i<5;i++){
-          float g=float(i),start=.72+g*.032;
-          float end=2.40-g*.035;
-          float t=clamp((gillAngle-start)/(end-start),0.,1.);
-          float centre=1.38-g*.143-(.115-g*.006)*sin(t*3.14159)
-            +.003*sin(t*9.+individualSeed);
-          float d=abs(sharkPosition.x-centre);
-          float width=.012-g*.0005;
-          float pixel=max(fwidth(sharkPosition.x-centre),.002);
-          float crease=1.-smoothstep(max(0.,width-pixel),width+pixel,d);
-          crease*=width/max(width,pixel);
-          crease*=smoothstep(start,start+.14,gillAngle)*(1.-smoothstep(end-.16,end,gillAngle));
-          gillShade=max(gillShade,crease);
+        if (bodySkin > .001) {
+          float gillAngle=atan(abs(sharkPosition.z),sharkPosition.y);
+          float gillOpen=1.;
+          for(int i=0;i<5;i++){
+            float g=float(i),start=.72+g*.032;
+            float end=2.40-g*.035;
+            float t=clamp((gillAngle-start)/(end-start),0.,1.);
+            float centre=1.38-g*.143-(.115-g*.006)*sin(t*3.14159)
+              +.003*sin(t*9.+individualSeed);
+            float d=abs(sharkPosition.x-centre);
+            float respCycle=.5+.5*sin(swimTime*1.15+swimPhase-g*.34);
+            float jawPump=clamp(jawAngle*4.0,0.,1.)*(.65+.35*sin(swimTime*1.15-g*.42));
+            gillOpen=clamp(.82+.32*max(respCycle*.75,jawPump),.75,1.28);
+            float width=(.012-g*.0005)*gillOpen;
+            float crease=1.-smoothstep(max(0.,width-gillPixel),width+gillPixel,d);
+            crease*=width/max(width,gillPixel);
+            crease*=smoothstep(start,start+.14,gillAngle)*(1.-smoothstep(end-.16,end,gillAngle));
+            gillShade=max(gillShade,crease);
+          }
+          gillShade*=bodySkin;
+          diffuseColor.rgb*=1.-gillShade*(.39+.08*gillOpen);
         }
-        gillShade*=bodySkin;
-        diffuseColor.rgb*=1.-gillShade*.43;
 
         // A shallow, rearward-curving slit on the hammerhead's underside.
         // This changes the skin itself: it cannot detach, extend beyond the
         // silhouette or show through from above like a separate lip tube.
-        float mouthZ=sharkPosition.z;
-        float mouthX=2.13-.17*pow(mouthZ/.46,2.);
-        float mouthSlope=-.34*mouthZ/(.46*.46);
-        float mouthDistance=abs(sharkPosition.x-mouthX)/sqrt(1.+mouthSlope*mouthSlope);
-        float mouthPixel=max(fwidth(mouthDistance),.002);
-        float mouthWidth=.013;
-        float mouthShade=(1.-smoothstep(max(0.,mouthWidth-mouthPixel),mouthWidth+mouthPixel,mouthDistance))
-          *mouthWidth/max(mouthWidth,mouthPixel);
-        mouthShade*=mouthSkin*(1.-smoothstep(.34,.46,abs(mouthZ)));
-        diffuseColor.rgb*=1.-mouthShade*.55;
+        if (mouthSkin > .001) {
+          float mouthZ=sharkPosition.z;
+          float mouthX=2.13-.17*pow(mouthZ/.46,2.);
+          float mouthSlope=-.34*mouthZ/(.46*.46);
+          float mouthDistance=abs(sharkPosition.x-mouthX)/sqrt(1.+mouthSlope*mouthSlope);
+          float mouthPixel=max(gillPixel,.002);
+          float mouthWidth=.013;
+          mouthShade=(1.-smoothstep(max(0.,mouthWidth-mouthPixel),mouthWidth+mouthPixel,mouthDistance))
+            *mouthWidth/max(mouthWidth,mouthPixel);
+          mouthShade*=mouthSkin*(1.-smoothstep(.34,.46,abs(mouthZ)));
+          diffuseColor.rgb*=1.-mouthShade*.55;
+        }
 
         // Healed marks have a visible width at the permitted camera distance.
         // Their own coarse-detail fade is separate from microscopic denticles;
         // otherwise every scar vanished with the fine skin texture in mid-shot.
-        float scarMask=0.;
-        for(int i=0;i<6;i++){
-          float id=float(i),seed=skinHash(vec3(individualSeed,id,4.7));
-          vec2 centre=vec2(-1.4+seed*3.7,-.04+.42*skinHash(vec3(id,individualSeed,1.2)));
-          vec2 axis=normalize(vec2(.4+seed,.55-seed*.75));
-          vec2 q=sharkPosition.xy-centre;
-          float halfLength=.16+.24*seed;
-          float along=clamp(dot(q,axis),-halfLength,halfLength);
-          vec2 across=vec2(-axis.y,axis.x);
-          float curve=.017*sin(along*15.+seed*9.)+.006*sin(along*37.+id);
-          float distanceToScar=length(q-axis*along-across*curve);
-          float wearNoise=skinNoise(sharkPosition*vec3(18.,42.,42.)+individualOffset);
-          float width=(.018+.020*seed)*(.75+.25*sin(along*29.+seed*9.))*(.55+.60*wearNoise);
-          float pixel=max(fwidth(distanceToScar),width*.55);
-          float mark=(1.-smoothstep(max(0.,width-pixel),width+pixel,distanceToScar))
-            *width/max(width,pixel);
-          mark*=1.-smoothstep(halfLength*.55,halfLength,abs(along));
-          mark*=.25+.75*smoothstep(.22,.74,wearNoise);
-          float side=mod(id,2.)<.5?-1.:1.;
-          scarMask=max(scarMask,mark*smoothstep(.09,.22,sharkPosition.z*side));
+        float scarVisibility=sharkDetail*(1.-smoothstep(.12,.30,posDeriv));
+        if (scarVisibility > .001) {
+          vec3 individualOffset=vec3(individualSeed,individualSeed*.37,individualSeed*.79);
+          for(int i=0;i<6;i++){
+            float id=float(i),seed=skinHash(vec3(individualSeed,id,4.7));
+            vec2 centre=vec2(-1.4+seed*3.7,-.04+.42*skinHash(vec3(id,individualSeed,1.2)));
+            vec2 axis=normalize(vec2(.4+seed,.55-seed*.75));
+            vec2 q=sharkPosition.xy-centre;
+            float halfLength=.16+.24*seed;
+            float along=clamp(dot(q,axis),-halfLength,halfLength);
+            vec2 across=vec2(-axis.y,axis.x);
+            float curve=.017*sin(along*15.+seed*9.)+.006*sin(along*37.+id);
+            float distanceToScar=length(q-axis*along-across*curve);
+            float wearNoise=skinNoise(sharkPosition*vec3(18.,42.,42.)+individualOffset);
+            float width=(.018+.020*seed)*(.75+.25*sin(along*29.+seed*9.))*(.55+.60*wearNoise);
+            float pixel=max(posDeriv,width*.55);
+            float mark=(1.-smoothstep(max(0.,width-pixel),width+pixel,distanceToScar))
+              *width/max(width,pixel);
+            mark*=1.-smoothstep(halfLength*.55,halfLength,abs(along));
+            mark*=.25+.75*smoothstep(.22,.74,wearNoise);
+            float side=mod(id,2.)<.5?-1.:1.;
+            scarMask=max(scarMask,mark*smoothstep(.09,.22,sharkPosition.z*side));
+          }
+          scarMask*=scarVisibility;
+          diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*.75+vec3(.14,.135,.12),scarMask*.72);
         }
-        float scarVisibility=1.-smoothstep(.12,.30,max(length(dFdx(sharkPosition)),length(dFdy(sharkPosition))));
-        scarMask*=sharkDetail*scarVisibility;
-        diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*.75+vec3(.14,.135,.12),scarMask*.72);
 
         // Muted mucosal mottling and palatal folds add depth inside the mouth.
         // The rear cavity darkens toward the throat; gums remain gently pink-grey.
-        float tissueNoise=skinNoise(sharkPosition*vec3(18.,31.,27.));
-        float foldPhase=sharkPosition.x*34.+sin(sharkPosition.z*17.)*.65;
-        float tissueFolds=(.5+.5*sin(foldPhase))*(1.-smoothstep(.6,2.,fwidth(foldPhase)));
-        float throatShade=mix(.42,1.,smoothstep(1.43,2.20,sharkPosition.x));
-        diffuseColor.rgb*=mix(1.,(.78+.30*tissueNoise+.13*tissueFolds)*throatShade,mouthTissue);
+        if (mouthTissue > .001) {
+          tissueNoise=skinNoise(sharkPosition*vec3(18.,31.,27.));
+          tissueFolds=(.5+.5*sin(foldPhase))*(1.-smoothstep(.6,2.,foldPixel));
+          float throatShade=mix(.42,1.,smoothstep(1.43,2.20,sharkPosition.x));
+          diffuseColor.rgb*=mix(1.,(.78+.30*tissueNoise+.13*tissueFolds)*throatShade,mouthTissue);
+        }
       `);
       shader.fragmentShader=shader.fragmentShader.replace('#include <roughnessmap_fragment>',`
         #include <roughnessmap_fragment>
@@ -1205,22 +1393,55 @@
         // Sample projected sunlight in world space. Swimming through the light
         // moves the pattern across the skin; rotating the camera does not.
         float waterDepth=max(0.,15.-sharkWorldPosition.y);
-        vec2 surfaceCoordinate=sharkWorldPosition.xz
-          +lightDirection.xz*waterDepth/max(.2,lightDirection.y);
-        vec2 causticUV=(surfaceCoordinate-causticOrigin)/causticSpan+.5;
-        vec3 layers=texture2D(causticMap,causticUV).rgb*16.;
-        float focus=waterDepth<causticDepths.y
-          ? mix(layers.r,layers.g,clamp((waterDepth-causticDepths.x)/(causticDepths.y-causticDepths.x),0.,1.))
-          : mix(layers.g,layers.b,clamp((waterDepth-causticDepths.y)/(causticDepths.z-causticDepths.y),0.,1.));
-        vec2 edge=min(causticUV,1.-causticUV);
-        float mapFade=smoothstep(0.,.06,min(edge.x,edge.y));
-        float depthFade=exp(-waterDepth*.035)*smoothstep(0.,3.,waterDepth);
-        float lightFootprint=max(length(dFdx(surfaceCoordinate)),length(dFdy(surfaceCoordinate)));
-        float distanceFilter=1.-smoothstep(.2,1.,lightFootprint);
-        float illuminatedBack=max(dot(normalize(sharkWorldNormal),lightDirection),0.)*sharkDetail;
-        float lightContrast=clamp(focus-1.,-.65,3.);
-        outgoingLight=max(vec3(0.),outgoingLight+diffuseColor.rgb*sunColor*sunPower
-          *lightContrast*illuminatedBack*depthFade*mapFade*distanceFilter*.70);
+        if(sunPower>.001){
+          vec2 surfaceCoordinate=sharkWorldPosition.xz
+            +lightDirection.xz*waterDepth/max(.2,lightDirection.y);
+          vec2 causticUV=(surfaceCoordinate-causticOrigin)/causticSpan+.5;
+          float spread=.0028+waterDepth*.00018;
+          vec3 layers=causticMultiTap>.5
+            ?(texture2D(causticMap,causticUV).rgb*.40
+              +(texture2D(causticMap,causticUV+vec2(spread,0.)).rgb
+              + texture2D(causticMap,causticUV-vec2(spread,0.)).rgb
+              + texture2D(causticMap,causticUV+vec2(0.,spread)).rgb
+              + texture2D(causticMap,causticUV-vec2(0.,spread)).rgb)*.15)*16.
+            :texture2D(causticMap,causticUV).rgb*16.;
+          float focus=waterDepth<causticDepths.y
+            ?mix(layers.r,layers.g,clamp((waterDepth-causticDepths.x)/(causticDepths.y-causticDepths.x),0.,1.))
+            :mix(layers.g,layers.b,clamp((waterDepth-causticDepths.y)/(causticDepths.z-causticDepths.y),0.,1.));
+          vec2 edge=min(causticUV,1.-causticUV);
+          float mapFade=smoothstep(0.,.06,min(edge.x,edge.y));
+          float depthFade=exp(-waterDepth*.035)*smoothstep(0.,3.,waterDepth);
+          float lightFootprint=max(length(dFdx(surfaceCoordinate)),length(dFdy(surfaceCoordinate)));
+          float distanceFilter=1.-smoothstep(.2,1.,lightFootprint);
+          float illuminatedBack=max(dot(normalize(sharkWorldNormal),lightDirection),0.)*sharkDetail;
+          float rawContrast=focus-.92;
+          float lightContrast=rawContrast>0.?(rawContrast*2.2)/(1.+rawContrast*.75):clamp(rawContrast,-.55,0.);
+          outgoingLight=max(vec3(0.),outgoingLight+diffuseColor.rgb*sunColor*sunPower
+            *lightContrast*illuminatedBack*depthFade*mapFade*distanceFilter*.70*solarShadow);
+
+          vec3 worldViewDir=normalize(cameraPosition-sharkWorldPosition);
+          float backSun=pow(max(dot(-worldViewDir,lightDirection),0.),2.6)*sunPower*solarShadow;
+          float finRim=.35+.65*pow(1.-abs(dot(normalize(sharkWorldNormal),worldViewDir)),1.8);
+          vec3 sssTint=sunColor*vec3(1.08,.76,.52);
+          outgoingLight+=sssTint*vFinThinness*backSun*finRim*depthFade*.48;
+        }
+
+        // Part 3: 3D Beer-Lambert vertical depth & path spectral absorption
+        float viewDist=length(vViewPosition);
+        vec3 verticalAbsorption=exp(-vec3(.020,.007,.0015)*max(0.,waterDepth-11.));
+        vec3 pathAbsorption=exp(-vec3(.014,.004,.0008)*viewDist);
+        outgoingLight*=mix(vec3(1.),verticalAbsorption*pathAbsorption,.78);
+
+        // Part 4: Nocturnal bioluminescent grazing sheen on leading snout/fin skin
+        if(daylight<.32){
+          float nightBio=smoothstep(.32,.02,daylight);
+          float forwardFacing=clamp(dot(normalize(sharkWorldNormal),normalize(vSharkForward)),0.,1.);
+          float viewFacing=clamp(dot(normalize(sharkWorldNormal),-normalize(vViewPosition)),0.,1.);
+          float graze=pow(1.-viewFacing,2.5);
+          float sheenFactor=clamp(sharkSpeed*.4,0.,1.5)*nightBio*(forwardFacing*.65+graze*.35);
+          outgoingLight+=diffuseColor.rgb*vec3(.08,.74,1.)*sheenFactor*.35;
+        }
+
         #include <opaque_fragment>
       `);
     };
@@ -1242,12 +1463,20 @@
       target.y+=uniforms.dragBend.value.x*tail*tail;
       target.z+=wave*(tail*tail*.57-head*.1)*uniforms.swimPower.value
         +uniforms.dragBend.value.y*tail*tail;
+      const flex=this.geometry.attributes.finFlex?this.geometry.attributes.finFlex.getX(index):0;
+      if(flex>0){
+        const posZ=this.geometry.attributes.position.getZ(index);
+        if(Math.abs(posZ)>=.32) target.y+=flex*uniforms.finTurn.value.y;
+        else target.z+=flex*uniforms.finTurn.value.x;
+      }
       return target;
     };
     mesh.scale.setScalar(config.scale);
-    scene.add(mesh); sharks.push({mesh,uniforms,species:sp,variantIndex,...config,
+    scene.add(mesh); sharks.push({mesh,uniforms,species:sp,variantIndex,isFarLod:false,...config,
       offset:new T.Vector3(),velocity:new T.Vector3(),
-      rotationOffset:new T.Quaternion(),angularVelocity:new T.Vector3()});
+      rotationOffset:new T.Quaternion(),angularVelocity:new T.Vector3(),
+      finTurnInteraction:new T.Vector2(),
+      extraSwimPhase:0,burstPower:0});
   }
   // Asymmetric paths and different orbit periods avoid synchronised movement.
   // There are no visible restarts: sharks follow continuous curves.
@@ -1289,7 +1518,7 @@
       const species=selected[index%selected.length];
       if(species && shark.species!==species){
         shark.species=species;
-        shark.mesh.geometry=sharkGeometries[species][shark.variantIndex];
+        shark.mesh.geometry=(shark.isFarLod ? sharkGeometriesFar : sharkGeometries)[species][shark.variantIndex];
         shark.mesh.name=species;
         shark.uniforms.jawPivot.value.fromArray(shark.mesh.geometry.userData.jawPivot);
         shark.uniforms.jawAngle.value=0;
@@ -1338,15 +1567,22 @@
   const particleUniforms={time:{value:0},pixelRatio:{value:renderer.getPixelRatio()},
     daylight:waterUniforms.daylight,sunColor:waterUniforms.sunColor,sunPower:waterUniforms.sunPower,
     lightDirection:waterUniforms.lightDirection,causticMap:{value:causticTarget.texture},
-    causticOrigin:{value:causticOrigin},causticSpan:{value:causticSpan},causticDepths:{value:causticDepths}};
+    causticOrigin:{value:causticOrigin},causticSpan:{value:causticSpan},causticDepths:{value:causticDepths},
+    activeAnimalCount:oceanOptics.activeAnimalCount,
+    animalStates:oceanOptics.animalStates,animalMotions:oceanOptics.animalMotions,animalHeadings:oceanOptics.animalHeadings};
   const particleMaterial=new T.ShaderMaterial({
     transparent:true,depthWrite:false,blending:T.AdditiveBlending,uniforms:particleUniforms,toneMapped:false,
     vertexShader:`
-      uniform float time;uniform float pixelRatio;uniform float sunPower;
+      uniform float time;uniform float pixelRatio;uniform float sunPower;uniform float daylight;
       uniform vec3 lightDirection;uniform sampler2D causticMap;
       uniform vec2 causticOrigin;uniform float causticSpan;uniform vec3 causticDepths;
+      uniform int activeAnimalCount;
+      uniform vec4 animalStates[24];
+      uniform vec4 animalMotions[24];
+      uniform vec4 animalHeadings[24];
       attribute float size;attribute vec2 particleSeed;attribute float nearWater;
       varying float alpha;varying float illumination;varying vec2 tumble;
+      varying float bioFlash;varying float bioGlowAlpha;
       void main(){
         // All particles share a slow rightward current, slightly into the scene.
         // Local eddies are weaker than the current, so neighbours travel together.
@@ -1363,21 +1599,77 @@
         p.x+=.4*sin(time*.019+phase);
         p.y+=.35*sin(time*.021+phase)+.16*sin(time*.013+phase*.7);
         p.z+=.35*cos(time*.017+phase);
+
+        vec3 wakeOffset=vec3(0.);
+        float bioTrigger=0.;
+        for(int k=0;k<24;k++){
+          if(k>=activeAnimalCount)break;
+          vec4 st=animalStates[k];
+          if(st.w<=.01)continue;
+          vec3 rel=p-st.xyz;
+          float maxRange=st.w*11.;
+          float d2=dot(rel,rel);
+          if(d2>maxRange*maxRange)continue;
+          vec4 mo=animalMotions[k];
+          vec4 hd=animalHeadings[k];
+          vec3 axis=hd.w>.01?hd.xyz:(length(mo.xyz)>.01?normalize(mo.xyz):vec3(0.,1.,0.));
+          float bodyHalf=max(hd.w,st.w);
+          float along=dot(rel,axis);
+          vec3 radialVec=rel-axis*clamp(along,-bodyHalf,bodyHalf);
+          float radialDist=length(radialVec);
+          vec3 radialDir=radialDist>.001?radialVec/radialDist:vec3(0.,1.,0.);
+
+          // 1. Bow & body potential-flow parting: particles part smoothly around the animal's body
+          float bodyEnvelope=1.-smoothstep(st.w*.55,st.w*2.4,radialDist);
+          float alongBody=1.-smoothstep(bodyHalf*.85,bodyHalf*1.45,abs(along));
+          wakeOffset+=radialDir*(bodyEnvelope*alongBody*st.w*.52);
+
+          // 2. Trailing vortex wake behind the tail / bell (-axis direction)
+          float behind=clamp((-along-bodyHalf*.35)/(st.w*8.2),0.,1.);
+          float inWake=(1.-behind)*step(-bodyHalf-st.w*8.5,along)*step(along,-bodyHalf*.20);
+          float wakeRadius=st.w*(1.05+1.95*behind);
+          float radialWake=1.-smoothstep(wakeRadius*.22,wakeRadius,radialDist);
+          vec3 swirlDir=normalize(cross(axis,radialDir)+vec3(.0001));
+          float activity=clamp(mo.w,0.,2.5);
+          float swirlPhase=along*2.4-time*3.6+particleSeed.x;
+          float nearWake=exp(-behind*2.1);
+          wakeOffset+=(swirlDir*sin(swirlPhase)*.42+radialDir*.18)*inWake*radialWake*nearWake*activity*st.w;
+
+          // 3. Mechanical shear stress for dinoflagellate bioluminescence (triggered on contact & wake!)
+          float contactShear=(1.-smoothstep(st.w*.45,st.w*3.3,radialDist))
+            *(1.-smoothstep(bodyHalf*.95,bodyHalf*1.65,abs(along)));
+          float wakeShear=inWake*radialWake*(1.-behind*.62);
+          float animalExcite=max(contactShear*1.30,wakeShear*1.08)*clamp(activity,0.,2.2);
+          bioTrigger=max(bioTrigger,animalExcite);
+        }
+        // Respect flowFade so boundary recycling stays invisible even in wakes
+        p+=wakeOffset*flowFade;
+
+        float spontaneous=step(.965,particleSeed.y)*pow(.5+.5*sin(time*1.35+particleSeed.x*19.),8.)*.52;
+        float shimmer=.70+.30*sin(time*6.5+particleSeed.x*29.+particleSeed.y*17.);
+        bioFlash=(bioTrigger*shimmer*1.35+spontaneous)*flowFade;
+
         float depth=max(0.,15.-p.y);
-        vec2 uv=(p.xz+lightDirection.xz*depth/max(.2,lightDirection.y)-causticOrigin)/causticSpan+.5;
-        vec3 layers=texture2D(causticMap,uv).rgb*16.;
-        float focus=depth<causticDepths.y
-          ? mix(layers.r,layers.g,clamp((depth-causticDepths.x)/(causticDepths.y-causticDepths.x),0.,1.))
-          : mix(layers.g,layers.b,clamp((depth-causticDepths.y)/(causticDepths.z-causticDepths.y),0.,1.));
-        vec2 edge=min(uv,1.-uv);
-        illumination=clamp(focus,0.,3.)*smoothstep(0.,.06,min(edge.x,edge.y))*sunPower*exp(-depth*.022);
+        illumination=0.;
+        if(sunPower>.001){
+          vec2 uv=(p.xz+lightDirection.xz*depth/max(.2,lightDirection.y)-causticOrigin)/causticSpan+.5;
+          vec3 layers=texture2D(causticMap,uv).rgb*16.;
+          float focus=depth<causticDepths.y
+            ? mix(layers.r,layers.g,clamp((depth-causticDepths.x)/(causticDepths.y-causticDepths.x),0.,1.))
+            : mix(layers.g,layers.b,clamp((depth-causticDepths.y)/(causticDepths.z-causticDepths.y),0.,1.));
+          vec2 edge=min(uv,1.-uv);
+          illumination=clamp(focus,0.,3.)*smoothstep(0.,.06,min(edge.x,edge.y))*sunPower*exp(-depth*.022);
+        }
         vec4 mv=modelViewMatrix*vec4(p,1.);
         gl_Position=projectionMatrix*mv;
         float pixels=size*440.*pixelRatio/max(.1,-mv.z);
-        gl_PointSize=clamp(pixels,1.,6.);
+        float nightFactor=smoothstep(.32,.02,daylight);
+        float nightFlash=nightFactor*bioFlash;
+        gl_PointSize=clamp(pixels+clamp(nightFlash,0.,1.5)*3.5*pixelRatio,1.,9.);
         float distanceToEye=length(mv.xyz);
         alpha=exp(-distanceToEye*.022)*smoothstep(.8,3.,distanceToEye)
           *min(1.,pixels*pixels)*(.18+.24*particleSeed.y)*flowFade;
+        bioGlowAlpha=nightFlash*exp(-distanceToEye*.013)*smoothstep(.8,3.,distanceToEye)*flowFade*.92;
         // Most particles are round dust; sparse flakes turn edge-on as they roll.
         tumble=vec2(time*(.08+particleSeed.y*.08)+particleSeed.x,
           particleSeed.y>.82?.3+.7*abs(sin(time*.11+particleSeed.x)):1.);
@@ -1385,6 +1677,7 @@
     fragmentShader:`
       uniform float daylight;uniform vec3 sunColor;
       varying float alpha;varying float illumination;varying vec2 tumble;
+      varying float bioFlash;varying float bioGlowAlpha;
       void main(){
         vec2 point=gl_PointCoord-.5;
         point=mat2(cos(tumble.x),sin(tumble.x),-sin(tumble.x),cos(tumble.x))*point;
@@ -1392,7 +1685,14 @@
         float radius=length(point);
         float coverage=1.-smoothstep(.04,.5,radius);
         vec3 tint=mix(vec3(.36,.62,.84),sunColor,.45*clamp(illumination,0.,1.));
-        gl_FragColor=vec4(tint,coverage*alpha*(.20+.50*daylight+.85*illumination));
+        float dustAlpha=coverage*alpha*(.20+.50*daylight+.85*illumination);
+        float glowRadius=length(gl_PointCoord-.5);
+        float glowShape=exp(-glowRadius*glowRadius*11.)*(1.-smoothstep(.32,.5,glowRadius));
+        vec3 bioColor=mix(vec3(.08,.76,1.0),vec3(.34,1.0,.88),clamp(bioFlash*.55,0.,1.));
+        float glowAlpha=glowShape*bioGlowAlpha;
+        float totalAlpha=clamp(dustAlpha+glowAlpha,0.,1.);
+        vec3 finalColor=mix(tint,bioColor,clamp(glowAlpha/max(.0001,totalAlpha),0.,1.));
+        gl_FragColor=vec4(finalColor,totalAlpha);
       }`
   });
   const particles=new T.Points(particleGeometry,particleMaterial);
@@ -1410,15 +1710,366 @@
   }
 
   // Background fish use instancing: many fish, one draw call.
-  const fishGeometry=new T.ConeGeometry(.11,.58,4);
-  fishGeometry.rotateZ(-Math.PI/2);
-  const fishMaterial=new T.MeshStandardMaterial({color:0x5a899e,roughness:.8});
-  const fishCount=90,fish=new T.InstancedMesh(fishGeometry,fishMaterial,fishCount);
-  fish.instanceMatrix.setUsage(T.DynamicDrawUsage); fish.frustumCulled=false;
+  function buildSmallFishGeometry() {
+    const vertices = [];
+    const colors = [];
+    const indices = [];
+
+    const colBack = new T.Color(0x2b5066);
+    const colFlank = new T.Color(0xaad0dc);
+    const colBelly = new T.Color(0xdce9ed);
+
+    function addV(x, y, z, ny) {
+      vertices.push(x, y, z);
+      const c = new T.Color();
+      if (ny >= 0.) c.copy(colFlank).lerp(colBack, ny);
+      else c.copy(colFlank).lerp(colBelly, -ny);
+      colors.push(c.r, c.g, c.b);
+      return (vertices.length / 3) - 1;
+    }
+
+    const rings = 18, sides = 12;
+    const startX = -0.21, endX = 0.27, length = endX - startX;
+
+    for (let i = 0; i <= rings; i++) {
+      const u = i / rings;
+      const x = startX + u * length;
+      const p = Math.sin(Math.pow(u, 0.75) * Math.PI);
+      const halfHeight = u === 1 ? 0.001 : (0.068 * p + 0.012 * (1 - u * 0.82) + 0.002);
+      const halfWidth = u === 1 ? 0.001 : (0.036 * p + 0.006 * (1 - u * 0.82) + 0.001);
+
+      for (let j = 0; j <= sides; j++) {
+        const angle = (j / sides) * Math.PI * 2;
+        const sinA = Math.sin(angle);
+        const cosA = Math.cos(angle);
+        addV(x, sinA * halfHeight, cosA * halfWidth, sinA);
+      }
+    }
+
+    for (let i = 0; i < rings; i++) {
+      for (let j = 0; j < sides; j++) {
+        const a = i * (sides + 1) + j;
+        const b = a + sides + 1;
+        indices.push(a, a + 1, b, b, a + 1, b + 1);
+      }
+    }
+
+    // Forked caudal fin: x from -0.20 to -0.35, y = ±0.088, notch at (x = -0.27, y = 0)
+    const cPedTop = addV(-0.20, 0.014, 0, 0.7);
+    const cPedMid = addV(-0.20, 0.0, 0, 0.0);
+    const cPedBot = addV(-0.20, -0.014, 0, -0.7);
+    const cNotch = addV(-0.27, 0.0, 0, 0.0);
+    const cUpperTip = addV(-0.35, 0.088, 0, 0.9);
+    const cUpperMid = addV(-0.29, 0.052, 0, 0.6);
+    const cLowerTip = addV(-0.35, -0.088, 0, -0.9);
+    const cLowerMid = addV(-0.29, -0.052, 0, -0.6);
+
+    indices.push(cPedTop, cUpperMid, cPedMid);
+    indices.push(cUpperMid, cUpperTip, cNotch);
+    indices.push(cUpperMid, cNotch, cPedMid);
+
+    indices.push(cPedMid, cLowerMid, cPedBot);
+    indices.push(cPedMid, cNotch, cLowerMid);
+    indices.push(cNotch, cLowerTip, cLowerMid);
+
+    // Tiny dorsal fin triangle: x from -0.04 to +0.07, y up to +0.105
+    const dAnt = addV(0.07, 0.062, 0, 0.9);
+    const dMid = addV(0.01, 0.105, 0, 1.0);
+    const dPos = addV(-0.04, 0.058, 0, 0.8);
+    indices.push(dAnt, dMid, dPos);
+
+    const geom = new T.BufferGeometry();
+    geom.setAttribute('position', new T.Float32BufferAttribute(vertices, 3));
+    geom.setAttribute('color', new T.Float32BufferAttribute(colors, 3));
+    geom.setIndex(indices);
+    geom.computeVertexNormals();
+    return geom;
+  }
+
+  const fishGeometry = buildSmallFishGeometry();
+  const fishCount = 110;
+  const fishPhases = new Float32Array(fishCount);
+  for (let i = 0; i < fishCount; i++) fishPhases[i] = random() * Math.PI * 2;
+  fishGeometry.setAttribute('fishPhase', new T.InstancedBufferAttribute(fishPhases, 1));
+
+  const fishMaterial = new T.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: .33,
+    metalness: .18,
+    side: T.DoubleSide
+  });
+  fishMaterial.onBeforeCompile = shader => {
+    shader.uniforms.time = waterUniforms.time;
+    shader.uniforms.daylight = waterUniforms.daylight;
+    shader.vertexShader = `uniform float time;
+      attribute float fishPhase;
+      varying vec3 vFishWorld;
+      ${shader.vertexShader}`;
+    shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>',
+      `#include <beginnormal_vertex>
+      float tailW = clamp((.10 - position.x) / .45, 0., 1.);
+      float wave = sin(time * 9.2 + fishPhase + position.x * 11.5) * tailW * tailW * .058;
+      float slope = cos(time * 9.2 + fishPhase + position.x * 11.5) * 11.5 * tailW * tailW * .058;
+      objectNormal.x -= slope * objectNormal.z;`);
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
+      `#include <begin_vertex>
+      float tailW2 = clamp((.10 - position.x) / .45, 0., 1.);
+      float wave2 = sin(time * 9.2 + fishPhase + position.x * 11.5) * tailW2 * tailW2 * .058;
+      transformed.z += wave2;
+      vFishWorld = (modelMatrix * instanceMatrix * vec4(transformed, 1.)).xyz;`);
+    shader.fragmentShader = `varying vec3 vFishWorld;
+      ${shader.fragmentShader}`;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>',
+      `float waterDepth = max(0., 15. - vFishWorld.y);
+      float viewDist = length(vViewPosition);
+      vec3 verticalAbsorption = exp(-vec3(.020, .007, .0015) * max(0., waterDepth - 11.));
+      vec3 pathAbsorption = exp(-vec3(.014, .004, .0008) * viewDist);
+      outgoingLight *= mix(vec3(1.), verticalAbsorption * pathAbsorption, .78);
+      #include <opaque_fragment>`);
+  };
+  const fish = new T.InstancedMesh(fishGeometry, fishMaterial, fishCount);
+  fish.count = currentQuality.fish;
+  fish.instanceMatrix.setUsage(T.DynamicDrawUsage);
+  fish.frustumCulled = false;
   scene.add(fish);
-  const fishTransform=new T.Object3D();
-  const fishSeeds=Array.from({length:fishCount},()=>[random(),random(),random()]);
-  const jellyfish=window.createJellyfish(T,scene,waterUniforms);
+  const fishTransform = new T.Object3D();
+  const fishSeeds = Array.from({length: fishCount}, () => [random(), random(), random(), random() * Math.PI * 2]);
+
+  function buildRemoraGeometry() {
+    const vertices = [];
+    const colors = [];
+    const indices = [];
+
+    const colDorsal = new T.Color(0x34444c);
+    const colVentral = new T.Color(0xc2cbcd);
+    const colSuction = new T.Color(0x232d32);
+
+    function addV(x, y, z, ny, isDisc = false) {
+      vertices.push(x, y, z);
+      const c = new T.Color();
+      if (isDisc) {
+        c.copy(colSuction);
+      } else {
+        const underside = T.MathUtils.smoothstep(-ny, -0.15, 0.45);
+        c.copy(colDorsal).lerp(colVentral, underside);
+      }
+      colors.push(c.r, c.g, c.b);
+      return (vertices.length / 3) - 1;
+    }
+
+    const rings = 18, sides = 12;
+    const startX = -0.26, endX = 0.34, length = endX - startX;
+
+    for (let i = 0; i <= rings; i++) {
+      const u = i / rings;
+      const x = startX + u * length;
+      const p = Math.sin(Math.pow(u, 0.65) * Math.PI);
+      const halfHeight = u === 1 ? 0.003 : (0.048 * p + 0.012 * (1 - u * 0.75));
+      const halfWidth = u === 1 ? 0.005 : (0.042 * p + 0.010 * (1 - u * 0.75));
+      const discZone = u > 0.62 && u < 0.96;
+
+      for (let j = 0; j <= sides; j++) {
+        const angle = (j / sides) * Math.PI * 2;
+        const sinA = Math.sin(angle);
+        const cosA = Math.cos(angle);
+        let y = sinA * halfHeight;
+        const z = cosA * halfWidth;
+        const isDisc = discZone && sinA > 0.55;
+        if (isDisc) y = Math.min(y, halfHeight * 0.72);
+        addV(x, y, z, sinA, isDisc);
+      }
+    }
+
+    for (let i = 0; i < rings; i++) {
+      for (let j = 0; j < sides; j++) {
+        const a = i * (sides + 1) + j;
+        const b = a + sides + 1;
+        indices.push(a, a + 1, b, b, a + 1, b + 1);
+      }
+    }
+
+    // Forked caudal fin: x from -0.25 to -0.44
+    const rPedTop = addV(-0.25, 0.012, 0, 0.6);
+    const rPedMid = addV(-0.25, 0.0, 0, 0.0);
+    const rPedBot = addV(-0.25, -0.012, 0, -0.6);
+    const rNotch = addV(-0.35, 0.0, 0, 0.0);
+    const rUpperTip = addV(-0.44, 0.065, 0, 0.9);
+    const rUpperMid = addV(-0.36, 0.038, 0, 0.7);
+    const rLowerTip = addV(-0.44, -0.065, 0, -0.9);
+    const rLowerMid = addV(-0.36, -0.038, 0, -0.7);
+
+    indices.push(rPedTop, rUpperMid, rPedMid);
+    indices.push(rUpperMid, rUpperTip, rNotch);
+    indices.push(rUpperMid, rNotch, rPedMid);
+
+    indices.push(rPedMid, rLowerMid, rPedBot);
+    indices.push(rPedMid, rNotch, rLowerMid);
+    indices.push(rNotch, rLowerTip, rLowerMid);
+
+    // Small dorsal fin (x from -0.05 to -0.18, y up to +0.058)
+    const rdAnt = addV(-0.05, 0.040, 0, 0.8);
+    const rdMid = addV(-0.11, 0.058, 0, 0.9);
+    const rdPos = addV(-0.18, 0.024, 0, 0.7);
+    indices.push(rdAnt, rdMid, rdPos);
+
+    // Small anal fin (x from -0.05 to -0.18, y down to -0.058)
+    const raAnt = addV(-0.05, -0.040, 0, -0.8);
+    const raMid = addV(-0.11, -0.058, 0, -0.9);
+    const raPos = addV(-0.18, -0.024, 0, -0.7);
+    indices.push(raAnt, raPos, raMid);
+
+    // Small pectoral fins (side = -1 and +1)
+    for (const s of [-1, 1]) {
+      const rpBase1 = addV(0.12, -0.015, s * 0.036, -0.2);
+      const rpBase2 = addV(0.04, -0.018, s * 0.032, -0.3);
+      const rpTip = addV(0.02, -0.028, s * 0.082, -0.2);
+      if (s === 1) indices.push(rpBase1, rpTip, rpBase2);
+      else indices.push(rpBase1, rpBase2, rpTip);
+    }
+
+    const geom = new T.BufferGeometry();
+    geom.setAttribute('position', new T.Float32BufferAttribute(vertices, 3));
+    geom.setAttribute('color', new T.Float32BufferAttribute(colors, 3));
+    geom.setIndex(indices);
+    geom.computeVertexNormals();
+    return geom;
+  }
+
+  const maxRemoras = 22;
+  const remoraGeometry = buildRemoraGeometry();
+  const remoraPhases = new Float32Array(maxRemoras);
+  for (let i = 0; i < maxRemoras; i++) remoraPhases[i] = random() * Math.PI * 2;
+  remoraGeometry.setAttribute('remoraPhase', new T.InstancedBufferAttribute(remoraPhases, 1));
+
+  const remoraMaterial = new T.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: .46,
+    metalness: .04,
+    side: T.DoubleSide
+  });
+  remoraMaterial.onBeforeCompile = shader => {
+    Object.assign(shader.uniforms, {
+      time: waterUniforms.time,
+      daylight: waterUniforms.daylight,
+      sunColor: waterUniforms.sunColor,
+      sunPower: waterUniforms.sunPower,
+      lightDirection: waterUniforms.lightDirection,
+      causticMap: { value: causticTarget.texture },
+      causticOrigin: { value: causticOrigin },
+      causticSpan: { value: causticSpan },
+      causticDepths: { value: causticDepths },
+      causticMultiTap: oceanOptics.causticMultiTap,
+      activeSharkCount: oceanOptics.activeSharkCount,
+      animalStates: oceanOptics.animalStates,
+      animalHeadings: oceanOptics.animalHeadings
+    });
+    shader.vertexShader = `uniform float time;
+      uniform vec3 lightDirection;
+      ${solarOcclusionGLSL}
+      attribute float remoraPhase;
+      varying vec3 vRemoraWorld;
+      varying vec3 vRemoraNormal;
+      varying float vRemoraShadow;
+      ${shader.vertexShader}`;
+    shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>',
+      `#include <beginnormal_vertex>
+      float tailW = clamp((.05 - position.x) / .49, 0., 1.);
+      float remoraWave = sin(time * 10.8 + remoraPhase + position.x * 9.5) * tailW * tailW * .052;
+      float remoraSlope = cos(time * 10.8 + remoraPhase + position.x * 9.5) * 9.5 * tailW * tailW * .052;
+      objectNormal.x -= remoraSlope * objectNormal.z;`);
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
+      `#include <begin_vertex>
+      float tailW2 = clamp((.05 - position.x) / .49, 0., 1.);
+      float remoraWave2 = sin(time * 10.8 + remoraPhase + position.x * 9.5) * tailW2 * tailW2 * .052;
+      transformed.z += remoraWave2;
+      vRemoraWorld = (modelMatrix * instanceMatrix * vec4(transformed, 1.)).xyz;
+      vRemoraNormal = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * objectNormal);
+      vRemoraShadow = sharkSolarOcclusion(vRemoraWorld, lightDirection, vec3(9999.));`);
+    shader.fragmentShader = `uniform vec3 sunColor;
+      uniform vec3 lightDirection;
+      uniform float sunPower;
+      uniform float daylight;
+      uniform sampler2D causticMap;
+      uniform vec2 causticOrigin;
+      uniform float causticSpan;
+      uniform vec3 causticDepths;
+      uniform float causticMultiTap;
+      varying vec3 vRemoraWorld;
+      varying vec3 vRemoraNormal;
+      varying float vRemoraShadow;
+      ${shader.fragmentShader}`;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>',
+      `float waterDepth = max(0., 15. - vRemoraWorld.y);
+      if (sunPower > .001) {
+        vec2 surfaceCoordinate = vRemoraWorld.xz + lightDirection.xz * waterDepth / max(.2, lightDirection.y);
+        vec2 causticUV = (surfaceCoordinate - causticOrigin) / causticSpan + .5;
+        float spread = .0028 + waterDepth * .00018;
+        vec3 layers = causticMultiTap > .5
+          ? (texture2D(causticMap, causticUV).rgb * .40
+            + (texture2D(causticMap, causticUV + vec2(spread, 0.)).rgb
+            +  texture2D(causticMap, causticUV - vec2(spread, 0.)).rgb
+            +  texture2D(causticMap, causticUV + vec2(0., spread)).rgb
+            +  texture2D(causticMap, causticUV - vec2(0., spread)).rgb) * .15) * 16.
+          : texture2D(causticMap, causticUV).rgb * 16.;
+        float focus = waterDepth < causticDepths.y
+          ? mix(layers.r, layers.g, clamp((waterDepth - causticDepths.x) / (causticDepths.y - causticDepths.x), 0., 1.))
+          : mix(layers.g, layers.b, clamp((waterDepth - causticDepths.y) / (causticDepths.z - causticDepths.y), 0., 1.));
+        vec2 edge = min(causticUV, 1. - causticUV);
+        float mapFade = smoothstep(0., .06, min(edge.x, edge.y));
+        float depthFade = exp(-waterDepth * .035) * smoothstep(0., 3., waterDepth);
+        float lightFootprint = max(length(dFdx(surfaceCoordinate)), length(dFdy(surfaceCoordinate)));
+        float distanceFilter = 1. - smoothstep(.2, 1., lightFootprint);
+        float illuminatedBack = max(dot(vRemoraNormal, lightDirection), 0.);
+        float rawContrast = focus - .92;
+        float lightContrast = rawContrast > 0. ? (rawContrast * 2.2) / (1. + rawContrast * .75) : clamp(rawContrast, -.55, 0.);
+        outgoingLight = max(vec3(0.), outgoingLight + diffuseColor.rgb * sunColor * sunPower
+          * lightContrast * illuminatedBack * depthFade * mapFade * distanceFilter * .70 * vRemoraShadow);
+      }
+
+      // Part 3: 3D Beer-Lambert vertical depth & path spectral absorption
+      float viewDist = length(vViewPosition);
+      vec3 verticalAbsorption = exp(-vec3(.020, .007, .0015) * max(0., waterDepth - 11.));
+      vec3 pathAbsorption = exp(-vec3(.014, .004, .0008) * viewDist);
+      outgoingLight *= mix(vec3(1.), verticalAbsorption * pathAbsorption, .78);
+
+      #include <opaque_fragment>`);
+  };
+  const remoras = new T.InstancedMesh(remoraGeometry, remoraMaterial, maxRemoras);
+  remoras.instanceMatrix.setUsage(T.DynamicDrawUsage);
+  remoras.frustumCulled = false;
+  scene.add(remoras);
+
+  const remoraAttachments = [
+    { sharkIndex: 0, offset: [.42, -.62, .38], scale: .84, seed: 1.15 },
+    { sharkIndex: 0, offset: [-.65, -.52, -.34], scale: .74, seed: 2.38 },
+    { sharkIndex: 1, offset: [.88, -.56, -.28], scale: .88, seed: 3.51 },
+    { sharkIndex: 1, offset: [-.22, .68, .28], scale: .72, seed: 4.74 },
+    { sharkIndex: 2, offset: [.35, -.58, -.36], scale: .78, seed: 0.92 },
+    { sharkIndex: 3, offset: [.72, -.60, .32], scale: .86, seed: 2.14 },
+    { sharkIndex: 3, offset: [-.50, -.48, .30], scale: .68, seed: 5.43 },
+    { sharkIndex: 4, offset: [.45, -.55, -.32], scale: .76, seed: 3.27 },
+    { sharkIndex: 5, offset: [.80, -.58, .30], scale: .85, seed: 1.83 },
+    { sharkIndex: 6, offset: [-.30, .65, -.26], scale: .70, seed: 4.19 },
+    { sharkIndex: 7, offset: [.55, -.52, -.35], scale: .80, seed: 2.91 },
+    { sharkIndex: 8, offset: [.65, -.54, .32], scale: .75, seed: 0.54 },
+    { sharkIndex: 9, offset: [.92, -.62, -.30], scale: .88, seed: 3.82 },
+    { sharkIndex: 9, offset: [-.45, -.50, .35], scale: .72, seed: 5.16 },
+    { sharkIndex: 10, offset: [.40, -.56, .34], scale: .78, seed: 1.47 },
+    { sharkIndex: 11, offset: [.75, -.58, -.28], scale: .82, seed: 2.65 },
+    { sharkIndex: 21, offset: [.50, -.54, .30], scale: .74, seed: 4.31 },
+    { sharkIndex: 22, offset: [.60, -.52, -.32], scale: .72, seed: 0.77 },
+    { sharkIndex: 23, offset: [-.25, .66, .25], scale: .69, seed: 3.64 },
+    { sharkIndex: 24, offset: [.70, -.58, .32], scale: .76, seed: 2.22 },
+    { sharkIndex: 25, offset: [.48, -.52, -.28], scale: .75, seed: 5.89 },
+    { sharkIndex: 26, offset: [-.40, -.46, .30], scale: .71, seed: 1.95 }
+  ];
+
+  const remoraLocalPos = new T.Vector3();
+  const remoraWorldPos = new T.Vector3();
+  const remoraYawQuat = new T.Quaternion();
+  const remoraDummy = new T.Object3D();
+  const remoraUp = new T.Vector3(0, 1, 0);
+  const jellyfish=window.createJellyfish(T,scene,waterUniforms,oceanOptics);
 
   let paused=matchMedia('(prefers-reduced-motion: reduce)').matches;
   let speed=Number(document.getElementById('speed').value);
@@ -1481,7 +2132,7 @@
     const geometry=shark.mesh.geometry,u=shark.uniforms;
     // Conservative motion bounds match the GPU's maximum tail weight (1.2²),
     // wave amplitude and jaw rotation. They avoid scanning vertices each frame.
-    const elasticReach=1.44*u.dragBend.value.length();
+    const elasticReach=1.44*u.dragBend.value.length() + (u.finTurn ? .24 * u.finTurn.value.length() : 0);
     let radius;
     if(shark.isJellyfish){
       radius=(3+elasticReach)*shark.scale;
@@ -1567,6 +2218,7 @@
     const width=innerWidth,height=innerHeight;
     renderer.setSize(width,height,false);
     renderer.getDrawingBufferSize(waterUniforms.resolution.value);
+    if(particleUniforms && particleUniforms.pixelRatio) particleUniforms.pixelRatio.value = renderer.getPixelRatio();
     camera.aspect=width/height;
     // Portrait layouts get a wider field of view so whole sharks remain visible.
     camera.fov=camera.aspect<.85?62:49;
@@ -1575,6 +2227,180 @@
   }
   window.addEventListener('resize',resize);
   resize();
+
+  const qualityInput = document.getElementById('quality');
+  const qualityValue = document.getElementById('quality-value');
+  function setQuality(index) {
+    const idx = T.MathUtils.clamp(Math.round(Number(index)), 0, 3);
+    currentQuality = qualityPresets[idx];
+    renderer.setPixelRatio(Math.min(devicePixelRatio, currentQuality.maxDpr));
+    resize();
+    if (causticTarget.width !== currentQuality.causticSize) {
+      causticTarget.setSize(currentQuality.causticSize, currentQuality.causticSize);
+    }
+    causticMesh.geometry = causticGeometries[currentQuality.causticGridIndex];
+    causticUniforms.waveFootprint.value = causticSpan / currentQuality.causticGrid;
+    oceanOptics.causticMultiTap.value = currentQuality.multiTap;
+    shaftGeometry.instanceCount = currentQuality.shafts;
+    if (fish) fish.count = currentQuality.fish;
+    previousCausticTime = NaN;
+    redrawNeeded = true;
+    if (qualityInput) {
+      qualityInput.value = String(idx);
+      qualityInput.setAttribute('aria-valuetext', currentQuality.aria);
+    }
+    if (qualityValue) {
+      qualityValue.value = currentQuality.label;
+    }
+  }
+  if (qualityInput) qualityInput.addEventListener('input', e => setQuality(e.target.value));
+  setQuality(qualityInput ? qualityInput.value : 1);
+
+  // Preallocated scratch objects for renderScene — zero heap allocations per frame
+  const boidForces=Array.from({length:40},()=>new T.Vector3());
+  const boidP1=new T.Vector3(),boidP2=new T.Vector3(),boidDiff=new T.Vector3();
+  const maxCandidateAnimals=100;
+  const candidateAnimals=new Array(maxCandidateAnimals).fill(null);
+  const animalSortIndices=new Int32Array(maxCandidateAnimals);
+  const animalSortDists=new Float32Array(maxCandidateAnimals);
+  const animalForwardScratch=new T.Vector3();
+  const localAngularScratch=new T.Vector3();
+
+  function updateAnimalPhysics(shark,sharkIndex,elapsed){
+    if(!shark.mesh.visible || (shark.isJellyfish&&!jellyfish.group.visible)){
+      if(shark===heldShark)releaseShark();return;
+    }
+    let x,y,z;
+    if(shark.isJellyfish){
+      ({x,y,z}=shark.mesh.position);
+    }else{
+      const phase=shark.phase+animationTime*shark.rate*shark.direction;
+      x=Math.sin(phase)*shark.rx;z=shark.z+Math.cos(phase)*shark.rz;
+      y=shark.y+Math.sin(phase*2+shark.phase)*.85;
+      const dx=Math.cos(phase)*shark.rx*shark.direction;
+      const dz=-Math.sin(phase)*shark.rz*shark.direction;
+      shark.mesh.rotation.set(0,Math.atan2(-dz,dx),0);
+      shark.mesh.rotateX(Math.sin(phase)*.20*shark.direction+Math.sin(animationTime*.11+shark.phase)*.055);
+      shark.mesh.rotateZ(Math.cos(phase*2+shark.phase)*.045);
+      const dyRate=1.7*Math.cos(phase*2+shark.phase);
+      const dPosDt=Math.hypot(dx,dyRate,dz)*shark.rate;
+      shark.uniforms.sharkSpeed.value=(paused?0:dPosDt*speed)+shark.velocity.length();
+    }
+    baseRotation.copy(shark.mesh.quaternion);
+    // Force at the contact point moves the body and produces torque
+    // r cross F. An elongated body has less inertia around its longitudinal axis.
+    // Small substeps and water resistance damp both translation and rotation.
+    const steps=Math.max(1,Math.ceil(elapsed*120)),dt=elapsed/steps;
+    for(let step=0;step<steps;step++){
+      shark.mesh.quaternion.copy(baseRotation).premultiply(shark.rotationOffset);
+      if(shark===heldShark){
+        gripArm.copy(gripLocal).multiplyScalar(shark.scale).applyQuaternion(shark.mesh.quaternion);
+        gripVelocity.crossVectors(shark.angularVelocity,gripArm).add(shark.velocity);
+        appliedForce.copy(dragTarget).sub(gripArm);
+        appliedForce.x-=x+shark.offset.x;
+        appliedForce.y-=y+shark.offset.y;
+        appliedForce.z-=z+shark.offset.z;
+        appliedForce.multiplyScalar(45).addScaledVector(gripVelocity,-9).clampLength(0,80);
+        shark.velocity.addScaledVector(appliedForce,dt);
+        shark.velocity.clampLength(0,40);
+        appliedTorque.crossVectors(gripArm,appliedForce).multiplyScalar(gripTorque);
+        inverseRotation.copy(shark.mesh.quaternion).invert();
+        appliedTorque.applyQuaternion(inverseRotation);
+        appliedTorque.x/=(shark.isJellyfish?1.1:.6)*shark.scale*shark.scale;
+        appliedTorque.y/=(shark.isJellyfish?1.1:3.8)*shark.scale*shark.scale;
+        appliedTorque.z/=(shark.isJellyfish?1.1:3.8)*shark.scale*shark.scale;
+        appliedTorque.applyQuaternion(shark.mesh.quaternion);
+        shark.angularVelocity.addScaledVector(appliedTorque,dt).clampLength(0,2.5);
+      }else{
+        shark.velocity.multiplyScalar(Math.exp(-5.5*dt));
+        if(!shark.isJellyfish)shark.velocity.addScaledVector(boidForces[sharkIndex], dt * 15.0);
+        // After release, swim back towards the normal upright attitude with
+        // a damped angular spring. Apply torque rather than resetting the
+        // rotation, so the shark retains its inertia and cannot snap upright.
+        // q and -q describe the same attitude: choose the shortest return,
+        // including when the shark has been turned completely upside down.
+        levellingError.copy(shark.rotationOffset).invert();
+        const sign=levellingError.w<0?-1:1;
+        appliedTorque.set(levellingError.x,levellingError.y,levellingError.z).multiplyScalar(sign);
+        const sineHalfAngle=appliedTorque.length();
+        if(sineHalfAngle>0){
+          const angle=2*Math.atan2(sineHalfAngle,Math.abs(levellingError.w));
+          appliedTorque.multiplyScalar(6.5*angle/sineHalfAngle);
+          shark.angularVelocity.addScaledVector(appliedTorque,dt).clampLength(0,2.5);
+        }
+      }
+      shark.angularVelocity.multiplyScalar(Math.exp(-5*dt));
+      shark.offset.addScaledVector(shark.velocity,dt);
+      const angularSpeed=shark.angularVelocity.length();
+      if(angularSpeed>0){
+        dragNormal.copy(shark.angularVelocity).divideScalar(angularSpeed);
+        rotationStep.setFromAxisAngle(dragNormal,angularSpeed*dt);
+        shark.rotationOffset.premultiply(rotationStep).normalize();
+      }
+    }
+    if(shark!==heldShark && shark.velocity.lengthSq()<.00001)shark.velocity.set(0,0,0);
+    if(shark!==heldShark && shark.angularVelocity.lengthSq()<.00001)shark.angularVelocity.set(0,0,0);
+    // Finish below a tenth of a degree so a paused scene can stop rendering
+    // after settling instead of following an endless asymptotic return.
+    if(shark!==heldShark && 1-shark.rotationOffset.w*shark.rotationOffset.w<.000001
+        && shark.angularVelocity.lengthSq()<.0001){
+      shark.rotationOffset.identity();
+      shark.angularVelocity.set(0,0,0);
+    }
+    shark.mesh.position.set(x,y,z).add(shark.offset);
+    shark.mesh.quaternion.copy(baseRotation).premultiply(shark.rotationOffset);
+    // The tail yields against movement, including when direction changes.
+    // The deformation is filtered so it straightens gently after release.
+    inverseRotation.copy(shark.mesh.quaternion).invert();
+    localVelocity.copy(shark.velocity).applyQuaternion(inverseRotation).divideScalar(shark.scale);
+    const elasticity=1-Math.exp(-8*elapsed);
+    const bend=shark.uniforms.dragBend.value;
+    bend.x+= (T.MathUtils.clamp(-(shark.isJellyfish?localVelocity.x:localVelocity.y)*.055,-.85,.85)-bend.x)*elasticity;
+    bend.y+= (T.MathUtils.clamp(-localVelocity.z*.055,-.85,.85)-bend.y)*elasticity;
+    if(shark.velocity.lengthSq()===0 && bend.lengthSq()<.00001)bend.set(0,0);
+    if(shark.isJellyfish){keepSharkAwayFromCamera(shark,elapsed);return;}
+    localAngularScratch.copy(shark.angularVelocity).applyQuaternion(inverseRotation);
+    const targetTurnX=T.MathUtils.clamp(-localVelocity.z*.055-localAngularScratch.y*.14,-.20,.20);
+    const targetTurnY=T.MathUtils.clamp(-localVelocity.y*.055+localAngularScratch.x*.15,-.20,.20);
+    shark.finTurnInteraction.x+=(targetTurnX-shark.finTurnInteraction.x)*elasticity;
+    shark.finTurnInteraction.y+=(targetTurnY-shark.finTurnInteraction.y)*elasticity;
+    if(shark.velocity.lengthSq()===0 && shark.angularVelocity.lengthSq()===0 && shark.finTurnInteraction.lengthSq()<.00001){
+      shark.finTurnInteraction.set(0,0);
+    }
+    const phase=shark.phase+animationTime*shark.rate*shark.direction;
+    const pathTurn=-shark.direction*.045*(1+.3*Math.cos(phase*2));
+    const pathHeave=-.035*Math.cos(phase*2+shark.phase);
+    shark.uniforms.finTurn.value.set(
+      T.MathUtils.clamp(shark.finTurnInteraction.x+pathTurn,-.24,.24),
+      T.MathUtils.clamp(shark.finTurnInteraction.y+pathHeave,-.24,.24)
+    );
+    const effort=shark===heldShark?0:T.MathUtils.clamp(shark.velocity.length()*.22+boidForces[sharkIndex].length()*.07,0,1.25);
+    shark.burstPower+=(effort-shark.burstPower)*(1-Math.exp(-5.5*elapsed));
+    if(effort<.0015 && shark.burstPower<.0015) shark.burstPower=0;
+    if(!paused && elapsed>0) shark.extraSwimPhase+=elapsed*speed*shark.burstPower*2.1;
+    shark.uniforms.swimTime.value=animationTime*(.83+shark.rate*7)+shark.extraSwimPhase;
+    shark.uniforms.swimPower.value=(shark.power||1)*(1+.38*shark.burstPower);
+    const jaw=sharkAnatomies[shark.species].jaw;
+    // Small, unhurried openings, offset for each individual. Animation time
+    // also freezes the mouth when the screensaver is paused.
+    shark.uniforms.jawAngle.value=jaw ? jaw.restAngle+jaw.idleAmplitude*Math.sin(animationTime*.63+shark.phase)
+      +(jaw.maximumAngle-jaw.restAngle-jaw.idleAmplitude)*Math.pow(.5+.5*Math.sin(animationTime*.13+shark.phase*1.73),18) : 0;
+    keepSharkAwayFromCamera(shark,elapsed);
+    if (!shark.isJellyfish) {
+      const distSq = shark.mesh.position.distanceToSquared(camera.position);
+      const farDist = currentQuality.lodDist + 2;
+      const nearDist = currentQuality.lodDist - 2;
+      if (!shark.isFarLod && distSq > farDist * farDist && shark !== heldShark) {
+        shark.isFarLod = true;
+        shark.mesh.geometry = sharkGeometriesFar[shark.species][shark.variantIndex];
+        shark.uniforms.jawPivot.value.fromArray(shark.mesh.geometry.userData.jawPivot);
+      } else if (shark.isFarLod && (distSq < nearDist * nearDist || shark === heldShark)) {
+        shark.isFarLod = false;
+        shark.mesh.geometry = sharkGeometries[shark.species][shark.variantIndex];
+        shark.uniforms.jawPivot.value.fromArray(shark.mesh.geometry.userData.jawPivot);
+      }
+    }
+  }
 
   function renderScene(elapsed=0){
     jellyfish.update(animationTime);
@@ -1591,134 +2417,215 @@
       raycaster.ray.at(gripDepth,dragTarget);
     }
     lightShafts.visible=waterUniforms.sunPower.value>0;
-    const boidForces=sharks.map(()=>new T.Vector3());
-    for(let i=0;i<sharks.length;i++){
-      if(!sharks[i].mesh.visible||sharks[i]===heldShark)continue;
-      const s1=sharks[i], ph1=s1.phase+animationTime*s1.rate*s1.direction;
-      const p1=new T.Vector3(Math.sin(ph1)*s1.rx,s1.y+Math.sin(ph1*2+s1.phase)*.85,s1.z+Math.cos(ph1)*s1.rz).add(s1.offset);
-      for(let j=0;j<i;j++){
-        if(!sharks[j].mesh.visible||sharks[j]===heldShark)continue;
-        const s2=sharks[j], ph2=s2.phase+animationTime*s2.rate*s2.direction;
-        const p2=new T.Vector3(Math.sin(ph2)*s2.rx,s2.y+Math.sin(ph2*2+s2.phase)*.85,s2.z+Math.cos(ph2)*s2.rz).add(s2.offset);
-        const diff=new T.Vector3().subVectors(p1,p2);
-        const distSq=diff.lengthSq();
-        if(distSq<144&&distSq>0.1){
-          const force=diff.normalize().multiplyScalar(40.0/distSq);
-          boidForces[i].add(force); boidForces[j].sub(force);
+
+    for(let i=0;i<sharks.length;i++) boidForces[i].set(0,0,0);
+    if(!paused){
+      for(let i=0;i<sharks.length;i++){
+        if(!sharks[i].mesh.visible||sharks[i]===heldShark)continue;
+        const s1=sharks[i], ph1=s1.phase+animationTime*s1.rate*s1.direction;
+        boidP1.set(Math.sin(ph1)*s1.rx,s1.y+Math.sin(ph1*2+s1.phase)*.85,s1.z+Math.cos(ph1)*s1.rz).add(s1.offset);
+        for(let j=0;j<i;j++){
+          if(!sharks[j].mesh.visible||sharks[j]===heldShark)continue;
+          const s2=sharks[j], ph2=s2.phase+animationTime*s2.rate*s2.direction;
+          boidP2.set(Math.sin(ph2)*s2.rx,s2.y+Math.sin(ph2*2+s2.phase)*.85,s2.z+Math.cos(ph2)*s2.rz).add(s2.offset);
+          boidDiff.subVectors(boidP1,boidP2);
+          const distSq=boidDiff.lengthSq();
+          if(distSq<144&&distSq>0.1){
+            const factor=40.0/(distSq*Math.sqrt(distSq));
+            boidForces[i].addScaledVector(boidDiff,factor);
+            boidForces[j].addScaledVector(boidDiff,-factor);
+          }
         }
       }
     }
+
     // Both kinds of animal share grabbing, inertia and release recovery.
     // Jellyfish supply their own path and orient their bell along that path.
-    sharks.concat(jellyfish.animals).forEach((shark, sharkIndex) => {
-      if(!shark.mesh.visible || (shark.isJellyfish&&!jellyfish.group.visible)){
-        if(shark===heldShark)releaseShark();return;
+    for(let i=0;i<sharks.length;i++) updateAnimalPhysics(sharks[i],i,elapsed);
+    if(jellyfish && jellyfish.group && jellyfish.group.visible){
+      for(let i=0;i<jellyfish.animals.length;i++) updateAnimalPhysics(jellyfish.animals[i],i,elapsed);
+    }
+
+    for (let r = 0; r < maxRemoras; r++) {
+      const att = remoraAttachments[r];
+      const host = sharks[att.sharkIndex];
+      if (!host || !host.mesh.visible) {
+        remoraDummy.scale.setScalar(0);
+        remoraDummy.position.set(0, -999, 0);
+        remoraDummy.updateMatrix();
+        remoras.setMatrixAt(r, remoraDummy.matrix);
+        continue;
       }
-      let x,y,z;
-      if(shark.isJellyfish){
-        ({x,y,z}=shark.mesh.position);
-      }else{
-        const phase=shark.phase+animationTime*shark.rate*shark.direction;
-        x=Math.sin(phase)*shark.rx;z=shark.z+Math.cos(phase)*shark.rz;
-        y=shark.y+Math.sin(phase*2+shark.phase)*.85;
-        const dx=Math.cos(phase)*shark.rx*shark.direction;
-        const dz=-Math.sin(phase)*shark.rz*shark.direction;
-        shark.mesh.rotation.set(0,Math.atan2(-dz,dx),0);
-        shark.mesh.rotateX(Math.sin(phase)*.20*shark.direction+Math.sin(animationTime*.11+shark.phase)*.055);
-        shark.mesh.rotateZ(Math.cos(phase*2+shark.phase)*.045);
-      }
-      baseRotation.copy(shark.mesh.quaternion);
-      // Force at the contact point moves the body and produces torque
-      // r cross F. An elongated body has less inertia around its longitudinal axis.
-      // Small substeps and water resistance damp both translation and rotation.
-      const steps=Math.max(1,Math.ceil(elapsed*120)),dt=elapsed/steps;
-      for(let step=0;step<steps;step++){
-        shark.mesh.quaternion.copy(baseRotation).premultiply(shark.rotationOffset);
-        if(shark===heldShark){
-          gripArm.copy(gripLocal).multiplyScalar(shark.scale).applyQuaternion(shark.mesh.quaternion);
-          gripVelocity.crossVectors(shark.angularVelocity,gripArm).add(shark.velocity);
-          appliedForce.copy(dragTarget).sub(gripArm);
-          appliedForce.x-=x+shark.offset.x;
-          appliedForce.y-=y+shark.offset.y;
-          appliedForce.z-=z+shark.offset.z;
-          appliedForce.multiplyScalar(45).addScaledVector(gripVelocity,-9).clampLength(0,80);
-          shark.velocity.addScaledVector(appliedForce,dt);
-          shark.velocity.clampLength(0,40);
-          appliedTorque.crossVectors(gripArm,appliedForce).multiplyScalar(gripTorque);
-          inverseRotation.copy(shark.mesh.quaternion).invert();
-          appliedTorque.applyQuaternion(inverseRotation);
-          appliedTorque.x/=(shark.isJellyfish?1.1:.6)*shark.scale*shark.scale;
-          appliedTorque.y/=(shark.isJellyfish?1.1:3.8)*shark.scale*shark.scale;
-          appliedTorque.z/=(shark.isJellyfish?1.1:3.8)*shark.scale*shark.scale;
-          appliedTorque.applyQuaternion(shark.mesh.quaternion);
-          shark.angularVelocity.addScaledVector(appliedTorque,dt).clampLength(0,2.5);
-        }else{
-          shark.velocity.multiplyScalar(Math.exp(-5.5*dt));
-          if(!shark.isJellyfish)shark.velocity.addScaledVector(boidForces[sharkIndex], dt * 15.0);
-          // After release, swim back towards the normal upright attitude with
-          // a damped angular spring. Apply torque rather than resetting the
-          // rotation, so the shark retains its inertia and cannot snap upright.
-          // q and -q describe the same attitude: choose the shortest return,
-          // including when the shark has been turned completely upside down.
-          levellingError.copy(shark.rotationOffset).invert();
-          const sign=levellingError.w<0?-1:1;
-          appliedTorque.set(levellingError.x,levellingError.y,levellingError.z).multiplyScalar(sign);
-          const sineHalfAngle=appliedTorque.length();
-          if(sineHalfAngle>0){
-            const angle=2*Math.atan2(sineHalfAngle,Math.abs(levellingError.w));
-            appliedTorque.multiplyScalar(6.5*angle/sineHalfAngle);
-            shark.angularVelocity.addScaledVector(appliedTorque,dt).clampLength(0,2.5);
-          }
-        }
-        shark.angularVelocity.multiplyScalar(Math.exp(-5*dt));
-        shark.offset.addScaledVector(shark.velocity,dt);
-        const angularSpeed=shark.angularVelocity.length();
-        if(angularSpeed>0){
-          dragNormal.copy(shark.angularVelocity).divideScalar(angularSpeed);
-          rotationStep.setFromAxisAngle(dragNormal,angularSpeed*dt);
-          shark.rotationOffset.premultiply(rotationStep).normalize();
-        }
-      }
-      if(shark!==heldShark && shark.velocity.lengthSq()<.00001)shark.velocity.set(0,0,0);
-      if(shark!==heldShark && shark.angularVelocity.lengthSq()<.00001)shark.angularVelocity.set(0,0,0);
-      // Finish below a tenth of a degree so a paused scene can stop rendering
-      // after settling instead of following an endless asymptotic return.
-      if(shark!==heldShark && 1-shark.rotationOffset.w*shark.rotationOffset.w<.000001
-          && shark.angularVelocity.lengthSq()<.0001){
-        shark.rotationOffset.identity();
-        shark.angularVelocity.set(0,0,0);
-      }
-      shark.mesh.position.set(x,y,z).add(shark.offset);
-      shark.mesh.quaternion.copy(baseRotation).premultiply(shark.rotationOffset);
-      // The tail yields against movement, including when direction changes.
-      // The deformation is filtered so it straightens gently after release.
-      inverseRotation.copy(shark.mesh.quaternion).invert();
-      localVelocity.copy(shark.velocity).applyQuaternion(inverseRotation).divideScalar(shark.scale);
-      const elasticity=1-Math.exp(-8*elapsed);
-      const bend=shark.uniforms.dragBend.value;
-      bend.x+= (T.MathUtils.clamp(-(shark.isJellyfish?localVelocity.x:localVelocity.y)*.055,-.85,.85)-bend.x)*elasticity;
-      bend.y+= (T.MathUtils.clamp(-localVelocity.z*.055,-.85,.85)-bend.y)*elasticity;
-      if(shark.velocity.lengthSq()===0 && bend.lengthSq()<.00001)bend.set(0,0);
-      if(shark.isJellyfish){keepSharkAwayFromCamera(shark,elapsed);return;}
-      shark.uniforms.swimTime.value=animationTime*(.83+shark.rate*7);
-      const jaw=sharkAnatomies[shark.species].jaw;
-      // Small, unhurried openings, offset for each individual. Animation time
-      // also freezes the mouth when the screensaver is paused.
-      shark.uniforms.jawAngle.value=jaw ? jaw.restAngle+jaw.idleAmplitude*Math.sin(animationTime*.63+shark.phase)
-        +(jaw.maximumAngle-jaw.restAngle-jaw.idleAmplitude)*Math.pow(.5+.5*Math.sin(animationTime*.13+shark.phase*1.73),18) : 0;
-      keepSharkAwayFromCamera(shark,elapsed);
-    });
-    for(let i=0;i<fishCount;i++) {
-      const seed=fishSeeds[i],school=i<45?0:1;
-      const phase=animationTime*.019+school*2.7;
-      fishTransform.position.set(
-        Math.sin(phase)*26+(seed[0]-.5)*17,
-        (school? -5:11)+(seed[1]-.5)*5+Math.sin(animationTime*.5+i)*.08,
-        -38-school*21+(seed[2]-.5)*10
+      const ax = att.offset[0];
+      const tail = T.MathUtils.clamp((1.8 - ax) / 6.2, 0, 1.2);
+      const head = T.MathUtils.clamp((ax - 1.8) / 1.5, 0, 1);
+      const phase = host.uniforms.swimTime.value * 1.9 + ax * .91 + host.uniforms.swimPhase.value;
+      const wave = (Math.sin(phase) - .15 * Math.sin(phase * 2)) * (tail * tail * .57 - head * .1) * host.uniforms.swimPower.value;
+      const spineSlope = (Math.cos(phase) - .3 * Math.cos(phase * 2)) * .91 * (tail * tail * .57 - head * .1) * host.uniforms.swimPower.value;
+      const stationWeave = Math.sin(animationTime * 1.9 + att.seed) * .035;
+
+      remoraLocalPos.set(
+        ax,
+        att.offset[1] + host.uniforms.dragBend.value.x * tail * tail,
+        att.offset[2] + wave + host.uniforms.dragBend.value.y * tail * tail + stationWeave
       );
-      fishTransform.rotation.set(0,Math.cos(phase)>.0?0:Math.PI,Math.sin(i+animationTime)*.04);
-      fishTransform.scale.setScalar(.45+seed[1]*.8);
-      fishTransform.updateMatrix();fish.setMatrixAt(i,fishTransform.matrix);
+      remoraWorldPos.copy(remoraLocalPos).multiplyScalar(host.scale).applyQuaternion(host.mesh.quaternion).add(host.mesh.position);
+      remoraDummy.position.copy(remoraWorldPos);
+
+      remoraYawQuat.setFromAxisAngle(remoraUp, -spineSlope * 0.4);
+      remoraDummy.quaternion.copy(host.mesh.quaternion).multiply(remoraYawQuat);
+      remoraDummy.scale.setScalar(att.scale * (.85 + .15 * host.scale));
+      remoraDummy.updateMatrix();
+      remoras.setMatrixAt(r, remoraDummy.matrix);
+    }
+    remoras.instanceMatrix.needsUpdate = true;
+
+    // Populate shared 24-animal optical field (oceanOptics) with closest visible animals
+    let candidateCount = 0;
+    for (let i = 0; i < sharks.length; i++) {
+      const s = sharks[i];
+      if (s.mesh.visible) {
+        candidateAnimals[candidateCount] = s;
+        const pos = s.mesh.position;
+        const dx = pos.x, dy = pos.y - 1.0, dz = pos.z + 18.0;
+        animalSortDists[candidateCount] = dx * dx + dy * dy + dz * dz;
+        animalSortIndices[candidateCount] = candidateCount;
+        candidateCount++;
+        if (candidateCount >= maxCandidateAnimals) break;
+      }
+    }
+    if (jellyfish && jellyfish.group && jellyfish.group.visible) {
+      for (let i = 0; i < jellyfish.animals.length; i++) {
+        const j = jellyfish.animals[i];
+        if (j.mesh.visible) {
+          if (candidateCount >= maxCandidateAnimals) break;
+          candidateAnimals[candidateCount] = j;
+          const pos = j.mesh.position;
+          const dx = pos.x, dy = pos.y - 1.0, dz = pos.z + 18.0;
+          animalSortDists[candidateCount] = dx * dx + dy * dy + dz * dz;
+          animalSortIndices[candidateCount] = candidateCount;
+          candidateCount++;
+        }
+      }
+    }
+    const activeCount = Math.min(candidateCount, currentQuality.maxOptical, animalFieldCount);
+    for (let i = 0; i < activeCount; i++) {
+      let minIdx = i;
+      let minDist = animalSortDists[animalSortIndices[i]];
+      for (let j = i + 1; j < candidateCount; j++) {
+        const d = animalSortDists[animalSortIndices[j]];
+        if (d < minDist) {
+          minDist = d;
+          minIdx = j;
+        }
+      }
+      if (minIdx !== i) {
+        const tmp = animalSortIndices[i];
+        animalSortIndices[i] = animalSortIndices[minIdx];
+        animalSortIndices[minIdx] = tmp;
+      }
+    }
+
+    let writeSlot = 0;
+    for (let k = 0; k < activeCount; k++) {
+      const a = candidateAnimals[animalSortIndices[k]];
+      if (!a.isJellyfish) {
+        animalForwardScratch.set(1, 0, 0).applyQuaternion(a.mesh.quaternion).normalize();
+        const bodyRadius = 0.88 * a.scale;
+        const cx = a.mesh.position.x - animalForwardScratch.x * (0.3 * a.scale);
+        const cy = a.mesh.position.y - animalForwardScratch.y * (0.3 * a.scale);
+        const cz = a.mesh.position.z - animalForwardScratch.z * (0.3 * a.scale);
+        animalStates[writeSlot].set(cx, cy, cz, bodyRadius);
+        animalHeadings[writeSlot].set(animalForwardScratch.x, animalForwardScratch.y, animalForwardScratch.z, 2.95 * a.scale);
+
+        const phase = a.phase + animationTime * a.rate * a.direction;
+        const dPhase = a.rate * a.direction;
+        const dxdt = Math.cos(phase) * a.rx * dPhase;
+        const dzdt = -Math.sin(phase) * a.rz * dPhase;
+        const dydt = 1.7 * Math.cos(phase * 2 + a.phase) * dPhase;
+        const pathScale = paused ? 0 : speed;
+        const vx = dxdt * pathScale + a.velocity.x;
+        const vy = dydt * pathScale + a.velocity.y;
+        const vz = dzdt * pathScale + a.velocity.z;
+        const activitySpeed = (paused ? 0 : speed) + a.velocity.length() * 0.25;
+        animalMotions[writeSlot].set(vx, vy, vz, activitySpeed);
+        writeSlot++;
+      }
+    }
+    const activeSharkCount = writeSlot;
+    for (let k = 0; k < activeCount; k++) {
+      const a = candidateAnimals[animalSortIndices[k]];
+      if (a.isJellyfish) {
+        animalForwardScratch.set(0, 1, 0).applyQuaternion(a.mesh.quaternion).normalize();
+        const bodyRadius = 1.05 * a.scale;
+        animalStates[writeSlot].set(a.mesh.position.x, a.mesh.position.y, a.mesh.position.z, bodyRadius);
+        animalHeadings[writeSlot].set(animalForwardScratch.x, animalForwardScratch.y, animalForwardScratch.z, 0);
+
+        const pathScale = paused ? 0 : speed * 0.22;
+        const vx = animalForwardScratch.x * pathScale + a.velocity.x;
+        const vy = animalForwardScratch.y * pathScale + a.velocity.y;
+        const vz = animalForwardScratch.z * pathScale + a.velocity.z;
+        const activitySpeed = (paused ? 0 : speed * 0.65) + a.velocity.length() * 0.25;
+        animalMotions[writeSlot].set(vx, vy, vz, activitySpeed);
+        writeSlot++;
+      }
+    }
+    for (let k = activeCount; k < animalFieldCount; k++) {
+      animalStates[k].set(0, 0, 0, 0);
+      animalMotions[k].set(0, 0, 0, 0);
+      animalHeadings[k].set(1, 0, 0, 0);
+    }
+    oceanOptics.activeSharkCount.value = activeSharkCount;
+    oceanOptics.activeAnimalCount.value = activeCount;
+    for (let i = candidateCount; i < maxCandidateAnimals && candidateAnimals[i] !== null; i++) {
+      candidateAnimals[i] = null;
+    }
+    for(let i=0;i<currentQuality.fish;i++) {
+      const seed=fishSeeds[i];
+      const school=i<55?0:1;
+      const orbitDir=school===0?1:-1;
+      const orbitRate=school===0?0.016:0.014;
+      const rx=school===0?27:29;
+      const rz=9.5;
+      const centerY=school===0?7.5:-5.5;
+      const centerZ=school===0?-36:-56;
+      const orbitAngle=animationTime*orbitRate*orbitDir+seed[3]*0.12+school*3.14159;
+
+      let fx=Math.sin(orbitAngle)*rx+(seed[0]-.5)*8.0+Math.sin(animationTime*.65+seed[3])*.35;
+      let fy=centerY+(seed[1]-.5)*3.5+Math.sin(orbitAngle*2.0+seed[3])*1.6+Math.cos(animationTime*.55+seed[3]*1.3)*.25;
+      let fz=centerZ+Math.cos(orbitAngle)*rz+(seed[2]-.5)*6.5+Math.sin(animationTime*.75+seed[3]*.7)*.35;
+
+      let dx=Math.cos(orbitAngle)*rx*orbitDir;
+      let dy=3.2*Math.cos(orbitAngle*2.0+seed[3])*orbitDir;
+      let dz=-Math.sin(orbitAngle)*rz*orbitDir;
+
+      let avoidX=0,avoidY=0,avoidZ=0;
+      for(let k=0;k<activeCount;k++){
+        if(animalHeadings[k].w<=0.01)continue;
+        const sx=animalStates[k].x,sy=animalStates[k].y,sz=animalStates[k].z;
+        const distSq=(fx-sx)*(fx-sx)+(fy-sy)*(fy-sy)+(fz-sz)*(fz-sz);
+        if(distSq<72.25&&distSq>0.01){
+          const dist=Math.sqrt(distSq);
+          const push=(1.0-dist/8.5)*1.8;
+          avoidX+=((fx-sx)/dist)*push;
+          avoidY+=((fy-sy)/dist)*push;
+          avoidZ+=((fz-sz)/dist)*push;
+        }
+      }
+      fx+=avoidX;fy+=avoidY;fz+=avoidZ;
+      dx+=avoidX*1.5;dy+=avoidY*1.5;dz+=avoidZ*1.5;
+
+      const horizSpeed=Math.hypot(dx,dz);
+      const speed3D=Math.hypot(horizSpeed,dy);
+      const yaw=Math.atan2(-dz,dx);
+      const pitch=Math.asin(T.MathUtils.clamp(dy/Math.max(0.01,speed3D),-0.85,0.85));
+      const roll=T.MathUtils.clamp(-dx*orbitDir*0.012,-0.28,0.28);
+
+      fishTransform.position.set(fx,fy,fz);
+      fishTransform.rotation.set(pitch,yaw,roll,'YXZ');
+      fishTransform.scale.setScalar(0.48+seed[1]*0.42);
+      fishTransform.updateMatrix();
+      fish.setMatrixAt(i,fishTransform.matrix);
     }
     fish.instanceMatrix.needsUpdate=true;
     renderer.clear();
@@ -1729,8 +2636,8 @@
   }
   function frame(now){
     animationRequest=requestAnimationFrame(frame);
-    // A 40 fps cap limits GPU usage while preserving calm, fluid motion.
-    if(now-lastRendered<1000/40 || contextLost) return;
+    const minFrameMs = 1000 / currentQuality.fps - 1.8;
+    if(now-lastRendered<minFrameMs || contextLost) return;
     const elapsed=Math.min((now-lastFrame)/1000,.12);
     lastFrame=now; lastRendered=now;
     if(!paused){
@@ -1739,9 +2646,12 @@
       // both movement and lighting; resuming fetches the current local time.
       if(now-lastLightingUpdate>=1000){updateDaylight(new Date());lastLightingUpdate=now;}
     }
-    const interacting=heldShark || sharks.concat(jellyfish.group.visible?jellyfish.animals:[]).some(s=>s.mesh.visible &&
+    const isInteracting=s=>s.mesh.visible &&
       (s.velocity.lengthSq()>0 || s.angularVelocity.lengthSq()>0 || s.uniforms.dragBend.value.lengthSq()>0
-        || s.rotationOffset.x!==0 || s.rotationOffset.y!==0 || s.rotationOffset.z!==0));
+        || (s.finTurnInteraction && s.finTurnInteraction.lengthSq()>0)
+        || (s.burstPower>0)
+        || s.rotationOffset.x!==0 || s.rotationOffset.y!==0 || s.rotationOffset.z!==0);
+    const interacting=heldShark || sharks.some(isInteracting) || (jellyfish.group.visible && jellyfish.animals.some(isInteracting));
     if(!paused || redrawNeeded || interacting){renderScene(elapsed);redrawNeeded=false;}
   }
   updateDaylight(new Date());

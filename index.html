@@ -60,6 +60,15 @@
           </label>
           <output id="light-time-value" for="light-time" aria-label="Selected time">12:00</output>
         </div>
+        <div class="quality-controls">
+          <label for="quality">Graphics</label>
+          <div class="quality-slider" title="Balance power use, frame rate and visual detail">
+            <span class="time-endpoint" aria-hidden="true">Eco</span>
+            <input id="quality" type="range" min="0" max="3" step="1" value="1" aria-label="Graphics quality and power mode" aria-valuetext="Balanced, 30 fps">
+            <span class="time-endpoint" aria-hidden="true">Ultra</span>
+          </div>
+          <output id="quality-value" for="quality" aria-label="Selected graphics mode">Balanced · 30 fps</output>
+        </div>
       </nav>
     </footer>
     <p class="chrome hint">Left: push · Right: pull · Grab away from the centre to turn</p>

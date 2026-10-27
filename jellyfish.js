@@ -4,9 +4,27 @@
  * arms and fine trailing tentacles. Shared geometry and analytic motion keep
  * memory bounded. The ocean supplies animation time, including pause/speed.
  */
-window.createJellyfish=function(T,scene,waterUniforms){
+window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
   'use strict';
+  oceanOptics=oceanOptics||{};
   const group=new T.Group();group.name='Moon jellyfish';scene.add(group);
+  const fallbackCausticTex=!oceanOptics.causticMap?new T.DataTexture(new Uint8Array([0,0,0,0]),1,1):null;
+  if(fallbackCausticTex)fallbackCausticTex.needsUpdate=true;
+  const wrap=(u,fallback)=>(u!==undefined && u!==null)?(u.value!==undefined?u:{value:u}):{value:fallback};
+  const causticMap=wrap(oceanOptics.causticMap,fallbackCausticTex);
+  const causticOrigin=wrap(oceanOptics.causticOrigin,new T.Vector2(0,-32));
+  const causticSpan=wrap(oceanOptics.causticSpan,128);
+  const causticDepths=wrap(oceanOptics.causticDepths,new T.Vector3(5,15,30));
+  const activeSharkCount=wrap(oceanOptics.activeSharkCount,24);
+  const animalStates=wrap(oceanOptics.animalStates,Array.from({length:24},()=>new T.Vector4()));
+  const animalHeadings=wrap(oceanOptics.animalHeadings,Array.from({length:24},()=>new T.Vector4()));
+  const lightDirection=wrap(waterUniforms&&waterUniforms.lightDirection,new T.Vector3(0,1,0));
+  const sunPower=wrap(waterUniforms&&waterUniforms.sunPower,1);
+  const eyePosition=wrap(waterUniforms&&waterUniforms.eyePosition,new T.Vector3(0,3.5,27));
+  const daylight=(waterUniforms&&waterUniforms.daylight)||{value:1};
+  const sunColor=(waterUniforms&&waterUniforms.sunColor)||{value:new T.Color(1,1,1)};
+  const fogColor=(waterUniforms&&waterUniforms.fogColor)||{value:(scene.fog&&scene.fog.color)?scene.fog.color:new T.Color(0x073653)};
+
   function surface(rows,columns,point){
     const positions=[],uvs=[],indices=[];
     for(let y=0;y<=rows;y++)for(let x=0;x<=columns;x++){
@@ -63,25 +81,35 @@ window.createJellyfish=function(T,scene,waterUniforms){
   organs.setAttribute('position',new T.Float32BufferAttribute(organPositions,3));
   organs.setAttribute('normal',new T.Float32BufferAttribute(organNormals,3));
   organs.setAttribute('uv',new T.Float32BufferAttribute(organUvs,2));
-  const tentaclePoints=[],tentacleUvs=[];
+  const tentaclePoints=[],tentacleNormals=[],tentacleUvs=[];
   for(let strand=0;strand<56;strand++){
     const angle=strand/56*Math.PI*2,length=.85+.65*(.5+.5*Math.sin(strand*2.4));
+    const nx=Math.cos(angle),nz=Math.sin(angle);
     for(let segment=0;segment<18;segment++)for(let end=0;end<2;end++){
       const t=(segment+end)/18;
       const rootRadius=Math.sin(1.69)*(1+.017*Math.cos(angle*16));
-      tentaclePoints.push(Math.cos(angle)*rootRadius,.65*Math.cos(1.69)-t*length,Math.sin(angle)*rootRadius);
+      tentaclePoints.push(nx*rootRadius,.65*Math.cos(1.69)-t*length,nz*rootRadius);
+      tentacleNormals.push(nx,0,nz);
       tentacleUvs.push(strand/56,t);
     }
   }
   const tentacles=new T.BufferGeometry();
   tentacles.setAttribute('position',new T.Float32BufferAttribute(tentaclePoints,3));
+  tentacles.setAttribute('normal',new T.Float32BufferAttribute(tentacleNormals,3));
   tentacles.setAttribute('uv',new T.Float32BufferAttribute(tentacleUvs,2));
   const animals=[];
   const vertexShader=`
     uniform float time,phase,pulse,kind;
     uniform vec2 dragBend;
+    uniform vec3 lightDirection;
+    uniform float sunPower;
+    uniform int activeSharkCount;
+    uniform vec4 animalStates[24];
+    uniform vec4 animalHeadings[24];
     varying vec3 localPoint,viewPoint,viewNormal;
     varying vec2 jellyUv;
+    varying vec3 worldPoint,worldNormal;
+    varying float solarShadow;
     void main(){
       vec3 p=position; jellyUv=uv; localPoint=position;
       float width=1.-.23*pulse;
@@ -99,46 +127,122 @@ window.createJellyfish=function(T,scene,waterUniforms){
         p.xz+=dragBend*trail*trail;
         p.y-=.0186*pulse*(1.-trail);
       }
-      vec4 mv=modelViewMatrix*vec4(p,1.);
+      vec4 worldPos=modelMatrix*vec4(p,1.);
+      worldPoint=worldPos.xyz;
+      vec3 safeNormal=dot(normal,normal)>.0001?normal:vec3(0.,1.,0.);
+      vec3 deformedLocalNormal=normalize(safeNormal/vec3(width,1.+.24*pulse,width));
+      worldNormal=normalize(mat3(modelMatrix)*deformedLocalNormal);
+      float occlusion=1.;
+      if(sunPower>.001){
+        vec3 selfOrigin=modelMatrix[3].xyz;
+        for(int k=0;k<24;k++){
+          if(k>=activeSharkCount)break;
+          vec4 st=animalStates[k];
+          vec4 hd=animalHeadings[k];
+          if(st.w<=.01 || hd.w<=.01) continue; // hd.w > 0 only for sharks
+          if(distance(st.xyz,selfOrigin)<.5) continue;
+          vec3 toCaster=st.xyz-worldPoint;
+          float tRay=dot(toCaster,lightDirection);
+          if(tRay>.8 && tRay<38.){
+            vec3 rayPoint=worldPoint+lightDirection*tRay;
+            vec3 rel=rayPoint-st.xyz;
+            float along=clamp(dot(rel,hd.xyz),-hd.w,hd.w);
+            float distToSpine=length(rel-hd.xyz*along);
+            float coreR=st.w*.38;
+            float penumbraR=st.w*(.68+.035*tRay);
+            float block=1.-smoothstep(coreR,penumbraR,distToSpine);
+            occlusion*=1.-.68*block*exp(-tRay*.045);
+          }
+        }
+      }
+      solarShadow=occlusion;
+      vec4 mv=viewMatrix*worldPos;
       viewPoint=mv.xyz;
-      viewNormal=normalize(normalMatrix*(normal/vec3(width,1.+.24*pulse,width)));
+      viewNormal=normalize(normalMatrix*deformedLocalNormal);
       gl_Position=projectionMatrix*mv;
     }`;
   const fragmentShader=`
-    uniform float kind,daylight;
-    uniform vec3 fogColor,sunColor;
+    uniform float kind,daylight,sunPower,phase,pulse,bioExcite;
+    uniform vec3 fogColor,sunColor,lightDirection,eyePosition;
+    uniform sampler2D causticMap;
+    uniform vec2 causticOrigin;
+    uniform float causticSpan;
+    uniform vec3 causticDepths;
     varying vec3 localPoint,viewPoint,viewNormal;
     varying vec2 jellyUv;
+    varying vec3 worldPoint,worldNormal;
+    varying float solarShadow;
     void main(){
       vec3 colour=vec3(.47,.76,.88);
       float alpha;
+      float bioPattern=0.;
+      float bioWave=.55+.45*sin(jellyUv.y*9.-pulse*5.2+phase);
       if(kind<.5 || kind>3.5){
         float edge=pow(1.-abs(dot(normalize(viewNormal),normalize(-viewPoint))),2.2);
         float angle=atan(localPoint.z,localPoint.x);
         float canalDistance=abs(sin(angle*16.+.15*sin(jellyUv.y*18.)));
         float canal=1.-smoothstep(.025,.065+fwidth(canalDistance),canalDistance);
         canal*=smoothstep(.14,.4,jellyUv.y);
-        float rim= smoothstep(.93,.995,jellyUv.y);
+        float rim=smoothstep(.93,.995,jellyUv.y);
         colour+=vec3(.15,.19,.18)*(edge+rim*.5+canal*.3);
         alpha=.09+edge*.36+rim*.18+canal*.08;
         if(kind>3.5)alpha*=.38;
+        bioPattern=(canal*.65+rim*.85+edge*.20)*bioWave;
       }else if(kind<1.5){
         float fringe=pow(abs(jellyUv.x*2.-1.),2.);
         colour=vec3(.62,.73,.86);
         alpha=(.16+.17*fringe)*(1.-smoothstep(.78,1.,jellyUv.y));
+        bioPattern=fringe*.28*bioWave;
       }else if(kind<2.5){
         colour=vec3(.60,.79,.89);
         alpha=.32*(1.-jellyUv.y*.75);
+        bioPattern=(.35+.65*pow(.5+.5*sin(jellyUv.y*28.-pulse*4.+jellyUv.x*37.),3.))*(1.-jellyUv.y*.65)*.42;
       }else{
         float facing=abs(dot(normalize(viewNormal),normalize(-viewPoint)));
         colour=vec3(.57,.39,.65)*(.75+.25*facing);
         alpha=.34;
+        bioPattern=.22*(.7+.3*pulse);
       }
-      // Readable starlit tissue, without treating jellyfish as light sources.
+      float waterDepth=max(0.,15.-worldPoint.y);
+      if(sunPower>.001){
+        vec2 surfaceCoord=worldPoint.xz+lightDirection.xz*waterDepth/max(.2,lightDirection.y);
+        vec2 causticUV=(surfaceCoord-causticOrigin)/causticSpan+.5;
+        float spread=.003+waterDepth*.00018;
+        vec3 layers=texture2D(causticMap,causticUV).rgb*.40
+          +(texture2D(causticMap,causticUV+vec2(spread,0.)).rgb
+          + texture2D(causticMap,causticUV-vec2(spread,0.)).rgb
+          + texture2D(causticMap,causticUV+vec2(0.,spread)).rgb
+          + texture2D(causticMap,causticUV-vec2(0.,spread)).rgb)*.15;
+        layers*=16.;
+        float focus=waterDepth<causticDepths.y
+          ? mix(layers.r,layers.g,clamp((waterDepth-causticDepths.x)/(causticDepths.y-causticDepths.x),0.,1.))
+          : mix(layers.g,layers.b,clamp((waterDepth-causticDepths.y)/(causticDepths.z-causticDepths.y),0.,1.));
+        vec2 cEdge=min(causticUV,1.-causticUV);
+        float mapFade=smoothstep(0.,.06,min(cEdge.x,cEdge.y));
+        float depthFade=exp(-waterDepth*.035)*smoothstep(0.,2.5,waterDepth);
+        float distFilter=1.-smoothstep(.2,1.1,max(length(dFdx(surfaceCoord)),length(dFdy(surfaceCoord))));
+        float kindWeight=(kind>1.5 && kind<2.5) ? .55 : (kind>.5 && kind<1.5 ? .82 : 1.);
+        float causticWeight=mapFade*depthFade*distFilter*(.35+.65*max(dot(normalize(worldNormal),lightDirection),0.))*solarShadow*kindWeight;
+        colour+=colour*sunColor*sunPower*clamp(focus-.85,-.35,2.2)*causticWeight*.48;
+        vec3 worldView=normalize(eyePosition-worldPoint);
+        float backScatter=pow(max(dot(-worldView,lightDirection),0.),3.0)*sunPower*solarShadow;
+        float rimGlow=pow(1.-abs(dot(normalize(worldNormal),worldView)),2.0);
+        colour+=sunColor*backScatter*(.22+.38*rimGlow)*exp(-waterDepth*.025);
+      }
       colour*=mix(.27,1.,daylight);
       colour*=mix(vec3(.8,.9,1.),sunColor,daylight*.22);
+      vec3 depthTint=exp(-vec3(.018,.006,.0015)*max(0.,waterDepth-10.));
+      colour*=mix(vec3(1.),depthTint,.72);
+      if(daylight<.32){
+        float nightAmount=smoothstep(.32,.02,daylight);
+        float bioGlowStrength=bioPattern*nightAmount*(1.+1.65*bioExcite);
+        vec3 bioColor=mix(vec3(.12,.76,.98),vec3(.28,.96,.84),jellyUv.y);
+        colour+=bioColor*bioGlowStrength;
+        alpha=min(1.,alpha+bioGlowStrength*.14);
+      }
       float fog=1.-exp(-.000441*dot(viewPoint,viewPoint));
-      colour=mix(colour,fogColor,fog);alpha*=1.-fog*.7;
+      colour=mix(colour,fogColor,fog);
+      alpha*=1.-fog*.7;
       gl_FragColor=vec4(colour,alpha);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
@@ -153,40 +257,47 @@ window.createJellyfish=function(T,scene,waterUniforms){
   function setCount(count){
     // Build only when needed, then reuse hidden animals. All share five models.
     for(let i=animals.length;i<count;i++){
-    const body=new T.Group();body.name='Jellyfish '+(i+1);group.add(body);
-    const phase=i*2.39996;
-    const uniforms={time:{value:0},phase:{value:phase},pulse:{value:0},dragBend:{value:new T.Vector2()},
-      daylight:waterUniforms.daylight,sunColor:waterUniforms.sunColor,fogColor:{value:scene.fog.color}};
-    function material(kind){return new T.ShaderMaterial({
-      uniforms:{...uniforms,kind:{value:kind}},vertexShader,fragmentShader,
-      transparent:true,depthWrite:false,side:T.DoubleSide,forceSinglePass:true
-    });}
-    const bellMesh=new T.Mesh(bell,material(0));body.add(bellMesh);
-    // Picking follows the pulsing surface exactly, rather than its rest shape.
-    bellMesh.getVertexPosition=function(index,target){
-      target.fromBufferAttribute(bell.attributes.position,index);
-      const v=bell.attributes.uv.getY(index),pulse=uniforms.pulse.value;
-      const width=1-.23*pulse*T.MathUtils.smoothstep(v,0,1);
-      target.x*=width;target.z*=width;target.y*=1+.24*pulse;
-      return target;
-    };
-    bell.computeBoundingSphere();bell.boundingSphere.radius*=1.3;
-    const innerBell=new T.Mesh(underside,material(4));innerBell.name='Bell underside';body.add(innerBell);
-    const innerOrgans=new T.Mesh(organs,material(3));innerOrgans.name='Internal horseshoes';body.add(innerOrgans);
-    const armMaterial=material(1);
-    for(let n=0;n<4;n++){
-      const mesh=new T.Mesh(arm,armMaterial),angle=n*Math.PI/2;
-      mesh.position.set(Math.cos(angle)*.21,-.04,Math.sin(angle)*.21);
-      mesh.rotation.y=-angle;body.add(mesh);
-    }
-    const threads=new T.LineSegments(tentacles,material(2));body.add(threads);
-    // Shader deformation extends beyond the static bounds, so these small
-    // shared meshes do not use static frustum culling.
-    body.children.forEach(child=>{child.frustumCulled=false;});
-    body.scale.setScalar(.85+(i%3)*.19);
-    animals.push({body,mesh:body,pickMesh:bellMesh,isJellyfish:true,scale:body.scale.x,uniforms,phase,
-      offset:new T.Vector3(),velocity:new T.Vector3(),rotationOffset:new T.Quaternion(),angularVelocity:new T.Vector3(),
-      ...paths[i%paths.length]});
+      const body=new T.Group();body.name='Jellyfish '+(i+1);group.add(body);
+      const phase=i*2.39996;
+      const uniforms={
+        time:{value:0},phase:{value:phase},pulse:{value:0},dragBend:{value:new T.Vector2()},
+        bioExcite:{value:0},
+        daylight,sunColor,fogColor,
+        lightDirection,sunPower,eyePosition,
+        causticMap,causticOrigin,causticSpan,causticDepths,
+        animalStates,animalHeadings,activeSharkCount
+      };
+      function material(kind){return new T.ShaderMaterial({
+        uniforms:{...uniforms,kind:{value:kind}},vertexShader,fragmentShader,
+        transparent:true,depthWrite:false,side:T.DoubleSide,forceSinglePass:true
+      });}
+      const bellMesh=new T.Mesh(bell,material(0));body.add(bellMesh);
+      // Picking follows the pulsing surface exactly, rather than its rest shape.
+      bellMesh.getVertexPosition=function(index,target){
+        target.fromBufferAttribute(bell.attributes.position,index);
+        const v=bell.attributes.uv.getY(index),pulse=uniforms.pulse.value;
+        const width=1-.23*pulse*T.MathUtils.smoothstep(v,0,1);
+        target.x*=width;target.z*=width;target.y*=1+.24*pulse;
+        return target;
+      };
+      bell.computeBoundingSphere();bell.boundingSphere.radius*=1.3;
+      const innerBell=new T.Mesh(underside,material(4));innerBell.name='Bell underside';body.add(innerBell);
+      const innerOrgans=new T.Mesh(organs,material(3));innerOrgans.name='Internal horseshoes';body.add(innerOrgans);
+      const armMaterial=material(1);
+      for(let n=0;n<4;n++){
+        const mesh=new T.Mesh(arm,armMaterial),angle=n*Math.PI/2;
+        mesh.position.set(Math.cos(angle)*.21,-.04,Math.sin(angle)*.21);
+        mesh.rotation.y=-angle;body.add(mesh);
+      }
+      const threads=new T.LineSegments(tentacles,material(2));body.add(threads);
+      // Shader deformation extends beyond the static bounds, so these small
+      // shared meshes do not use static frustum culling.
+      body.children.forEach(child=>{child.frustumCulled=false;});
+      body.scale.setScalar(.85+(i%3)*.19);
+      animals.push({body,mesh:body,pickMesh:bellMesh,isJellyfish:true,scale:body.scale.x,uniforms,phase,
+        bioExcite:0,lastTime:undefined,
+        offset:new T.Vector3(),velocity:new T.Vector3(),rotationOffset:new T.Quaternion(),angularVelocity:new T.Vector3(),
+        ...paths[i%paths.length]});
     }
     animals.forEach((animal,index)=>{animal.body.visible=index<count;});
     group.visible=count>0;
@@ -213,6 +324,48 @@ window.createJellyfish=function(T,scene,waterUniforms){
       body.position.set(animal.x+Math.sin(travel)*animal.rx,
         animal.y+Math.sin(travel*.8+phase)*4,
         animal.z+Math.cos(travel)*animal.rz).add(pulseDirection);
+
+      // Measure mechanical disturbance and bioluminescent excitation
+      let sharkDisturbance=0;
+      const states=animalStates.value,headings=animalHeadings.value;
+      if(states&&headings){
+        const posX=body.position.x+animal.offset.x;
+        const posY=body.position.y+animal.offset.y;
+        const posZ=body.position.z+animal.offset.z;
+        const activeCount=typeof activeSharkCount.value==='number'?activeSharkCount.value:24;
+        const count=Math.min(activeCount,24,states.length,headings.length);
+        for(let k=0;k<count;k++){
+          const st=states[k],hd=headings[k];
+          if(!st || !hd || st.w<=.01 || hd.w<=.01) continue;
+          const threshold=st.w+2.4*animal.scale;
+          const dx=posX-st.x,dy=posY-st.y,dz=posZ-st.z;
+          const distSq=dx*dx+dy*dy+dz*dz;
+          if(distSq<threshold*threshold){
+            const dist=Math.sqrt(distSq);
+            const prox=1-dist/threshold;
+            if(prox>sharkDisturbance) sharkDisturbance=prox;
+          }
+        }
+      }
+      const motionDisturbance=animal.velocity.length()*.18+uniforms.dragBend.value.length()*.8;
+      const disturbance=Math.max(motionDisturbance,sharkDisturbance);
+      const dt=(animal.lastTime!==undefined && time>animal.lastTime)?Math.min(time-animal.lastTime,.1):0;
+      if(dt>0){
+        if(disturbance>animal.bioExcite){
+          animal.bioExcite+=(disturbance-animal.bioExcite)*Math.min(1,dt*8.5);
+        }else{
+          animal.bioExcite+=(disturbance-animal.bioExcite)*(1-Math.exp(-dt*2.2));
+        }
+      }else{
+        animal.bioExcite=disturbance;
+      }
+      if(motionDisturbance<1e-5 && sharkDisturbance<1e-5 && animal.bioExcite<1e-4){
+        animal.bioExcite=0;
+      }
+      const excite=T.MathUtils.clamp(animal.bioExcite,0,1.2);
+      animal.bioExcite=excite;
+      uniforms.bioExcite.value=excite;
+      animal.lastTime=time;
     }
   }
   return {group,animals,update,setCount};
