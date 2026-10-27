@@ -880,48 +880,133 @@
     const BALLAST_Y = -21.0;
     const DIVER_SCALE = 1.35;
     const CYCLE_PERIOD = 50.0;
+    const BUOY_ROPE_OFFSET = -0.04; // Dive line carabiner attachment at bottom of buoy
 
     const group = new T.Group();
     group.name = 'Freediver Competition Rig';
     scene.add(group);
 
     // 1. Surface Buoy at (RIG_X, 15.0, RIG_Z)
+    // Scaled realistically to competition freediving donut buoy (~1.04m outer diameter).
+    // Sits floating high on the water so only the bottom rounded belly (4cm) is submerged;
+    // from underwater looking up, you only see the bottom contact curve of the ring.
     const buoyGroup = new T.Group();
     buoyGroup.position.set(RIG_X, ROPE_TOP_Y, RIG_Z);
 
-    const torusGeom = new T.TorusGeometry(0.92, 0.28, 16, 36);
+    // Inflatable Torus (R = 0.40m, tube r = 0.12m, outer diameter = 1.04m)
+    // Translated to local y = +0.08: bottom touches y = -0.04 (4cm underwater), top at y = +0.20 (in air)
+    const torusGeom = new T.TorusGeometry(0.40, 0.12, 16, 36);
     torusGeom.rotateX(Math.PI / 2);
+    torusGeom.translate(0, 0.08, 0);
     const torusMat = new T.MeshStandardMaterial({
-      color: 0xc84b31,
-      roughness: 0.45,
-      metalness: 0.05
+      color: 0xd9431f, // Competition safety orange
+      roughness: 0.38,
+      metalness: 0.06
     });
     const torusMesh = new T.Mesh(torusGeom, torusMat);
     buoyGroup.add(torusMesh);
 
-    const hubGeom = new T.CylinderGeometry(0.66, 0.66, 0.10, 24);
-    const hubMat = new T.MeshStandardMaterial({
-      color: 0x1a2228,
-      roughness: 0.6,
-      metalness: 0.1
+    // White upper safety stripe / ring accent
+    const upperStripeGeom = new T.TorusGeometry(0.40, 0.015, 8, 36);
+    upperStripeGeom.rotateX(Math.PI / 2);
+    upperStripeGeom.translate(0, 0.198, 0);
+    const upperStripeMat = new T.MeshStandardMaterial({
+      color: 0xf2f5f8,
+      roughness: 0.30
     });
-    const hubMesh = new T.Mesh(hubGeom, hubMat);
-    buoyGroup.add(hubMesh);
+    const upperStripeMesh = new T.Mesh(upperStripeGeom, upperStripeMat);
+    buoyGroup.add(upperStripeMesh);
 
-    const ringGeom = new T.CylinderGeometry(0.08, 0.08, 0.35, 10);
-    ringGeom.translate(0, -0.22, 0);
-    const ringMat = new T.MeshStandardMaterial({
-      color: 0x4a5d6e,
-      roughness: 0.3,
-      metalness: 0.7
+    // Webbing harness under the buoy (thin straps at y = -0.035)
+    const strapMat = new T.MeshStandardMaterial({
+      color: 0x14181c,
+      roughness: 0.85
     });
-    const ringMesh = new T.Mesh(ringGeom, ringMat);
-    buoyGroup.add(ringMesh);
+    const strapGeomX = new T.BoxGeometry(0.72, 0.008, 0.04);
+    strapGeomX.translate(0, -0.035, 0);
+    const strapMeshX = new T.Mesh(strapGeomX, strapMat);
+    buoyGroup.add(strapMeshX);
+
+    const strapGeomZ = new T.BoxGeometry(0.04, 0.008, 0.72);
+    strapGeomZ.translate(0, -0.035, 0);
+    const strapMeshZ = new T.Mesh(strapGeomZ, strapMat);
+    buoyGroup.add(strapMeshZ);
+
+    // Central Stainless Steel D-Ring / Carabiner (y = -0.04, where the dive rope attaches)
+    const dRingGeom = new T.TorusGeometry(0.04, 0.008, 8, 20);
+    dRingGeom.rotateX(Math.PI / 2);
+    dRingGeom.translate(0, -0.04, 0);
+    const dRingMat = new T.MeshStandardMaterial({
+      color: 0x8a9ba8,
+      roughness: 0.20,
+      metalness: 0.95
+    });
+    const dRingMesh = new T.Mesh(dRingGeom, dRingMat);
+    buoyGroup.add(dRingMesh);
+
+    // Recessed storage well / mesh floor (y = +0.06, inside buoy above waterline)
+    const wellGeom = new T.CylinderGeometry(0.26, 0.26, 0.008, 20);
+    wellGeom.translate(0, 0.06, 0);
+    const wellMat = new T.MeshStandardMaterial({
+      color: 0x1c242c,
+      roughness: 0.75
+    });
+    const wellMesh = new T.Mesh(wellGeom, wellMat);
+    buoyGroup.add(wellMesh);
+
+    // 4 Perimeter Grab Handles (y = +0.12, for resting divers at surface)
+    for (let i = 0; i < 4; i++) {
+      const hAngle = (i / 4.0) * Math.PI * 2.0;
+      const handleGeom = new T.TorusGeometry(0.042, 0.007, 6, 12, Math.PI);
+      handleGeom.rotateY(hAngle + Math.PI / 2);
+      handleGeom.translate(Math.cos(hAngle) * 0.505, 0.12, Math.sin(hAngle) * 0.505);
+      const handleMesh = new T.Mesh(handleGeom, strapMat);
+      buoyGroup.add(handleMesh);
+    }
+
+    // International Freediving / Alpha Flag on mast (in air, y in [0.10, 0.48])
+    const flagMastGeom = new T.CylinderGeometry(0.005, 0.005, 0.38, 8);
+    flagMastGeom.translate(0.12, 0.27, 0.0);
+    const flagMastMat = new T.MeshStandardMaterial({
+      color: 0xd0d5da,
+      roughness: 0.3,
+      metalness: 0.8
+    });
+    const flagMastMesh = new T.Mesh(flagMastGeom, flagMastMat);
+    buoyGroup.add(flagMastMesh);
+
+    // Red flag with diagonal white stripe
+    const flagCanvas = document.createElement('canvas');
+    flagCanvas.width = 64;
+    flagCanvas.height = 48;
+    const fCtx = flagCanvas.getContext('2d');
+    fCtx.fillStyle = '#d92518';
+    fCtx.fillRect(0, 0, 64, 48);
+    fCtx.fillStyle = '#ffffff';
+    fCtx.beginPath();
+    fCtx.moveTo(0, 0);
+    fCtx.lineTo(14, 0);
+    fCtx.lineTo(64, 40);
+    fCtx.lineTo(64, 48);
+    fCtx.lineTo(50, 48);
+    fCtx.lineTo(0, 8);
+    fCtx.closePath();
+    fCtx.fill();
+    const flagTex = new T.CanvasTexture(flagCanvas);
+    const flagMat = new T.MeshStandardMaterial({
+      map: flagTex,
+      side: T.DoubleSide,
+      roughness: 0.6
+    });
+    const flagGeom = new T.PlaneGeometry(0.16, 0.12);
+    flagGeom.translate(0.20, 0.40, 0.0);
+    const flagMesh = new T.Mesh(flagGeom, flagMat);
+    buoyGroup.add(flagMesh);
 
     group.add(buoyGroup);
 
     // 2. Vertical Dive Rope (Dynamic 49-ring mesh spanning y = +15.0 down to -21.0)
-    const ropeGeom = new T.CylinderGeometry(0.024, 0.024, 36.0, 8, 48, true);
+    const ropeGeom = new T.CylinderGeometry(0.015, 0.015, 36.0, 8, 48, true);
     const ropePosAttr = ropeGeom.attributes.position;
     const ropeUniforms = {
       uLampPower: { value: 1.0 }
@@ -1415,6 +1500,8 @@
     const ropeWaveHeave = { x: 0, y: 0, z: 0, slopeX: 0, slopeZ: 0 };
 
     const ropeRingCenter = new T.Vector3();
+    const diverRopePosMono = new T.Vector3();
+    const diverRopePosSafe = new T.Vector3();
     const tangentAbove = new T.Vector3();
     const tangentBelow = new T.Vector3();
     const tangentVec = new T.Vector3();
@@ -1448,6 +1535,7 @@
     const mainInertial = {
       y: { pos: 14.3, vel: 0 },
       x: { pos: RIG_X - 0.78, vel: 0 },
+      z: { pos: RIG_Z, vel: 0 },
       theta: { pos: 0.08, vel: 0 },
       pike: { pos: 0, vel: 0 },
       arm: { pos: 0.85, vel: 0 },
@@ -1457,6 +1545,7 @@
     const safeInertial = {
       y: { pos: 14.2, vel: 0 },
       x: { pos: RIG_X + 0.82, vel: 0 },
+      z: { pos: RIG_Z, vel: 0 },
       theta: { pos: 0.06, vel: 0 },
       pike: { pos: 0, vel: 0 },
       arm: { pos: 0.0, vel: 0 },
@@ -1536,10 +1625,11 @@
       const horizZ = ropeWaveDelayed.z * (1.0 - 0.38 * u) + 0.12 * Math.cos(u * 3.8 - time * 1.3) * u;
       const whipX = Math.sin(u * Math.PI * 2.0) * tugAmount * 0.35;
 
-      const vertHeave = ropeWaveHeave.y * (1.0 - 0.12 * u);
-      // Surface buoy does NOT sink into the water (high buoyancy volume).
-      // Only the rope down below absorbs the tension dip:
-      const ropeTugDip = tugAmount * (u * 0.45 + 0.02);
+      // Surface buoy vertical position matches local wave height + carabiner offset;
+      // smoothly transitions down the rope with phase delay and tension dip:
+      const surfaceHeave = waveBuoy.y + BUOY_ROPE_OFFSET - tugAmount * 0.02;
+      const vertHeave = surfaceHeave * (1.0 - u) + ropeWaveHeave.y * (1.0 - 0.12 * u) * u;
+      const ropeTugDip = tugAmount * (u * 0.45);
       const vertY = nominalY + vertHeave - ropeTugDip;
 
       outVec.x = RIG_X + horizX + whipX;
@@ -1836,12 +1926,23 @@
       }
 
       // 2. Coupled Buoy, Rope, Bottom Plate & Ballast Motion
-      evalWaveField(RIG_X, RIG_Z, time, waveBuoy);
+      evalWaveField(RIG_X, RIG_Z, time, ropeWaveDelayed);
+      const buoyX = RIG_X + ropeWaveDelayed.x;
+      const buoyZ = RIG_Z + ropeWaveDelayed.z;
 
-      evalRopePoint(ROPE_TOP_Y, time, tugAmount, buoyPos);
+      // Evaluate EXACT water height and slopes at the displaced buoy position (buoyX, buoyZ)
+      evalWaveField(buoyX, buoyZ, time, waveBuoy);
+
+      // Buoy origin rests exactly at the local undulating water surface
+      const ropeTugDip = tugAmount * 0.02;
+      buoyPos.set(buoyX, 15.0 + waveBuoy.y - ropeTugDip, buoyZ);
       buoyGroup.position.copy(buoyPos);
-      const tugTilt = isMonofinDeep ? -tugAmount * 0.10 : tugAmount * 0.10;
-      buoyGroup.rotation.set(waveBuoy.slopeZ * 0.35 + tugAmount * 0.10, 0, -waveBuoy.slopeX * 0.35 + tugTilt);
+
+      // Align buoy tilt directly with the local water surface normal
+      // In Three.js: rot.x = -slopeZ, rot.z = +slopeX
+      const tugTilt = isMonofinDeep ? tugAmount * 0.08 : -tugAmount * 0.08;
+      const tugPitch = -tugAmount * 0.04;
+      buoyGroup.rotation.set(-waveBuoy.slopeZ * 0.80 + tugPitch, 0, waveBuoy.slopeX * 0.80 + tugTilt);
 
       // Update 49 height-rings of the rope geometry directly
       for (let iy = 0; iy <= 48; iy++) {
@@ -1850,8 +1951,8 @@
         for (let ix = 0; ix <= 8; ix++) {
           const index = iy * 9 + ix;
           const a = (ix / 8.0) * Math.PI * 2.0;
-          const dx = 0.024 * Math.cos(a);
-          const dz = 0.024 * Math.sin(a);
+          const dx = 0.015 * Math.cos(a);
+          const dz = 0.015 * Math.sin(a);
           ropePosAttr.setXYZ(index, ropeRingCenter.x + dx, ropeRingCenter.y, ropeRingCenter.z + dz);
         }
       }
@@ -1893,14 +1994,18 @@
       const monoTraj = isMonofinDeep ? deepTraj : safeTraj;
       const biTraj = isMonofinDeep ? safeTraj : deepTraj;
 
-      let monoX = RIG_X - 0.78;
-      let biX = RIG_X + 0.82;
+      // Couple divers' horizontal positions to the local dive rope at their depths
+      evalRopePoint(mainInertial.y.pos, time, tugAmount, diverRopePosMono);
+      evalRopePoint(safeInertial.y.pos, time, tugAmount, diverRopePosSafe);
+
+      let monoTargetX = diverRopePosMono.x - 0.78;
+      let biTargetX = diverRopePosSafe.x + 0.82;
       if (cycle >= 23.5 && cycle <= 26.8) {
         const uTurn = smoothstep(23.5, 24.8, cycle) * (1.0 - smoothstep(25.8, 26.8, cycle));
         if (isMonofinDeep) {
-          monoX = (RIG_X - 0.78) + uTurn * 0.40;
+          monoTargetX = (diverRopePosMono.x - 0.78) + uTurn * 0.40;
         } else {
-          biX = (RIG_X + 0.82) - uTurn * 0.40;
+          biTargetX = (diverRopePosSafe.x + 0.82) - uTurn * 0.40;
         }
       }
 
@@ -1915,7 +2020,8 @@
       // 2nd-Order Inertial Tracking for Monofin Diver
       stepInertial(mainInertial.theta, monoTraj.theta, 9.0, 1.1, dtPhase);
       stepInertial(mainInertial.y, monoTraj.y, 14.0, 1.05, dtPhase);
-      stepInertial(mainInertial.x, monoX, 8.0, 1.15, dtPhase);
+      stepInertial(mainInertial.x, monoTargetX, 8.0, 1.15, dtPhase);
+      stepInertial(mainInertial.z, diverRopePosMono.z, 8.0, 1.15, dtPhase);
       stepInertial(mainInertial.pike, monoTraj.pikeAngle, 10.0, 1.1, dtPhase);
       stepInertial(mainInertial.arm, monoTraj.armRelax, 8.5, 1.1, dtPhase);
       stepInertial(mainInertial.yaw, monoTraj.gazeYaw, 7.5, 1.1, dtPhase);
@@ -1924,14 +2030,15 @@
       // 2nd-Order Inertial Tracking for Bi-Fin Diver
       stepInertial(safeInertial.theta, biTraj.theta, 9.0, 1.1, dtPhase);
       stepInertial(safeInertial.y, biTraj.y, 14.0, 1.05, dtPhase);
-      stepInertial(safeInertial.x, biX, 8.0, 1.15, dtPhase);
+      stepInertial(safeInertial.x, biTargetX, 8.0, 1.15, dtPhase);
+      stepInertial(safeInertial.z, diverRopePosSafe.z, 8.0, 1.15, dtPhase);
       stepInertial(safeInertial.pike, biTraj.pikeAngle, 10.0, 1.1, dtPhase);
       stepInertial(safeInertial.arm, biTraj.armRelax, 8.5, 1.1, dtPhase);
       stepInertial(safeInertial.yaw, biTraj.gazeYaw, 7.5, 1.1, dtPhase);
       stepInertial(safeInertial.pitch, biTraj.gazePitch, 7.5, 1.1, dtPhase);
 
       // Position & Orient Monofin Diver (Left side, facing +X toward rope)
-      mainDiverMesh.position.set(mainInertial.x.pos, mainInertial.y.pos, RIG_Z);
+      mainDiverMesh.position.set(mainInertial.x.pos, mainInertial.y.pos, mainInertial.z.pos);
       orientDiver(mainDiverMesh, mainInertial.theta.pos, 1.0);
 
       // Bioluminescent fin shear shimmer at night
@@ -1974,7 +2081,7 @@
       mainUniforms.uTime.value = time;
 
       // Position & Orient Bi-fin Diver (Right side, facing -X toward rope)
-      safetyDiverMesh.position.set(safeInertial.x.pos, safeInertial.y.pos, RIG_Z);
+      safetyDiverMesh.position.set(safeInertial.x.pos, safeInertial.y.pos, safeInertial.z.pos);
       orientDiver(safetyDiverMesh, safeInertial.theta.pos, -1.0);
 
       safeUniforms.uKickPhase.value = biKickPhase;
@@ -2036,22 +2143,26 @@
       let activeSplash = false;
       let splashProgress = 0.0;
       let splashCenterX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
+      let splashCenterZ = isMonofinDeep ? mainInertial.z.pos : safeInertial.z.pos;
 
       if (cycle >= 2.0 && cycle <= 4.4) {
         // Deep diver duck-dive
         activeSplash = true;
         splashProgress = (cycle - 2.0) / 2.4;
         splashCenterX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
+        splashCenterZ = isMonofinDeep ? mainInertial.z.pos : safeInertial.z.pos;
       } else if (cycle >= 17.5 && cycle <= 19.9) {
         // Safety diver duck-dive
         activeSplash = true;
         splashProgress = (cycle - 17.5) / 2.4;
         splashCenterX = isMonofinDeep ? safeInertial.x.pos : mainInertial.x.pos;
+        splashCenterZ = isMonofinDeep ? safeInertial.z.pos : mainInertial.z.pos;
       } else if (cycle >= 41.5 && cycle <= 45.0) {
         // Divers surfacing
         activeSplash = true;
         splashProgress = (cycle - 41.5) / 3.5;
         splashCenterX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
+        splashCenterZ = isMonofinDeep ? mainInertial.z.pos : safeInertial.z.pos;
       }
 
       for (let k = 0; k < 24; k++) {
@@ -2061,7 +2172,7 @@
           const dropY = 15.0 + waveBuoy.y + Math.sin(splashProgress * Math.PI) * 0.40 * (1.0 - k / 24.0) - splashProgress * 0.12;
           bubblePositions[k * 3] = splashCenterX + Math.cos(a) * rad;
           bubblePositions[k * 3 + 1] = dropY;
-          bubblePositions[k * 3 + 2] = RIG_Z + Math.sin(a) * rad;
+          bubblePositions[k * 3 + 2] = splashCenterZ + Math.sin(a) * rad;
         } else {
           bubblePositions[k * 3 + 1] = -999.0;
         }
@@ -2100,14 +2211,14 @@
       const isDeepAscending = (cycle >= 26.2 && cycle <= 42.0);
       const deepFaceX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
       const deepFaceY = (isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos) + 0.65;
-      const deepFaceZ = RIG_Z + 0.10;
+      const deepFaceZ = (isMonofinDeep ? mainInertial.z.pos : safeInertial.z.pos) + 0.10;
       const deepDepth = Math.max(0.0, 15.0 - (isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos));
       const deepP = 1.0 + deepDepth * 0.10;
 
       const isSafeAscending = (cycle >= 35.2 && cycle <= 42.0);
       const safeFaceX = isMonofinDeep ? safeInertial.x.pos : mainInertial.x.pos;
       const safeFaceY = (isMonofinDeep ? safeInertial.y.pos : mainInertial.y.pos) + 0.65;
-      const safeFaceZ = RIG_Z + 0.10;
+      const safeFaceZ = (isMonofinDeep ? safeInertial.z.pos : mainInertial.z.pos) + 0.10;
       const safeDepth = Math.max(0.0, 15.0 - (isMonofinDeep ? safeInertial.y.pos : mainInertial.y.pos));
       const safeP = 1.0 + safeDepth * 0.10;
 
@@ -2312,7 +2423,8 @@
           const dVelY = (mbDiverId[i] === 0) ? mainDiverState.velocity.y : safetyDiverState.velocity.y;
           const distY = dFaceY - mbY[i];
           const distX = dFaceX - mbX[i];
-          const distZ = RIG_Z + 0.10 - mbZ[i];
+          const dFaceZ = (mbDiverId[i] === 0) ? deepFaceZ : safeFaceZ;
+          const distZ = dFaceZ - mbZ[i];
           const horizDist = Math.sqrt(distX * distX + distZ * distZ);
 
           let wakeLift = 0.0;
