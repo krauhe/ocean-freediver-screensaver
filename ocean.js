@@ -2070,6 +2070,17 @@
   const remoraDummy = new T.Object3D();
   const remoraUp = new T.Vector3(0, 1, 0);
   const jellyfish=window.createJellyfish(T,scene,waterUniforms,oceanOptics);
+  const freedivers = window.createFreedivers
+    ? window.createFreedivers(T, scene, waterUniforms, oceanOptics)
+    : null;
+  const showFreediversInput = document.getElementById('show-freedivers');
+  if (showFreediversInput && freedivers) {
+    freedivers.setVisible(showFreediversInput.checked);
+    showFreediversInput.addEventListener('change', () => {
+      freedivers.setVisible(showFreediversInput.checked);
+      redrawNeeded = true;
+    });
+  }
 
   let paused=matchMedia('(prefers-reduced-motion: reduce)').matches;
   let speed=Number(document.getElementById('speed').value);
@@ -2404,6 +2415,7 @@
 
   function renderScene(elapsed=0){
     jellyfish.update(animationTime);
+    if (freedivers) freedivers.update(animationTime, paused, speed);
     waterUniforms.time.value=animationTime;
     particleUniforms.time.value=animationTime;
     if(!paused && !heldShark)easedPointer.lerp(pointer,.015);
@@ -2424,6 +2436,17 @@
         if(!sharks[i].mesh.visible||sharks[i]===heldShark)continue;
         const s1=sharks[i], ph1=s1.phase+animationTime*s1.rate*s1.direction;
         boidP1.set(Math.sin(ph1)*s1.rx,s1.y+Math.sin(ph1*2+s1.phase)*.85,s1.z+Math.cos(ph1)*s1.rz).add(s1.offset);
+        if (freedivers && freedivers.group.visible && boidP1.y >= freedivers.ropeBottomY - 3 && boidP1.y <= freedivers.ropeTopY + 2) {
+          const rdx = boidP1.x - freedivers.rigX;
+          const rdz = boidP1.z - freedivers.rigZ;
+          const rDistSq = rdx * rdx + rdz * rdz;
+          if (rDistSq < 81.0 && rDistSq > 0.01) {
+            const rDist = Math.sqrt(rDistSq);
+            const rPush = (1.0 - rDist / 9.0) * 6.5;
+            boidForces[i].x += (rdx / rDist) * rPush;
+            boidForces[i].z += (rdz / rDist) * rPush;
+          }
+        }
         for(let j=0;j<i;j++){
           if(!sharks[j].mesh.visible||sharks[j]===heldShark)continue;
           const s2=sharks[j], ph2=s2.phase+animationTime*s2.rate*s2.direction;
@@ -2570,13 +2593,26 @@
         writeSlot++;
       }
     }
-    for (let k = activeCount; k < animalFieldCount; k++) {
+    if (freedivers && freedivers.group.visible && freedivers.activeDivers) {
+      for (let dIdx = 0; dIdx < freedivers.activeDivers.length; dIdx++) {
+        const d = freedivers.activeDivers[dIdx];
+        if (d.active && writeSlot < animalFieldCount) {
+          animalStates[writeSlot].set(d.position.x, d.position.y, d.position.z, 0.65 * d.scale);
+          animalHeadings[writeSlot].set(d.heading.x, d.heading.y, d.heading.z, 1.65 * d.scale);
+          const kickBoost = (typeof d.kickAmp === 'number') ? d.kickAmp * 1.2 : 0.6;
+          const actSpeed = paused ? 0 : (0.75 + d.velocity.length() * 0.95 + kickBoost);
+          animalMotions[writeSlot].set(d.velocity.x, d.velocity.y, d.velocity.z, actSpeed);
+          writeSlot++;
+        }
+      }
+    }
+    for (let k = writeSlot; k < animalFieldCount; k++) {
       animalStates[k].set(0, 0, 0, 0);
       animalMotions[k].set(0, 0, 0, 0);
       animalHeadings[k].set(1, 0, 0, 0);
     }
     oceanOptics.activeSharkCount.value = activeSharkCount;
-    oceanOptics.activeAnimalCount.value = activeCount;
+    oceanOptics.activeAnimalCount.value = writeSlot;
     for (let i = candidateCount; i < maxCandidateAnimals && candidateAnimals[i] !== null; i++) {
       candidateAnimals[i] = null;
     }
@@ -2610,6 +2646,17 @@
           avoidX+=((fx-sx)/dist)*push;
           avoidY+=((fy-sy)/dist)*push;
           avoidZ+=((fz-sz)/dist)*push;
+        }
+      }
+      if (freedivers && freedivers.group.visible && fy >= freedivers.ropeBottomY - 3 && fy <= freedivers.ropeTopY + 2) {
+        const rdx = fx - freedivers.rigX;
+        const rdz = fz - freedivers.rigZ;
+        const rDistSq = rdx * rdx + rdz * rdz;
+        if (rDistSq < 49.0 && rDistSq > 0.01) {
+          const rDist = Math.sqrt(rDistSq);
+          const rPush = (1.0 - rDist / 7.0) * 1.5;
+          avoidX += (rdx / rDist) * rPush;
+          avoidZ += (rdz / rDist) * rPush;
         }
       }
       fx+=avoidX;fy+=avoidY;fz+=avoidZ;

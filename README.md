@@ -25,7 +25,7 @@ No installation, server or build step is required. This is a browser screensaver
 7. **Turn:** Grab away from the centre: the head, tail or fins of a shark, or the edge of a jellyfish bell. Force near the centre mainly moves the animal; force farther from the centre also rotates it.
 8. **Touch:** Drag with one finger to move a shark or jellyfish in the screen plane and turn it.
 9. **Time of day:** Move the Lighting slider to choose any minute from 00:00 to 23:59. Moving it selects Custom time automatically; choose Local clock to follow your computer again. The displayed time always uses 24-hour HH:mm format. Arrow keys adjust one minute, and Home/End select the endpoints. Lighting changes also work while paused.
-10. **Species:** Use the Hammerhead, Great white and Jellyfish checkboxes to mix species or show just one. With one species checked, the Animals slider controls that species alone. Unchecking all species hides the animals while retaining the count setting.
+10. **Species:** Use the Hammerhead, Great white and Jellyfish checkboxes to mix species or show just one. With one species checked, the Animals slider controls that species alone. Unchecking all species hides the animals while retaining the count setting. The separate **Freedivers** checkbox toggles the deep training rig with its monofin athlete and safety diver.
 11. **Particles:** Select 0–5,000 suspended particles. The default is 1,700; zero hides them. Both population sliders work while paused.
 12. **Graphics:** Move the 4-step Graphics slider to balance power consumption, frame rate and visual detail. The available modes are **Eco · 24 fps** (battery-friendly 24 fps cap, 1.0× pixel ratio, 512×512 caustic map updated every second frame, 72 sunbeams, 60 background fish and closer distant-shark LOD), **Balanced · 30 fps** (default, 30 fps cap, up to 1.35× pixel ratio, 512×512 caustics at 30 Hz, 108 sunbeams, 95 background fish), **High · 40 fps** (40 fps cap, up to 1.6× pixel ratio, denser 512×512 caustics at 40 Hz, 132 sunbeams, 110 background fish), and **Ultra · 60 fps** (smooth 60 fps cap, up to 2.0× pixel ratio, 1024×1024 caustics at 60 Hz, 132 sunbeams, 110 background fish and full shark mesh detail at all distances). WebGL automatically requests the high-performance discrete GPU (`powerPreference: 'high-performance'`) when one is available.
 
@@ -34,6 +34,8 @@ Sharks and jellyfish follow with elastic motion and retain some momentum after r
 Hammerheads and great whites have small differences in body shape, mottled skin and visible, weathered scars. Thrust-coupled tail beats vary dynamically in frequency and amplitude with acceleration and steering bursts, flexible pectoral and dorsal fin tips yield elastically during turns, and five curved gill slits ventilate with rhythmic breathing motions. Procedural companion remoras or pilot fish accompany several of the larger sharks. Great whites have a broader snout, small inset eyes and an animated mouth with textured lining, gum pads and three visible tooth rows; the inner rows fold inward. In the background, streamlined silvery pelagic fish school with animated forked tails, gently parting as sharks swim past. Filtered skin details and subdued tooth highlights reduce flickering edges as the animals move into the distance.
 
 Moon-jelly-inspired animals swim toward and away from the camera on three-dimensional paths, with their bells facing their swimming direction. The bells have an inner surface, modelled internal horseshoes and folded oral arms with volume visible from different angles, illuminated by translucent sun backlighting and moving caustic ripples. Each bell contracts, then relaxes slowly while fine tentacles trail behind. Their movement follows Pause and the swimming-speed control, and their tissue remains softly visible under night lighting with subtle pulse-synchronised bioluminescence.
+
+In the background, a freediving training rig with a surface float, weighted vertical line and illuminated bottom plate hosts a Constant Weight (CWT) freediver and safety diver. The deep diver wears a streamlined wetsuit, monofin, crown-mounted headlamp and safety lanyard, cycling through a realistic duck dive, active dolphin-kick descent, hydrodynamic freefall, bottom turn and steady ascent. At one third of the target depth, a safety diver in long bi-fins descends from the buoy to escort the athlete to the surface. Nearby sharks and fish schools gently avoid the dive line, and the divers' kicks part suspended marine snow and stimulate glowing bioluminescent wakes at night.
 
 ## Ocean and lighting
 
@@ -57,6 +59,7 @@ Suspended particles drift together in a gentle current at several depths, includ
 | `ocean.css` | Layout and appearance |
 | `ocean.js` | Shark models, animation, physics, lighting and interaction |
 | `jellyfish.js` | Translucent jellyfish models, pulsing bells and trailing tissue |
+| `freediver.js` | Deep freediving buoy rig, monofin diver and safety diver |
 | `three.min.js` | Local Three.js r160 library |
 | `THREE-LICENSE` | MIT licence for Three.js |
 | `GUIDE.md` | User guide and technical limitations |
