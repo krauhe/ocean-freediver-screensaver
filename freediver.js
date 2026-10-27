@@ -1525,6 +1525,10 @@
 
     const diverLanyardPoint = new T.Vector3();
     const ropeCarabinerPoint = new T.Vector3();
+    const deepGogglesPos = new T.Vector3();
+    const safeGogglesPos = new T.Vector3();
+    const maskTempVec = new T.Vector3();
+    const maskSpawnPos = new T.Vector3();
     const prevMainPos = new T.Vector3(RIG_X - 0.78, 14.3, RIG_Z);
     const prevSafePos = new T.Vector3(RIG_X + 0.82, 14.2, RIG_Z);
     let lastUpdateTime = undefined;
@@ -2208,28 +2212,32 @@
         safeDuckTimer = 0.0;
       }
 
+      const activeDeepMesh = isMonofinDeep ? mainDiverMesh : safetyDiverMesh;
+      const activeSafeMesh = isMonofinDeep ? safetyDiverMesh : mainDiverMesh;
+      activeDeepMesh.updateMatrixWorld(true);
+      activeSafeMesh.updateMatrixWorld(true);
+
+      // Exact 3D world coordinates of the goggles / mask on each diver's face
+      deepGogglesPos.set(0.118, 0.745, 0.0).applyMatrix4(activeDeepMesh.matrixWorld);
+      safeGogglesPos.set(0.118, 0.745, 0.0).applyMatrix4(activeSafeMesh.matrixWorld);
+
       const isDeepAscending = (cycle >= 26.2 && cycle <= 42.0);
-      const deepFaceX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
-      const deepFaceY = (isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos) + 0.65;
-      const deepFaceZ = (isMonofinDeep ? mainInertial.z.pos : safeInertial.z.pos) + 0.10;
-      const deepDepth = Math.max(0.0, 15.0 - (isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos));
+      const deepDepth = Math.max(0.0, 15.0 - deepGogglesPos.y);
       const deepP = 1.0 + deepDepth * 0.10;
 
       const isSafeAscending = (cycle >= 35.2 && cycle <= 42.0);
-      const safeFaceX = isMonofinDeep ? safeInertial.x.pos : mainInertial.x.pos;
-      const safeFaceY = (isMonofinDeep ? safeInertial.y.pos : mainInertial.y.pos) + 0.65;
-      const safeFaceZ = (isMonofinDeep ? safeInertial.z.pos : mainInertial.z.pos) + 0.10;
-      const safeDepth = Math.max(0.0, 15.0 - (isMonofinDeep ? safeInertial.y.pos : mainInertial.y.pos));
+      const safeDepth = Math.max(0.0, 15.0 - safeGogglesPos.y);
       const safeP = 1.0 + safeDepth * 0.10;
 
       // 1. Clinging Mask Air Pockets (Points 54 & 55)
-      // Persistent silvery air pocket trapped on the mask skirt / temple, expanding with Boyle's law
+      // Silvery expanding air pocket trapped right at the silicone temple skirt of the goggles
       if (isDeepAscending) {
         const pocketVolRatio = Math.max(1.0, 4.25 / deepP);
         deepPocketRad = 0.024 * Math.pow(pocketVolRatio, 0.3333333);
-        bubblePositions[54 * 3] = deepFaceX + (isMonofinDeep ? 0.045 : -0.045);
-        bubblePositions[54 * 3 + 1] = deepFaceY + 0.035 + Math.sin(time * 9.0) * 0.003;
-        bubblePositions[54 * 3 + 2] = deepFaceZ + 0.025 + Math.cos(time * 7.5) * 0.003;
+        maskTempVec.set(0.118, 0.745, 0.038).applyMatrix4(activeDeepMesh.matrixWorld);
+        bubblePositions[54 * 3] = maskTempVec.x;
+        bubblePositions[54 * 3 + 1] = maskTempVec.y;
+        bubblePositions[54 * 3 + 2] = maskTempVec.z;
         bubbleRadii[54] = deepPocketRad;
       } else {
         bubblePositions[54 * 3 + 1] = -999.0;
@@ -2239,9 +2247,10 @@
       if (isSafeAscending) {
         const safePocketVolRatio = Math.max(1.0, 2.50 / safeP);
         safePocketRad = 0.022 * Math.pow(safePocketVolRatio, 0.3333333);
-        bubblePositions[55 * 3] = safeFaceX + (isMonofinDeep ? -0.045 : 0.045);
-        bubblePositions[55 * 3 + 1] = safeFaceY + 0.035 + Math.sin(time * 8.5) * 0.003;
-        bubblePositions[55 * 3 + 2] = safeFaceZ + 0.025 + Math.cos(time * 6.5) * 0.003;
+        maskTempVec.set(0.118, 0.745, -0.038).applyMatrix4(activeSafeMesh.matrixWorld);
+        bubblePositions[55 * 3] = maskTempVec.x;
+        bubblePositions[55 * 3 + 1] = maskTempVec.y;
+        bubblePositions[55 * 3 + 2] = maskTempVec.z;
         bubbleRadii[55] = safePocketRad;
       } else {
         bubblePositions[55 * 3 + 1] = -999.0;
@@ -2249,10 +2258,9 @@
       }
 
       if (dt > 0.0) {
-        // 2a. Duck-Dive Surface Air Shedding (depth 0 - 2.5m, y: 14.8 -> 12.2m)
-        // Trapped surface air sheds as the diver submerges headfirst, then floats UP towards the surface waves
-        const isDeepDuck = (cycle >= 2.0 && cycle <= 4.8 && deepFaceY > 12.2);
-        const isSafeDuck = (cycle >= 24.8 && cycle <= 27.5 && safeFaceY > 12.2);
+        // 2a. Duck-Dive Surface Air Shedding (from goggles as diver submerges headfirst)
+        const isDeepDuck = (cycle >= 2.0 && cycle <= 4.8 && deepGogglesPos.y < 14.8 && deepGogglesPos.y > 12.0);
+        const isSafeDuck = (cycle >= 24.8 && cycle <= 27.5 && safeGogglesPos.y < 14.8 && safeGogglesPos.y > 12.0);
 
         if (isDeepDuck) {
           deepDuckTimer += dt;
@@ -2275,14 +2283,17 @@
                 mbSpawnP[i] = deepP;
                 mbDiverId[i] = 0;
 
-                mbX[i] = deepFaceX + (isMonofinDeep ? 0.045 : -0.045) + (bSeed1 - 0.5) * 0.08;
-                mbY[i] = deepFaceY + 0.04 - spawned * 0.03;
-                mbZ[i] = deepFaceZ + (bSeed2 - 0.5) * 0.08;
+                // Spawn directly from the goggles skirt / temple
+                const templeSide = (bSeed2 > 0.5) ? 0.038 : -0.038;
+                maskSpawnPos.set(0.118 + (bSeed1 - 0.5) * 0.008, 0.745 + (bSeed2 - 0.5) * 0.008, templeSide).applyMatrix4(activeDeepMesh.matrixWorld);
+                mbX[i] = maskSpawnPos.x;
+                mbY[i] = maskSpawnPos.y;
+                mbZ[i] = maskSpawnPos.z;
 
                 // Positive upward Archimedes buoyancy (rising away from diving body!)
-                mbVy[i] = 0.42 + bSeed1 * 0.25;
-                mbVx[i] = (bSeed1 - 0.5) * 0.06;
-                mbVz[i] = (bSeed2 - 0.5) * 0.06;
+                mbVy[i] = 0.55 + bSeed1 * 0.25;
+                mbVx[i] = (bSeed1 - 0.5) * 0.02;
+                mbVz[i] = (bSeed2 - 0.5) * 0.02;
                 spawned++;
               }
             }
@@ -2309,13 +2320,15 @@
                 mbSpawnP[i] = safeP;
                 mbDiverId[i] = 1;
 
-                mbX[i] = safeFaceX + (isMonofinDeep ? -0.045 : 0.045) + (bSeed1 - 0.5) * 0.08;
-                mbY[i] = safeFaceY + 0.04 - spawned * 0.03;
-                mbZ[i] = safeFaceZ + (bSeed2 - 0.5) * 0.08;
+                const safeTempleSide = (bSeed2 > 0.5) ? 0.038 : -0.038;
+                maskSpawnPos.set(0.118 + (bSeed1 - 0.5) * 0.008, 0.745 + (bSeed2 - 0.5) * 0.008, safeTempleSide).applyMatrix4(activeSafeMesh.matrixWorld);
+                mbX[i] = maskSpawnPos.x;
+                mbY[i] = maskSpawnPos.y;
+                mbZ[i] = maskSpawnPos.z;
 
-                mbVy[i] = 0.42 + bSeed1 * 0.25;
-                mbVx[i] = (bSeed1 - 0.5) * 0.06;
-                mbVz[i] = (bSeed2 - 0.5) * 0.06;
+                mbVy[i] = 0.55 + bSeed1 * 0.25;
+                mbVx[i] = (bSeed1 - 0.5) * 0.02;
+                mbVz[i] = (bSeed2 - 0.5) * 0.02;
                 spawned++;
               }
             }
@@ -2349,13 +2362,15 @@
                 mbSpawnP[i] = deepP;
                 mbDiverId[i] = 0;
 
-                mbX[i] = deepFaceX + (isMonofinDeep ? 0.045 : -0.045) + (bSeed1 - 0.5) * 0.06;
-                mbY[i] = deepFaceY + 0.02 - spawned * 0.025;
-                mbZ[i] = deepFaceZ + (bSeed2 - 0.5) * 0.06;
+                const templeSide = (bSeed2 > 0.5) ? 0.038 : -0.038;
+                maskSpawnPos.set(0.118 + (bSeed1 - 0.5) * 0.008, 0.745 + (bSeed2 - 0.5) * 0.008, templeSide).applyMatrix4(activeDeepMesh.matrixWorld);
+                mbX[i] = maskSpawnPos.x;
+                mbY[i] = maskSpawnPos.y;
+                mbZ[i] = maskSpawnPos.z;
 
-                mbVy[i] = 0.75 + mainDiverState.velocity.y * 0.45 + spawned * 0.08;
-                mbVx[i] = mainDiverState.velocity.x * 0.20 + (bSeed1 - 0.5) * 0.08;
-                mbVz[i] = mainDiverState.velocity.z * 0.20 + (bSeed2 - 0.5) * 0.08;
+                mbVy[i] = 0.70 + Math.max(0.0, mainDiverState.velocity.y * 0.35) + spawned * 0.04;
+                mbVx[i] = (bSeed1 - 0.5) * 0.02;
+                mbVz[i] = (bSeed2 - 0.5) * 0.02;
                 spawned++;
               }
             }
@@ -2388,13 +2403,15 @@
                 mbSpawnP[i] = safeP;
                 mbDiverId[i] = 1;
 
-                mbX[i] = safeFaceX + (isMonofinDeep ? -0.045 : 0.045) + (bSeed1 - 0.5) * 0.06;
-                mbY[i] = safeFaceY + 0.02 - spawned * 0.025;
-                mbZ[i] = safeFaceZ + (bSeed2 - 0.5) * 0.06;
+                const safeTempleSide = (bSeed2 > 0.5) ? 0.038 : -0.038;
+                maskSpawnPos.set(0.118 + (bSeed1 - 0.5) * 0.008, 0.745 + (bSeed2 - 0.5) * 0.008, safeTempleSide).applyMatrix4(activeSafeMesh.matrixWorld);
+                mbX[i] = maskSpawnPos.x;
+                mbY[i] = maskSpawnPos.y;
+                mbZ[i] = maskSpawnPos.z;
 
-                mbVy[i] = 0.70 + safetyDiverState.velocity.y * 0.45 + spawned * 0.08;
-                mbVx[i] = safetyDiverState.velocity.x * 0.20 + (bSeed1 - 0.5) * 0.08;
-                mbVz[i] = safetyDiverState.velocity.z * 0.20 + (bSeed2 - 0.5) * 0.08;
+                mbVy[i] = 0.65 + Math.max(0.0, safetyDiverState.velocity.y * 0.35) + spawned * 0.04;
+                mbVx[i] = (bSeed1 - 0.5) * 0.02;
+                mbVz[i] = (bSeed2 - 0.5) * 0.02;
                 spawned++;
               }
             }
@@ -2418,24 +2435,23 @@
           const buoySpeed = 0.65 + 1.15 * Math.sqrt(normR);
 
           // Upward wake slipstream entrainment from the ascending diver
-          const dFaceY = (mbDiverId[i] === 0) ? deepFaceY : safeFaceY;
-          const dFaceX = (mbDiverId[i] === 0) ? deepFaceX : safeFaceX;
+          const dGoggles = (mbDiverId[i] === 0) ? deepGogglesPos : safeGogglesPos;
           const dVelY = (mbDiverId[i] === 0) ? mainDiverState.velocity.y : safetyDiverState.velocity.y;
-          const distY = dFaceY - mbY[i];
-          const distX = dFaceX - mbX[i];
-          const dFaceZ = (mbDiverId[i] === 0) ? deepFaceZ : safeFaceZ;
-          const distZ = dFaceZ - mbZ[i];
+          const distY = dGoggles.y - mbY[i]; // Positive if diver's goggles are ABOVE bubble
+          const distX = dGoggles.x - mbX[i];
+          const distZ = dGoggles.z - mbZ[i];
           const horizDist = Math.sqrt(distX * distX + distZ * distZ);
 
           let wakeLift = 0.0;
-          if (distY >= -0.3 && distY <= 2.5 && horizDist < 0.55 && dVelY > 0.0) {
-            wakeLift = dVelY * 0.65 * Math.exp(-Math.max(0.0, distY) / 0.95) * (1.0 - horizDist / 0.55);
+          if (distY >= -0.2 && distY <= 1.8 && horizDist < 0.30 && dVelY > 0.0) {
+            wakeLift = dVelY * 0.50 * Math.exp(-Math.max(0.0, distY) / 0.75) * (1.0 - horizDist / 0.30);
           }
 
           const targetVy = buoySpeed + wakeLift;
           mbVy[i] += (targetVy - mbVy[i]) * Math.min(1.0, dt * 5.0);
-          mbVx[i] = Math.sin(time * 6.8 + i * 1.5) * 0.07;
-          mbVz[i] = Math.cos(time * 6.2 + i * 1.8) * 0.07;
+          // Subtle natural buoyant wobble (1.2 cm amplitude) as spherical cap rises
+          mbVx[i] = (mbVx[i] * 0.95) + Math.sin(time * 5.2 + i * 1.8) * 0.012;
+          mbVz[i] = (mbVz[i] * 0.95) + Math.cos(time * 4.8 + i * 2.1) * 0.012;
 
           mbX[i] += mbVx[i] * dt;
           mbY[i] += mbVy[i] * dt;
@@ -2512,9 +2528,6 @@
       bubbleGeom.attributes.aRadius.needsUpdate = true;
 
       // 6. Lanyard Line (Follows active Deep Diver)
-      const activeDeepMesh = isMonofinDeep ? mainDiverMesh : safetyDiverMesh;
-      activeDeepMesh.updateMatrix();
-      activeDeepMesh.matrixWorld.copy(activeDeepMesh.matrix);
       diverLanyardPoint.set(0.10, 0.08, 0.0).applyMatrix4(activeDeepMesh.matrixWorld);
 
       const activeDeepY = isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos;
