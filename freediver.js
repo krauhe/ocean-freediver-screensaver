@@ -310,7 +310,7 @@
       indices.push(leftInnerPost, rightInnerPostNext, rightInnerPost);
     }
 
-    // 4. Monofin Blade (y in [-1.05, -1.78], wingspan 0.76m, parabolic tapering)
+    // 4. Monofin Blade (y in [-1.05, -1.78], wingspan 0.76m, parabolic tapering & 3D water rails)
     const M_ROWS = 24, M_COLS = 14;
     const topGrid = [], botGrid = [];
     for (let r = 0; r < M_ROWS; r++) {
@@ -319,15 +319,27 @@
       const yBase = -1.05 - tBlade * (1.78 - 1.05);
       const xCenter = -0.005 + tBlade * 0.008;
       const zHalf = 0.16 + Math.pow(tBlade, 0.82) * 0.22;
-      const thick = 0.038 * (1.0 - tBlade) + 0.005;
+      const thick = 0.038 * (1.0 - tBlade) + 0.008;
       const kickW = 0.75 + tBlade * 0.25;
       const bladeFlex = Math.max(0.0, (tBlade - 0.03) / 0.97);
 
       for (let c = 0; c < M_COLS; c++) {
         const uSpan = (c / (M_COLS - 1)) * 2.0 - 1.0;
-        const yBlade = yBase + 0.07 * (1.0 - Math.pow(Math.abs(uSpan), 1.8)) * tBlade;
-        const zBlade = uSpan * zHalf;
-        const halfT = (thick * (1.0 - 0.75 * Math.pow(uSpan, 4.0))) * 0.5;
+        const absSpan = Math.abs(uSpan);
+        const yBlade = yBase + 0.07 * (1.0 - Math.pow(absSpan, 1.8)) * tBlade;
+
+        // Molded rubber water rails (sideribber) along outer lateral borders (absSpan > 0.72)
+        const railFactor = smoothstep(0.72, 1.0, absSpan);
+        const railHeight = 0.013 * railFactor; // 26mm total rail thickness
+        const railBulge = Math.sign(uSpan) * 0.005 * railFactor;
+        const zBlade = uSpan * zHalf + railBulge;
+
+        // Trailing crescent edge protective bead (tBlade > 0.88)
+        const tipBead = smoothstep(0.88, 1.0, tBlade) * 0.0035;
+
+        // Core parabolic thickness
+        const coreT = thick * 0.5 * (1.0 - 0.35 * absSpan * absSpan);
+        const halfT = coreT + railHeight + tipBead;
 
         topRow.push(addV(xCenter + halfT, yBlade, zBlade, c / (M_COLS - 1), tBlade, 0.0, kickW, bladeFlex, 0.0));
         botRow.push(addV(xCenter - halfT, yBlade, zBlade, c / (M_COLS - 1), tBlade, 0.0, kickW, bladeFlex, 0.0));
@@ -341,22 +353,23 @@
         indices.push(topGrid[r][c], topGrid[r + 1][c], topGrid[r + 1][c + 1]);
         indices.push(topGrid[r][c], topGrid[r + 1][c + 1], topGrid[r][c + 1]);
 
-        // Outward-facing winding on botGrid (fixes transparent fin underside)
+        // Outward-facing winding on botGrid (normal points in -X)
         indices.push(botGrid[r][c], botGrid[r + 1][c + 1], botGrid[r + 1][c]);
         indices.push(botGrid[r][c], botGrid[r][c + 1], botGrid[r + 1][c + 1]);
       }
-      // Lateral edge stitching
-      indices.push(topGrid[r][0], botGrid[r][0], botGrid[r + 1][0]);
-      indices.push(topGrid[r][0], botGrid[r + 1][0], topGrid[r + 1][0]);
+      // Left lateral edge stitching (c = 0, normal points in -Z outward)
+      indices.push(topGrid[r][0], botGrid[r + 1][0], botGrid[r][0]);
+      indices.push(topGrid[r][0], topGrid[r + 1][0], botGrid[r + 1][0]);
 
-      indices.push(topGrid[r][M_COLS - 1], topGrid[r + 1][M_COLS - 1], botGrid[r + 1][M_COLS - 1]);
-      indices.push(topGrid[r][M_COLS - 1], botGrid[r + 1][M_COLS - 1], botGrid[r][M_COLS - 1]);
+      // Right lateral edge stitching (c = M_COLS - 1, normal points in +Z outward)
+      indices.push(topGrid[r][M_COLS - 1], botGrid[r][M_COLS - 1], topGrid[r + 1][M_COLS - 1]);
+      indices.push(topGrid[r + 1][M_COLS - 1], botGrid[r][M_COLS - 1], botGrid[r + 1][M_COLS - 1]);
     }
 
-    // Trailing edge stitching
+    // Trailing edge stitching (r = M_ROWS - 1, normal points in -Y outward down blade)
     for (let c = 0; c < M_COLS - 1; c++) {
-      indices.push(topGrid[M_ROWS - 1][c], botGrid[M_ROWS - 1][c], botGrid[M_ROWS - 1][c + 1]);
-      indices.push(topGrid[M_ROWS - 1][c], botGrid[M_ROWS - 1][c + 1], topGrid[M_ROWS - 1][c + 1]);
+      indices.push(topGrid[M_ROWS - 1][c], botGrid[M_ROWS - 1][c + 1], botGrid[M_ROWS - 1][c]);
+      indices.push(topGrid[M_ROWS - 1][c], topGrid[M_ROWS - 1][c + 1], botGrid[M_ROWS - 1][c + 1]);
     }
 
     // Root edge stitching
@@ -568,7 +581,7 @@
         }
       }
 
-      // 5. Long Carbon Bi-Fin Blade (y in [-1.04, -1.82], length = 0.78m, parabolic tapering)
+      // 5. Long Carbon Bi-Fin Blade (y in [-1.04, -1.82], length = 0.78m, parabolic tapering & 3D water rails)
       const F_ROWS = 18, F_COLS = 8;
       const topFinGrid = [], botFinGrid = [];
 
@@ -577,18 +590,23 @@
         const tFin = r / (F_ROWS - 1);
         const yFin = -1.04 - tFin * (1.82 - 1.04);
         const xFin = cXAnkle + tFin * 0.008;
-        const zHalf = 0.055;
+        const zHalf = 0.058;
         // Parabolic stiffness and thickness tapering
-        const thick = 0.022 * Math.pow(1.0 - tFin, 1.4) + 0.003;
+        const thick = 0.024 * Math.pow(1.0 - tFin, 1.4) + 0.006;
         const kickW = 0.75 + tFin * 0.25;
         const bladeFlex = Math.max(0.0, (tFin - 0.03) / 0.97);
 
         for (let c = 0; c < F_COLS; c++) {
           const uSpan = (c / (F_COLS - 1)) * 2.0 - 1.0;
-          const zFin = zCenter + uSpan * zHalf;
-          // Side guide rails (sideribber) along blade edges
-          const edgeRail = (Math.abs(uSpan) > 0.82) ? 0.0035 : 0.0;
-          const halfT = thick * 0.5 * (1.0 - 0.40 * uSpan * uSpan) + edgeRail;
+          const absSpan = Math.abs(uSpan);
+          // Side guide rails (sideribber) along blade edges (absSpan > 0.70)
+          const railFactor = smoothstep(0.70, 1.0, absSpan);
+          const edgeRail = 0.0085 * railFactor; // 17mm total rail thickness
+          const railBulge = Math.sign(uSpan) * 0.003 * railFactor;
+          const zFin = zCenter + uSpan * zHalf + railBulge;
+
+          const tipBead = smoothstep(0.88, 1.0, tFin) * 0.003;
+          const halfT = thick * 0.5 * (1.0 - 0.35 * absSpan * absSpan) + edgeRail + tipBead;
 
           topFinRow.push(addV(xFin + halfT, yFin, zFin, c / (F_COLS - 1), tFin, 0.0, kickW, bladeFlex, side));
           botFinRow.push(addV(xFin - halfT, yFin, zFin, c / (F_COLS - 1), tFin, 0.0, kickW, bladeFlex, side));
@@ -602,22 +620,23 @@
           indices.push(topFinGrid[r][c], topFinGrid[r + 1][c], topFinGrid[r + 1][c + 1]);
           indices.push(topFinGrid[r][c], topFinGrid[r + 1][c + 1], topFinGrid[r][c + 1]);
 
-          // Outward-facing winding on botFinGrid (fixes backface culling)
+          // Outward-facing winding on botFinGrid (normal points in -X)
           indices.push(botFinGrid[r][c], botFinGrid[r + 1][c + 1], botFinGrid[r + 1][c]);
           indices.push(botFinGrid[r][c], botFinGrid[r][c + 1], botFinGrid[r + 1][c + 1]);
         }
-        // Lateral edges
-        indices.push(topFinGrid[r][0], botFinGrid[r][0], botFinGrid[r + 1][0]);
-        indices.push(topFinGrid[r][0], botFinGrid[r + 1][0], topFinGrid[r + 1][0]);
+        // Left lateral edge (c = 0, normal points in -Z outward)
+        indices.push(topFinGrid[r][0], botFinGrid[r + 1][0], botFinGrid[r][0]);
+        indices.push(topFinGrid[r][0], topFinGrid[r + 1][0], botFinGrid[r + 1][0]);
 
-        indices.push(topFinGrid[r][F_COLS - 1], topFinGrid[r + 1][F_COLS - 1], botFinGrid[r + 1][F_COLS - 1]);
-        indices.push(topFinGrid[r][F_COLS - 1], botFinGrid[r + 1][F_COLS - 1], botFinGrid[r][F_COLS - 1]);
+        // Right lateral edge (c = F_COLS - 1, normal points in +Z outward)
+        indices.push(topFinGrid[r][F_COLS - 1], botFinGrid[r][F_COLS - 1], topFinGrid[r + 1][F_COLS - 1]);
+        indices.push(topFinGrid[r + 1][F_COLS - 1], botFinGrid[r][F_COLS - 1], botFinGrid[r + 1][F_COLS - 1]);
       }
 
-      // Trailing edge
+      // Trailing edge (normal points in -Y down blade)
       for (let c = 0; c < F_COLS - 1; c++) {
-        indices.push(topFinGrid[F_ROWS - 1][c], botFinGrid[F_ROWS - 1][c], botFinGrid[F_ROWS - 1][c + 1]);
-        indices.push(topFinGrid[F_ROWS - 1][c], botFinGrid[F_ROWS - 1][c + 1], topFinGrid[F_ROWS - 1][c + 1]);
+        indices.push(topFinGrid[F_ROWS - 1][c], botFinGrid[F_ROWS - 1][c + 1], botFinGrid[F_ROWS - 1][c]);
+        indices.push(topFinGrid[F_ROWS - 1][c], topFinGrid[F_ROWS - 1][c + 1], botFinGrid[F_ROWS - 1][c + 1]);
       }
 
       // Root edge
@@ -675,6 +694,9 @@
         varying vec3 vDiverWorldPos;
         varying float vBladeFlex;
         varying float vKickWeight;
+        varying vec2 vFinUv;
+        varying float vDiverLocalY;
+        varying float vLegSide;
         ${shader.vertexShader}
       `;
       shader.vertexShader = shader.vertexShader.replace(
@@ -882,6 +904,9 @@
         vDiverWorldPos = dWPos.xyz;
         vBladeFlex = bladeFlex;
         vKickWeight = kickWeight;
+        vFinUv = uv;
+        vDiverLocalY = position.y;
+        vLegSide = legSide;
         `
       );
       shader.fragmentShader = `
@@ -890,8 +915,79 @@
         varying vec3 vDiverWorldPos;
         varying float vBladeFlex;
         varying float vKickWeight;
+        varying vec2 vFinUv;
+        varying float vDiverLocalY;
+        varying float vLegSide;
         ${shader.fragmentShader}
       `;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        // High-Visibility Competition Fin Graphics (Molchanovs C1 & Long Bi-Fins)
+        if (vBladeFlex > 0.005 || (vKickWeight > 0.74 && vDiverLocalY < -1.03)) {
+          // 1. High-Modulus Carbon Fiber Epoxy Matrix with directional weave
+          vec3 carbonDark = vec3(0.065, 0.095, 0.135);
+          vec3 carbonLuster = vec3(0.145, 0.205, 0.285);
+          float weave = sin(vFinUv.x * 130.0) * sin(vFinUv.y * 180.0) * 0.5 + 0.5;
+          vec3 finBase = mix(carbonDark, carbonLuster, weave * 0.40);
+
+          // 2. High-Visibility Molded Rubber Water Rails (Sideribber) along outer lateral borders
+          // Arctic White for vivid 50m underwater visibility & silhouette clarity
+          float railDist = abs(vFinUv.x - 0.5) * 2.0;
+          float railMask = smoothstep(0.74, 0.86, railDist);
+          vec3 railColor = vec3(0.90, 0.96, 1.0);
+
+          // 3. Aerodynamic Dual Racing Stripes (Molchanovs World Record design)
+          float stripeDist = abs(abs(vFinUv.x - 0.5) * 2.0 - 0.42);
+          float stripeMask = smoothstep(0.08, 0.02, stripeDist)
+                           * smoothstep(0.06, 0.18, vFinUv.y)
+                           * (1.0 - smoothstep(0.86, 0.96, vFinUv.y));
+          vec3 stripeColor = vec3(0.14, 0.78, 0.96); // Electric Cyan
+
+          // 4. Crescent Trailing Edge Accent Trim
+          float tipTrim = smoothstep(0.92, 0.97, vFinUv.y);
+          vec3 tipColor = vec3(0.92, 0.97, 1.0);
+
+          // 5. Central Championship Gold Crest / Chevron Emblem
+          float crestY = smoothstep(0.22, 0.32, vFinUv.y) * (1.0 - smoothstep(0.42, 0.52, vFinUv.y));
+          float crestX = smoothstep(0.20, 0.0, abs(vFinUv.x - 0.5) * 2.0);
+          float crestMask = crestY * crestX * 0.90;
+          vec3 crestColor = vec3(0.96, 0.86, 0.40);
+
+          // Composite graphics
+          vec3 finCol = finBase;
+          finCol = mix(finCol, stripeColor, stripeMask * 0.92);
+          finCol = mix(finCol, crestColor, crestMask);
+          finCol = mix(finCol, railColor, railMask);
+          finCol = mix(finCol, tipColor, tipTrim * 0.88);
+
+          diffuseColor.rgb = finCol;
+        }
+        `
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        if (vBladeFlex > 0.005 || (vKickWeight > 0.74 && vDiverLocalY < -1.03)) {
+          float railDist = abs(vFinUv.x - 0.5) * 2.0;
+          float railMask = smoothstep(0.74, 0.86, railDist);
+          roughnessFactor = mix(0.14, 0.42, railMask);
+        }
+        `
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <metalnessmap_fragment>',
+        `#include <metalnessmap_fragment>
+        if (vBladeFlex > 0.005 || (vKickWeight > 0.74 && vDiverLocalY < -1.03)) {
+          float railDist = abs(vFinUv.x - 0.5) * 2.0;
+          float railMask = smoothstep(0.74, 0.86, railDist);
+          metalnessFactor = mix(0.60, 0.04, railMask);
+        }
+        `
+      );
+
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <opaque_fragment>',
         `
@@ -900,9 +996,9 @@
         vec3 verticalAbsorption = exp(-vec3(0.022, 0.008, 0.002) * max(0.0, waterDepth - 10.0));
         vec3 pathAbsorption = exp(-vec3(0.015, 0.005, 0.001) * viewDist);
         outgoingLight *= mix(vec3(1.0), verticalAbsorption * pathAbsorption, 0.82);
-        if (vBladeFlex > 0.05) {
-          float carbonRim = pow(1.0 - abs(dot(normalize(vNormal), normalize(-vViewPosition))), 3.0);
-          outgoingLight += vec3(0.08, 0.15, 0.22) * carbonRim * vBladeFlex;
+        if (vBladeFlex > 0.005 || (vKickWeight > 0.74 && vDiverLocalY < -1.03)) {
+          float carbonRim = pow(1.0 - abs(dot(normalize(vNormal), normalize(-vViewPosition))), 2.4);
+          outgoingLight += vec3(0.14, 0.36, 0.52) * carbonRim * 0.65;
         }
         if (uBioShimmer > 0.001) {
           float finEdge = smoothstep(0.40, 0.95, vKickWeight);
@@ -1884,9 +1980,12 @@
       outVec.z = RIG_Z + horizZ;
     }
 
-    // Helper: Exact 3D orientation facing IN towards the dive rope at RIG_X
+    const MAIN_DIVER_BASE_YAW = -0.74; // -42.4 deg (broadside 3/4 view displaying full 76cm monofin span)
+    const SAFE_DIVER_BASE_YAW = -0.90; // -51.6 deg (broadside 3/4 view displaying long bi-fin scissor kicks)
+
+    // Helper: Authentic 3D orientation facing towards the dive rope and spectator
     // Combines pitch around transverse axis, roll around longitudinal spine axis, and yaw precession
-    function orientDiver3D(mesh, pitch, roll, yaw, toRopeSign) {
+    function orientDiver3D(mesh, pitch, roll, yaw, toRopeSign, baseYaw = 0.0, naturalSway = 0.0) {
       vF.set(toRopeSign, 0.0, 0.0);
       vU.set(0.0, Math.cos(pitch), -Math.sin(pitch) * toRopeSign);
       vS.set(0.0, Math.sin(pitch) * toRopeSign, Math.cos(pitch) * toRopeSign);
@@ -1894,14 +1993,15 @@
       qPitch.setFromRotationMatrix(basisMatrix);
 
       qRoll.setFromAxisAngle(unitY, roll);
-      qYaw.setFromAxisAngle(unitY, yaw * toRopeSign);
+      const totalYaw = (baseYaw + yaw + naturalSway) * toRopeSign;
+      qYaw.setFromAxisAngle(unitY, totalYaw);
 
       qCombined.copy(qPitch).multiply(qRoll);
       mesh.quaternion.copy(qYaw).multiply(qCombined);
     }
 
     function orientDiver(mesh, pitch, toRopeSign) {
-      orientDiver3D(mesh, pitch, 0.0, 0.0, toRopeSign);
+      orientDiver3D(mesh, pitch, 0.0, 0.0, toRopeSign, 0.0, 0.0);
     }
 
     // Helper: Deep Diver Trajectory (50s Cycle)
@@ -2339,14 +2439,18 @@
       evalRopePoint(mainInertial.y.pos, time, tugAmount, diverRopePosMono);
       evalRopePoint(safeInertial.y.pos, time, tugAmount, diverRopePosSafe);
 
-      let monoTargetX = diverRopePosMono.x - 0.78;
-      let biTargetX = diverRopePosSafe.x + 0.82;
+      let monoTargetX = diverRopePosMono.x - 0.70;
+      let monoTargetZ = diverRopePosMono.z - 0.28;
+      let biTargetX = diverRopePosSafe.x + 0.72;
+      let biTargetZ = diverRopePosSafe.z - 0.24;
       if (cycle >= 23.5 && cycle <= 26.8) {
         const uTurn = smoothstep(23.5, 24.8, cycle) * (1.0 - smoothstep(25.8, 26.8, cycle));
         if (isMonofinDeep) {
-          monoTargetX = (diverRopePosMono.x - 0.78) + uTurn * 0.40;
+          monoTargetX = (diverRopePosMono.x - 0.70) + uTurn * 0.42;
+          monoTargetZ = (diverRopePosMono.z - 0.28) + Math.sin(uTurn * Math.PI) * 0.38;
         } else {
-          biTargetX = (diverRopePosSafe.x + 0.82) - uTurn * 0.40;
+          biTargetX = (diverRopePosSafe.x + 0.72) - uTurn * 0.42;
+          biTargetZ = (diverRopePosSafe.z - 0.24) + Math.sin(uTurn * Math.PI) * 0.38;
         }
       }
 
@@ -2362,7 +2466,7 @@
       stepInertial(mainInertial.theta, monoTraj.theta, 9.0, 1.1, dtPhase);
       stepInertial(mainInertial.y, monoTraj.y, 14.0, 1.05, dtPhase);
       stepInertial(mainInertial.x, monoTargetX, 8.0, 1.15, dtPhase);
-      stepInertial(mainInertial.z, diverRopePosMono.z, 8.0, 1.15, dtPhase);
+      stepInertial(mainInertial.z, monoTargetZ, 8.0, 1.15, dtPhase);
       stepInertial(mainInertial.pike, monoTraj.pikeAngle, 10.0, 1.1, dtPhase);
       stepInertial(mainInertial.arm, monoTraj.armRelax, 8.5, 1.1, dtPhase);
       stepInertial(mainInertial.armL, (monoTraj.armRelaxL !== undefined) ? monoTraj.armRelaxL : monoTraj.armRelax, 8.5, 1.1, dtPhase);
@@ -2379,7 +2483,7 @@
       stepInertial(safeInertial.theta, biTraj.theta, 9.0, 1.1, dtPhase);
       stepInertial(safeInertial.y, biTraj.y, 14.0, 1.05, dtPhase);
       stepInertial(safeInertial.x, biTargetX, 8.0, 1.15, dtPhase);
-      stepInertial(safeInertial.z, diverRopePosSafe.z, 8.0, 1.15, dtPhase);
+      stepInertial(safeInertial.z, biTargetZ, 8.0, 1.15, dtPhase);
       stepInertial(safeInertial.pike, biTraj.pikeAngle, 10.0, 1.1, dtPhase);
       stepInertial(safeInertial.arm, biTraj.armRelax, 8.5, 1.1, dtPhase);
       stepInertial(safeInertial.armL, (biTraj.armRelaxL !== undefined) ? biTraj.armRelaxL : biTraj.armRelax, 8.5, 1.1, dtPhase);
@@ -2392,9 +2496,10 @@
       stepInertial(safeInertial.yaw, biTraj.gazeYaw, 7.5, 1.1, dtPhase);
       stepInertial(safeInertial.pitch, biTraj.gazePitch, 7.5, 1.1, dtPhase);
 
-      // Position & Orient Monofin Diver (Left side, facing +X toward rope)
+      // Position & Orient Monofin Diver (Left side, facing +X/3/4 toward rope and camera)
       mainDiverMesh.position.set(mainInertial.x.pos, mainInertial.y.pos, mainInertial.z.pos);
-      orientDiver3D(mainDiverMesh, mainInertial.theta.pos, mainInertial.roll.pos, mainInertial.turnYaw.pos, 1.0);
+      const mainSway = Math.sin(monoKickPhase * 0.5 + time * 0.4) * 0.045;
+      orientDiver3D(mainDiverMesh, mainInertial.theta.pos, mainInertial.roll.pos, mainInertial.turnYaw.pos, 1.0, MAIN_DIVER_BASE_YAW, mainSway);
 
       // Bioluminescent fin shear shimmer at night
       const nightBioFactor = smoothstep(0.35, 0.02, daylightVal);
@@ -2440,9 +2545,10 @@
       mainUniforms.uHeadYaw.value = mainInertial.yaw.pos;
       mainUniforms.uTime.value = time;
 
-      // Position & Orient Bi-fin Diver (Right side, facing -X toward rope)
+      // Position & Orient Bi-fin Diver (Right side, facing -X/3/4 toward rope and camera)
       safetyDiverMesh.position.set(safeInertial.x.pos, safeInertial.y.pos, safeInertial.z.pos);
-      orientDiver3D(safetyDiverMesh, safeInertial.theta.pos, safeInertial.roll.pos, safeInertial.turnYaw.pos, -1.0);
+      const safeSway = Math.sin(biKickPhase * 0.5 + time * 0.4 + 1.5) * 0.045;
+      orientDiver3D(safetyDiverMesh, safeInertial.theta.pos, safeInertial.roll.pos, safeInertial.turnYaw.pos, -1.0, SAFE_DIVER_BASE_YAW, safeSway);
 
       safeUniforms.uKickPhase.value = biKickPhase;
       safeUniforms.uKickAmp.value = biTraj.kickAmp;

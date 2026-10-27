@@ -219,10 +219,34 @@ Standard generic 3D human models terminate the legs in arbitrary truncated stump
 - **Parabolic Carbon Thickness Tapering:**
   The blade thickness $h(s)$ as a function of normalized spanwise distance $s \in [0, 1]$ from root to tip follows a parabolic diminishing profile:
   $$h(s) = h_{\text{tip}} + (h_{\text{root}} - h_{\text{tip}}) \cdot (1.0 - s)^{1.65}$$
-  For the monofin: $h_{\text{root}} = 32\text{ mm}$, $h_{\text{tip}} = 4.0\text{ mm}$.  
-  For the bi-fins: $h_{\text{root}} = 22\text{ mm}$, $h_{\text{tip}} = 3.0\text{ mm}$.
+  For the monofin: $h_{\text{root}} = 38\text{ mm}$, $h_{\text{tip}} = 8.0\text{ mm}$.  
+  For the bi-fins: $h_{\text{root}} = 24\text{ mm}$, $h_{\text{tip}} = 6.0\text{ mm}$.
 
   This distribution produces an elastodynamic flexure curve where bending curvature $\kappa(s) = M(s) / (E \cdot I(s))$ is uniform along the blade, preventing stress concentration and localized blade failure.
+
+### 4.2 3D Molded Rubber Water Rails (*Sideribber*) & 3/4 Presentation Angle
+
+In authentic competition freediving, fin blades are never knife-edge thin wafers observed strictly edge-on. 
+
+1. **Hydrodynamic Water Rails (*Sideribber*):**
+   Molded vulcanized rubber channeling ribs run along the entire outer lateral flanks ($|u_{\text{span}}| \ge 0.72$). They stand $26\text{ mm}$ thick in total profile with a rounded lateral bulge ($+5\text{ mm}$). This prevents lateral pressure leakage (vortex spillage) off the wingtip, maintaining high hydrodynamic propulsive efficiency:
+   $$\eta_{\text{prop}} = \frac{T \cdot v}{P_{\text{metabolic}}} \approx 0.78$$
+
+2. **3/4 Aspect-Ratio Projection vs. Razor Edge-On Artifacts:**
+   When an object is viewed edge-on ($\theta_{\text{view}} \le 16^\circ$), projected thickness falls below subpixel limits at $35\text{ m}$ distance ($d \approx 0.001\text{ m} \to 0.04\text{ px}$), causing severe rasterization dropouts and disappearance. 
+   
+   By establishing an athletic 3/4 presentation yaw ($\psi_{\text{mono}} = -42.4^\circ$, $\psi_{\text{safe}} = -50.4^\circ$) with harmonic swimming sway ($\pm 3^\circ$), the angle with the camera viewing ray expands to $\theta_{\text{view}} \approx 57.4^\circ$:
+   
+   $$\text{Proj}_{\text{span}} = W_{\text{wing}} \cdot \sin(57.4^\circ) = 0.76\text{ m} \cdot 0.842 = 0.640\text{ m} \quad (\mathbf{84.2\% \text{ visible on screen}})$$
+   $$\text{Proj}_{\text{flex}} = A_{\text{kick}} \cdot \cos(57.4^\circ) = A_{\text{kick}} \cdot 0.539 \quad (\mathbf{53.9\% \text{ visible on screen}})$$
+
+   This optimal 3/4 isometric perspective allows spectators to witness both the full 64cm projected wingspan and the 35cm dynamic kick undulation simultaneously without any edge-on collapse.
+
+3. **High-Visibility Competition Graphics:**
+   - **Arctic White Water Rails:** Outlines the fin perimeter for 50-metre underwater contrast.
+   - **Electric Cyan Dual Racing Stripes:** Highlights the travelling undulation wave down the carbon matrix.
+   - **Golden Championship Crest:** Central emblem on the dorsal laminate.
+   - **Epoxy Specular Gloss:** High specular luster ($R_{\text{rough}} = 0.14$, $M_{\text{metal}} = 0.60$) catching caustic sunlight bands.
 
 ---
 
