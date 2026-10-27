@@ -127,11 +127,27 @@ Time (s)     Phase                     Kinetics & Posture
 
 ### 2.1 Arm Posture: Relaxed Escort vs. Overhead Streamline
 
-A common defect in computer graphics simulations is forcing the safety escort diver into an overhead streamline "arrow" pose. In authentic freediving physiology:
+A common defect in computer graphics simulations is forcing the safety escort diver into an overhead streamline "arrow" pose, or using unconstrained forward angular rotations that push the arms forward like a zombie or cross over the midline. In authentic freediving physiology:
 - **Overhead Streamline** is used exclusively during active descents and deep ascents to minimize the drag coefficient $C_d \approx 0.045$.
-- **Relaxed Escort Posture** is required during buddy rendezvous. The arms hang relaxed down alongside the torso and thighs with soft elbow compliance ($\approx 15^\circ$ to $25^\circ$). This allows:
-  1. Instantaneous deployment of the rescue hand to support the diver’s chin and seal the mouth/airway in the event of loss of motor control (LMC) or blackout (BO).
-  2. Substantially lower myocardial oxygen consumption ($\dot{V}O_2$), keeping the safety diver’s heart rate below 55 bpm.
+- **Relaxed Escort Posture** is required during buddy rendezvous and the entire escorted ascent:
+  - **Upper Arm:** Hangs vertically from the shoulder ($y = +0.52\text{ m}$) down along the lateral rib cage to the elbow ($y = +0.20\text{ m}$, $z = \pm 0.205\text{ m}$).
+  - **Forearm & Hand:** Extends from the elbow down along the outer thighs and hips to the hand apex ($y = -0.18\text{ m}$, $z = \pm 0.198\text{ m}$, $x = +0.055\text{ m}$) with soft physiological elbow compliance ($\approx 18^\circ$).
+  - **Safety Function:** This allows:
+    1. Instantaneous deployment of the rescue hand to support the diver’s chin and seal the mouth/airway in the event of loss of motor control (LMC) or blackout (BO) under the AIDA / CMAS Blow-Tap-Talk (BTT) protocol.
+    2. Substantially lower myocardial oxygen consumption ($\dot{V}O_2$), keeping the safety diver’s heart rate below 55 bpm.
+    3. Complete clearance from the diver's torso with zero cross-over or awkward forward reaching.
+
+### 2.2 Deep-Water Diver Contrast & Visual Legibility
+
+At depths below 15–20 metres, water selectively absorbs long wavelengths, severely reducing chromatic contrast. To guarantee crisp visual tracking for judges, safety divers, and broadcast cameras:
+- **Yamamoto 45 Competition Smoothskin:** Iridescent low-drag finish ($R_{\text{rough}} = 0.24$, $M_{\text{metal}} = 0.32$) reflecting surface caustic ribbons and artificial illumination.
+- **Electric Cyan & Titanium Silver Flank Panels:** High-contrast lateral panels along the ribs and outer legs ($|n_z| \ge 0.45$) bordered by crisp platinum pinstripes.
+- **Reflective Safety Cuffs:** High-visibility silver bands at wrists ($y \in [1.12, 1.24]$) and ankles ($y \in [-0.86, -0.74]$).
+- **Bottom Plate Beacon Bounce & Silhouette Fresnel:**
+  - Upward bounce illumination from the white bottom plate and 360° beacon ($y = -17.5\text{ m}$):
+    $$I_{\text{bounce}}(y) = I_0 \cdot \exp(-0.16 \cdot (y - y_{\text{plate}}))$$
+  - Silhouette edge Fresnel highlight maintaining a crisp, luminescent outer contour against deep dark ocean water:
+    $$I_{\text{rim}} = I_{\text{fresnel}} \cdot \left(1.0 - |\mathbf{n} \cdot \mathbf{v}|\right)^{2.2} \cdot (0.40 + 0.60 \cdot w_{\text{depth}})$$
 
 ---
 

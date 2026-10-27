@@ -663,9 +663,9 @@
   // ---------------------------------------------------------------------------
   function createDiverMaterial(T, uniforms) {
     const mat = new T.MeshStandardMaterial({
-      color: 0x101922,
-      roughness: 0.38,
-      metalness: 0.08,
+      color: 0x1a2e46,
+      roughness: 0.28,
+      metalness: 0.22,
       side: T.DoubleSide
     });
     mat.onBeforeCompile = shader => {
@@ -724,61 +724,55 @@
           transformed.xz *= compressFactor;
         }
 
-        // 1. Two-segment rigid skeletal kinematic arm (Upper arm shoulder-to-elbow + Forearm elbow-to-hand)
+        // 1. Dual-bone anatomical skeletal kinematic arm (Upper arm shoulder-to-elbow + Forearm elbow-to-hand)
         if (armWeight > 0.0) {
           float sideArm = (abs(legSide) > 0.5) ? legSide : sign(position.z);
           float relax = (sideArm > 0.0) ? uArmRelaxR : uArmRelaxL;
           float reach = (sideArm > 0.0) ? uArmReachR : 0.0;
 
-          // Living scull & streamline micro-resonance
-          float scull = (relax > 0.35) ? sin(uTime * 2.4 + sideArm * 1.2) * 0.05 * relax : 0.0;
-          float streamResonance = (1.0 - relax) * (1.0 - reach) * sin(uKickPhase + 1.2) * uKickAmp * 0.012;
+          // Living subtle scull / sway and streamline micro-resonance
+          float scull = (relax > 0.3) ? sin(uTime * 2.2 + sideArm * 1.4) * 0.016 * relax : 0.0;
+          float streamResonance = (1.0 - relax) * (1.0 - reach) * sin(uKickPhase + 1.2) * uKickAmp * 0.010;
 
-          // Upper arm kinematics:
-          // reach = 1.0 -> rotates forward (+X) by ~87 deg (1.52 rad) to touch bottom plate/rope
-          // relax = 1.0 -> rotates down (-Y) by ~168 deg (2.93 rad) to hang naturally along ribs
-          float pitchUpper = reach * 1.52 + (1.0 - reach) * (relax * (2.93 + scull));
-          float sP1 = sin(pitchUpper);
-          float cP1 = cos(pitchUpper);
-
-          // Forearm & elbow hinge kinematics:
-          // When relaxed, elbow flexes naturally by 22 deg (0.38 rad)
-          // When reaching, arm is straight for plate touch
-          float elbowFlex = reach * 0.05 + (1.0 - reach) * (relax * 0.38);
-          float pitchFore = pitchUpper - elbowFlex;
-          float sP2 = sin(pitchFore);
-          float cP2 = cos(pitchFore);
-
+          // Target anatomical joint coordinates:
+          // A. Overhead Streamline (relax = 0, reach = 0)
           vec3 shoulderPivot = vec3(0.015, 0.52, sideArm * 0.175);
-          vec3 elbowRest = vec3(0.028, 0.86, sideArm * 0.106);
+          vec3 elbowStream = vec3(0.028, 0.86, sideArm * 0.106);
+          vec3 handStream = vec3(0.035, 1.285, sideArm * 0.022);
 
-          float latClearance = -relax * 0.069 * sideArm;
-          float ropeInward = reach * 0.08 * (-sideArm);
+          // B. Relaxed Escort Posture alongside lateral thighs/hips (relax = 1, reach = 0)
+          // Upper arm hangs from shoulder (y=0.52) to elbow at ribs (y=0.20, z=sideArm*0.205)
+          // Forearm extends from elbow to hand beside outer thigh (y=-0.18, z=sideArm*0.198, x=+0.055)
+          vec3 elbowRelax = vec3(0.025 + scull * 0.4, 0.20, sideArm * 0.205);
+          vec3 handRelax = vec3(0.055 + scull, -0.18, sideArm * 0.198);
 
-          vec3 upperRest = elbowRest - shoulderPivot;
-          vec3 elbowRotated = shoulderPivot + vec3(
-            upperRest.x * cP1 + upperRest.y * sP1 + streamResonance,
-            -upperRest.x * sP1 + upperRest.y * cP1,
-            upperRest.z + latClearance + ropeInward
-          );
+          // C. Bottom Tag Reach (reach = 1)
+          vec3 elbowReach = vec3(0.34, 0.52, sideArm * 0.11);
+          vec3 handReach = vec3(0.72, 0.52, sideArm * 0.04);
 
-          // Rigid upper arm (y in [0.52, 0.86])
-          vec3 relUpper = transformed - shoulderPivot;
-          vec3 posUpper = shoulderPivot + vec3(
-            relUpper.x * cP1 + relUpper.y * sP1 + streamResonance,
-            -relUpper.x * sP1 + relUpper.y * cP1,
-            relUpper.z + (clamp((position.y - 0.52) / 0.34, 0.0, 1.0)) * (latClearance + ropeInward)
-          );
+          // Joint interpolation weights
+          float wStream = (1.0 - relax) * (1.0 - reach);
+          float wRelax = relax * (1.0 - reach);
+          float wReach = reach;
 
-          // Rigid forearm (y in [0.86, 1.285])
-          vec3 relFore = transformed - elbowRest;
-          float wForeSpan = clamp((position.y - 0.86) / 0.425, 0.0, 1.0);
-          float wristWiggle = (relax > 0.3) ? sin(uTime * 2.8 + sideArm * 1.5) * 0.018 * relax * wForeSpan : 0.0;
-          vec3 posFore = elbowRotated + vec3(
-            relFore.x * cP2 + relFore.y * sP2 + streamResonance,
-            -relFore.x * sP2 + relFore.y * cP2,
-            relFore.z + latClearance + ropeInward + wristWiggle
-          );
+          vec3 elbowTarget = elbowStream * wStream + elbowRelax * wRelax + elbowReach * wReach;
+          vec3 handTarget = handStream * wStream + handRelax * wRelax + handReach * wReach + vec3(streamResonance, 0.0, 0.0);
+
+          // Upper arm kinematics (position.y in [0.52, 0.86])
+          float uArm = clamp((position.y - 0.52) / 0.34, 0.0, 1.0);
+          vec3 centerRestU = mix(shoulderPivot, elbowStream, uArm);
+          vec3 centerTargetU = mix(shoulderPivot, elbowTarget, uArm);
+          vec3 dPosU = position - centerRestU;
+          float rotX_U = dPosU.x * cos(3.14159 * relax);
+          vec3 posUpper = centerTargetU + vec3(rotX_U, 0.0, dPosU.z);
+
+          // Forearm kinematics (position.y in [0.86, 1.285])
+          float vArm = clamp((position.y - 0.86) / 0.425, 0.0, 1.0);
+          vec3 centerRestF = mix(elbowStream, handStream, vArm);
+          vec3 centerTargetF = mix(elbowTarget, handTarget, vArm);
+          vec3 dPosF = position - centerRestF;
+          float rotX_F = dPosF.x * cos(3.14159 * relax);
+          vec3 posFore = centerTargetF + vec3(rotX_F, 0.0, dPosF.z);
 
           // Seamless blending at elbow hinge (y in [0.83, 0.89])
           float wElbowHinge = smoothstep(0.83, 0.89, position.y);
@@ -923,7 +917,7 @@
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-        // High-Visibility Competition Fin Graphics (Molchanovs C1 & Long Bi-Fins)
+        // High-Visibility Competition Fin Graphics & Wetsuit Panels
         if (vBladeFlex > 0.005 || (vKickWeight > 0.74 && vDiverLocalY < -1.03)) {
           // 1. High-Modulus Carbon Fiber Epoxy Matrix with directional weave
           vec3 carbonDark = vec3(0.065, 0.095, 0.135);
@@ -962,6 +956,27 @@
           finCol = mix(finCol, tipColor, tipTrim * 0.88);
 
           diffuseColor.rgb = finCol;
+        } else {
+          // High-Contrast Competition Wetsuit Panels (Yamamoto 45 Smoothskin)
+          vec3 suitBase = vec3(0.11, 0.19, 0.30); // Deep competition navy
+          vec3 cyanFlank = vec3(0.18, 0.78, 0.96); // Vivid Electric Cyan
+          vec3 silverAccent = vec3(0.90, 0.95, 1.0); // Titanium Platinum White
+
+          // Lateral flank panels along torso and outer legs (abs(vNormal.z) > 0.45)
+          float flankMask = smoothstep(0.45, 0.75, abs(vNormal.z)) * smoothstep(-0.85, -0.60, vDiverLocalY) * (1.0 - smoothstep(0.55, 0.72, vDiverLocalY));
+          // Racing pinstripe bordering the flank panel
+          float stripeBorder = smoothstep(0.045, 0.015, abs(abs(vNormal.z) - 0.48)) * smoothstep(-0.85, 0.55, vDiverLocalY);
+
+          // Safety wrist and ankle cuffs
+          float wristCuff = smoothstep(1.12, 1.16, vDiverLocalY) * (1.0 - smoothstep(1.22, 1.26, vDiverLocalY));
+          float ankleCuff = smoothstep(-0.86, -0.82, vDiverLocalY) * (1.0 - smoothstep(-0.76, -0.72, vDiverLocalY));
+          float cuffMask = max(wristCuff, ankleCuff);
+
+          vec3 suitCol = mix(suitBase, cyanFlank, flankMask * 0.85);
+          suitCol = mix(suitCol, silverAccent, stripeBorder * 0.90);
+          suitCol = mix(suitCol, silverAccent, cuffMask * 0.95);
+
+          diffuseColor.rgb = suitCol;
         }
         `
       );
@@ -973,6 +988,9 @@
           float railDist = abs(vFinUv.x - 0.5) * 2.0;
           float railMask = smoothstep(0.74, 0.86, railDist);
           roughnessFactor = mix(0.14, 0.42, railMask);
+        } else {
+          // Glossy Yamamoto 45 smoothskin neoprene reflects caustics and ambient light
+          roughnessFactor = 0.24;
         }
         `
       );
@@ -984,6 +1002,8 @@
           float railDist = abs(vFinUv.x - 0.5) * 2.0;
           float railMask = smoothstep(0.74, 0.86, railDist);
           metalnessFactor = mix(0.60, 0.04, railMask);
+        } else {
+          metalnessFactor = 0.32;
         }
         `
       );
@@ -995,10 +1015,23 @@
         float viewDist = length(vViewPosition);
         vec3 verticalAbsorption = exp(-vec3(0.022, 0.008, 0.002) * max(0.0, waterDepth - 10.0));
         vec3 pathAbsorption = exp(-vec3(0.015, 0.005, 0.001) * viewDist);
-        outgoingLight *= mix(vec3(1.0), verticalAbsorption * pathAbsorption, 0.82);
+        outgoingLight *= mix(vec3(1.0), verticalAbsorption * pathAbsorption, 0.55);
+
+        // Bottom Plate & Deep Water Contrast Booster (Prevents darkness fadeout at depth)
+        float depthContrast = smoothstep(6.0, 32.0, waterDepth);
+        float distToPlate = max(0.0, vDiverWorldPos.y - (-17.5));
+        float plateBounce = exp(-0.16 * distToPlate);
+        vec3 beaconLight = vec3(0.24, 0.60, 0.88) * plateBounce * 0.75;
+
+        // Silhouette edge Fresnel (crisp outline against dark ocean)
+        float bodyFresnel = pow(1.0 - abs(dot(normalize(vNormal), normalize(-vViewPosition))), 2.2);
+        vec3 silhouetteRim = vec3(0.18, 0.48, 0.72) * bodyFresnel * (0.40 + 0.60 * depthContrast);
+
+        outgoingLight += beaconLight + silhouetteRim;
+
         if (vBladeFlex > 0.005 || (vKickWeight > 0.74 && vDiverLocalY < -1.03)) {
           float carbonRim = pow(1.0 - abs(dot(normalize(vNormal), normalize(-vViewPosition))), 2.4);
-          outgoingLight += vec3(0.14, 0.36, 0.52) * carbonRim * 0.65;
+          outgoingLight += vec3(0.16, 0.40, 0.58) * carbonRim * 0.75;
         }
         if (uBioShimmer > 0.001) {
           float finEdge = smoothstep(0.40, 0.95, vKickWeight);
@@ -2245,9 +2278,9 @@
         safeTraj.pikeAngle = 0.0;
         safeTraj.kickAmp = 0.04; // Gentle idle surface sculling to hold station beside buoy
         safeTraj.kickPhaseRate = 1.4;
-        safeTraj.armRelax = 0.75; // Relaxed arms resting beside buoy
-        safeTraj.armRelaxL = 0.75;
-        safeTraj.armRelaxR = 0.75;
+        safeTraj.armRelax = 1.0; // Relaxed arms resting naturally beside buoy
+        safeTraj.armRelaxL = 1.0;
+        safeTraj.armRelaxR = 1.0;
         safeTraj.gazeYaw = 0.04 * Math.sin(time * 0.75); // Alert scanning down the line
         safeTraj.gazePitch = -0.38; // Looking straight down the vertical rope!
       } else if (cycle < 27.2) {
@@ -2271,9 +2304,10 @@
           safeTraj.kickAmp = 0.05 + smoothstep(0.65, 1.0, s) * 0.90;
         }
         safeTraj.kickPhaseRate = 3.8;
-        safeTraj.armRelax = 0.0;
-        safeTraj.armRelaxL = 0.0;
-        safeTraj.armRelaxR = 0.0;
+        // Arms smoothly extend forward into overhead streamline to pierce water
+        safeTraj.armRelax = 1.0 * (1.0 - smoothstep(0.0, 0.45, s));
+        safeTraj.armRelaxL = safeTraj.armRelax;
+        safeTraj.armRelaxR = safeTraj.armRelax;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = -0.15;
       } else if (cycle < 34.5) {
@@ -2285,10 +2319,9 @@
         safeTraj.pikeAngle = 0.0;
         safeTraj.kickAmp = 0.95;
         safeTraj.kickPhaseRate = 3.8;
-        // As safety diver approaches 10m meeting depth (after cycle 32.5), arms break out of streamline
-        // and reach forward towards the rope to stabilize depth level and maintain visual orientation!
-        const wReach = smoothstep(32.5, 34.0, cycle);
-        safeTraj.armRelax = wReach * 0.75;
+        // Streamline during fast descent; eases smoothly into relaxed posture as rendezvous approaches
+        const wReach = smoothstep(33.0, 34.5, cycle);
+        safeTraj.armRelax = wReach;
         safeTraj.armRelaxL = safeTraj.armRelax;
         safeTraj.armRelaxR = safeTraj.armRelax;
         safeTraj.gazeYaw = 0.0;
@@ -2296,7 +2329,6 @@
       } else if (cycle < 36.8) {
         // 4. Turn & Rendezvous Intercept (34.5 - 36.8s):
         // Sweeping 180° turn around y ≈ 4.0m to meet ascending deep diver.
-        // Arms are actively forward towards the rope holding level in the water column (no stiff arrow/pileform)!
         const t = (cycle - 34.5) / 2.3;
         safeTraj.pikeAngle = Math.sin(t * Math.PI) * 1.15;
         safeTraj.theta = Math.PI * (1.0 - smoothstep(0, 1, t)); // Smooth 180° pivot from down to up!
@@ -2305,23 +2337,23 @@
         safeTraj.y = hoverY * (1.0 - t) + targetEscortY * t;
         safeTraj.kickAmp = 0.45;
         safeTraj.kickPhaseRate = 3.0;
-        safeTraj.armRelax = 0.75;
-        safeTraj.armRelaxL = 0.75;
-        safeTraj.armRelaxR = 0.75;
+        safeTraj.armRelax = 1.0;
+        safeTraj.armRelaxL = 1.0;
+        safeTraj.armRelaxR = 1.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = -0.15 * (1.0 - t) + 0.22 * t; // Eyes transition up to meet diver
       } else if (cycle < 42.5) {
         // 5. Escorted Ascent Side-by-Side (36.8 - 42.5s):
-        // Positioned slightly below deep diver, face-to-face, hands relaxed & attentive (ready to assist)
+        // Positioned slightly below deep diver, face-to-face, hands relaxed alongside thighs (ready to assist)
         safeTraj.y = deepY - 0.55;
         safeTraj.theta = 0.0;
         safeTraj.pikeAngle = 0.0;
         const wGlide = smoothstep(37.4, 40.5, cycle);
         safeTraj.kickAmp = 0.40 * (1.0 - wGlide) + 0.08 * wGlide;
         safeTraj.kickPhaseRate = 3.2 * (1.0 - wGlide) + 2.0 * wGlide;
-        safeTraj.armRelax = 0.70; // Attentive escort posture with hands down along torso/thighs ready to assist!
-        safeTraj.armRelaxL = 0.70;
-        safeTraj.armRelaxR = 0.70;
+        safeTraj.armRelax = 1.0; // Fully relaxed down alongside lateral thighs ready to assist!
+        safeTraj.armRelaxL = 1.0;
+        safeTraj.armRelaxR = 1.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = 0.22; // Direct visual contact on deep diver's eyes and mask
       } else {
@@ -2332,9 +2364,9 @@
         safeTraj.pikeAngle = 0.0;
         safeTraj.kickAmp = 0.08 * (1.0 - tSurf) + 0.04 * tSurf;
         safeTraj.kickPhaseRate = 1.4;
-        safeTraj.armRelax = 0.75 * tSurf;
-        safeTraj.armRelaxL = safeTraj.armRelax;
-        safeTraj.armRelaxR = safeTraj.armRelax;
+        safeTraj.armRelax = 1.0;
+        safeTraj.armRelaxL = 1.0;
+        safeTraj.armRelaxR = 1.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = 0.22 * (1.0 - tSurf) - 0.38 * tSurf; // Returns gaze down line
       }
