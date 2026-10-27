@@ -531,6 +531,7 @@
         uniform float uMonoBladeFlex;
         uniform float uBiBladeFlexL;
         uniform float uBiBladeFlexR;
+        uniform float uTime;
         varying vec3 vDiverWorldPos;
         varying float vBladeFlex;
         varying float vKickWeight;
@@ -1450,7 +1451,10 @@
       const whipX = Math.sin(u * Math.PI * 2.0) * tugAmount * 0.35;
 
       const vertHeave = ropeWaveHeave.y * (1.0 - 0.12 * u);
-      const vertY = nominalY + vertHeave - tugAmount;
+      // Surface buoy does NOT sink into the water (high buoyancy volume).
+      // Only the rope down below absorbs the tension dip:
+      const ropeTugDip = tugAmount * (u * 0.45 + 0.02);
+      const vertY = nominalY + vertHeave - ropeTugDip;
 
       outVec.x = RIG_X + horizX + whipX;
       outVec.y = vertY;
@@ -1751,8 +1755,8 @@
 
       evalRopePoint(ROPE_TOP_Y, time, tugAmount, buoyPos);
       buoyGroup.position.copy(buoyPos);
-      const tugTilt = isMonofinDeep ? -tugAmount * 0.16 : tugAmount * 0.16;
-      buoyGroup.rotation.set(waveBuoy.slopeZ * 0.35 + tugAmount * 0.20, 0, -waveBuoy.slopeX * 0.35 + tugTilt);
+      const tugTilt = isMonofinDeep ? -tugAmount * 0.10 : tugAmount * 0.10;
+      buoyGroup.rotation.set(waveBuoy.slopeZ * 0.35 + tugAmount * 0.10, 0, -waveBuoy.slopeX * 0.35 + tugTilt);
 
       // Update 49 height-rings of the rope geometry directly
       for (let iy = 0; iy <= 48; iy++) {
