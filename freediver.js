@@ -200,9 +200,9 @@
         const armRow = [];
         const s = r / (A_ROWS - 1);
         const yArm = 0.52 + s * (1.28 - 0.52);
-        const xArm = 0.005 + s * 0.025 + Math.sin(s * Math.PI) * 0.012;
-        const zArm = side * (0.11 * (1.0 - s) + 0.018 * s);
-        const rArm = 0.040 * (1.0 - s * 0.55);
+        const xArm = 0.015 + s * 0.020 + Math.sin(s * Math.PI) * 0.012;
+        const zArm = side * (0.175 * (1.0 - s) + 0.022 * s);
+        const rArm = 0.040 * (1.0 - s * 0.52);
 
         for (let c = 0; c < A_COLS; c++) {
           const a = (c / A_COLS) * Math.PI * 2;
@@ -222,7 +222,7 @@
         }
       }
 
-      const handApex = addV(0.03, 1.285, side * 0.018, 0.5, 1.0, 1.0, 0.0, 0.0, 0.0);
+      const handApex = addV(0.035, 1.285, side * 0.022, 0.5, 1.0, 1.0, 0.0, 0.0, 0.0);
       for (let c = 0; c < A_COLS; c++) {
         const nextC = (c + 1) % A_COLS;
         indices.push(armGrid[A_ROWS - 1][c], handApex, armGrid[A_ROWS - 1][nextC]);
@@ -362,29 +362,24 @@
       indices.push(torsoGrid[T_ROWS - 1][j], crownApex, torsoGrid[T_ROWS - 1][nextJ]);
     }
 
-    // 2. Attentive Escort Arms (Left & Right)
-    const A_ROWS = 12, A_COLS = 8;
+    // 2. Streamline & Active Escort Arms (Left: side = -1, Right: side = +1)
+    const A_ROWS = 16, A_COLS = 8;
     for (let side = -1; side <= 1; side += 2) {
       const armGrid = [];
-      const p0 = { x: 0.005, y: 0.52, z: side * 0.11 };
-      const p1 = { x: 0.080, y: 0.35, z: side * 0.12 };
-      const p2 = { x: 0.120, y: 0.20, z: side * 0.06 };
-
       for (let r = 0; r < A_ROWS; r++) {
         const armRow = [];
         const s = r / (A_ROWS - 1);
-        const invS = 1.0 - s;
-        const cx = invS * invS * p0.x + 2 * invS * s * p1.x + s * s * p2.x;
-        const cy = invS * invS * p0.y + 2 * invS * s * p1.y + s * s * p2.y;
-        const cz = invS * invS * p0.z + 2 * invS * s * p1.z + s * s * p2.z;
-        const rArm = 0.038 * (1.0 - s * 0.50);
+        const yArm = 0.52 + s * (1.28 - 0.52);
+        const xArm = 0.015 + s * 0.020 + Math.sin(s * Math.PI) * 0.012;
+        const zArm = side * (0.175 * (1.0 - s) + 0.022 * s);
+        const rArm = 0.040 * (1.0 - s * 0.52);
 
         for (let c = 0; c < A_COLS; c++) {
           const a = (c / A_COLS) * Math.PI * 2;
-          const px = cx + rArm * Math.cos(a);
-          const py = cy;
-          const pz = cz + rArm * Math.sin(a);
-          armRow.push(addV(px, py, pz, c / A_COLS, s, 0.0, 0.0, 0.0, 0.0));
+          const px = xArm + rArm * Math.cos(a);
+          const py = yArm;
+          const pz = zArm + rArm * Math.sin(a);
+          armRow.push(addV(px, py, pz, c / A_COLS, s, s, 0.0, 0.0, 0.0));
         }
         armGrid.push(armRow);
       }
@@ -397,11 +392,10 @@
         }
       }
 
-      // Hand tip cap
-      const handTip = addV(p2.x, p2.y - 0.02, p2.z, 0.5, 1.0, 0.0, 0.0, 0.0, 0.0);
+      const handApex = addV(0.035, 1.285, side * 0.022, 0.5, 1.0, 1.0, 0.0, 0.0, 0.0);
       for (let c = 0; c < A_COLS; c++) {
         const nextC = (c + 1) % A_COLS;
-        indices.push(armGrid[A_ROWS - 1][c], handTip, armGrid[A_ROWS - 1][nextC]);
+        indices.push(armGrid[A_ROWS - 1][c], handApex, armGrid[A_ROWS - 1][nextC]);
       }
     }
 
@@ -552,7 +546,7 @@
         if (armWeight > 0.0) {
           float scull = (uArmRelax > 0.35) ? sin(uTime * 2.4 + sign(position.z) * 1.2) * 0.06 * uArmRelax : 0.0;
           float armAngle = (uArmRelax * 1.35 + scull) * armWeight;
-          vec3 shoulderPivot = vec3(0.0, 0.52, sign(position.z) * 0.11);
+          vec3 shoulderPivot = vec3(0.015, 0.52, sign(position.z) * 0.175);
           vec3 relArm = transformed - shoulderPivot;
           float sA = sin(armAngle);
           float cA = cos(armAngle);
