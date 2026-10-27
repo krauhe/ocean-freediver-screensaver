@@ -1148,6 +1148,8 @@
     let deepBurstInterval = 0.65;
     let safeBurstTimer = 0.0;
     let safeBurstInterval = 0.75;
+    let deepDuckTimer = 0.0;
+    let safeDuckTimer = 0.0;
     let deepPocketRad = 0.024;
     let safePocketRad = 0.022;
     let lastSimTime = undefined;
@@ -1203,8 +1205,7 @@
           // Remap coordinates so (0,0) is center, +Y is UP (top dome), -Y is DOWN (flat base)
           vec2 p = vec2(gl_PointCoord.x * 2.0 - 1.0, 1.0 - gl_PointCoord.y * 2.0);
 
-          // 1. Fluid Dynamics Shape: Spherical Cap (Round top, flat bottom)
-          // Dynamic water pressure flattens the bottom of rising bubbles:
+          // 1. Fluid Dynamics Shape: Spherical Cap / Medusa-Gople (Round convex top dome, flattened bottom with indented vortex base)
           float yScaled = p.y < 0.0 ? p.y * 2.45 : p.y * 1.06;
           float capDist2 = p.x * p.x + yScaled * yScaled;
           if (capDist2 > 1.0) discard;
@@ -1213,32 +1214,41 @@
           float nz = sqrt(max(0.0, 1.0 - capDist2));
           vec3 normalLocal = normalize(vec3(p.x, yScaled, nz * 1.15));
 
-          // 2. Air-water optical Fresnel & core transparency
-          float fresnelRim = pow(1.0 - normalLocal.z, 2.6);
-          float core = exp(-capDist2 * 2.5) * 0.20;
+          // 2. Air-water Total Internal Reflection (TIR) & Silvery Mirror Rim:
+          // Water (n=1.333) to Air (n=1.0) has critical angle theta_c = 48.6 deg.
+          // Grazing rays reflect 100%, producing a brilliant chrome-silver boundary rim!
+          float fresnelRim = pow(1.0 - normalLocal.z, 2.4);
+          float tirMirror = smoothstep(0.68, 0.98, 1.0 - normalLocal.z) * 0.95;
 
-          // 3. Specular Sun Reflection & Glint (when sun aligns with observer)
-          // Half-vector between view-space light direction and eye direction:
+          // 3. Internal Water-Mirror Interface ("Vandspejl inden i goplen"):
+          // Large spherical cap bubbles have a flat/slightly concave horizontal liquid interface at the bottom
+          // with strong internal reflection and a meniscus rim line:
+          float baseMirror = smoothstep(0.08, -0.02, p.y) * (1.0 - p.x * p.x * 1.25) * 0.45;
+          float meniscusLine = smoothstep(0.035, 0.0, abs(p.y - (-0.14))) * (1.0 - p.x * p.x * 1.2) * 0.70;
+
+          float core = exp(-capDist2 * 2.8) * 0.15;
+
+          // 4. Specular Sun Reflection & Glint (when sun aligns with observer)
           vec3 halfVector = normalize(vLightDirView + vViewDir);
           float nDotH = max(0.0, dot(normalLocal, halfVector));
-          // Sharp specular glint on the curved upper dome:
-          float specGlint = pow(nDotH, 26.0) * (0.35 + 0.65 * smoothstep(-0.1, 0.5, p.y));
-          // Broad solar sheen:
+          float specGlint = pow(nDotH, 28.0) * (0.35 + 0.65 * smoothstep(-0.1, 0.5, p.y));
           float broadSheen = pow(max(0.0, dot(normalLocal, vLightDirView)), 5.0) * 0.35 * smoothstep(-0.2, 0.4, p.y);
-
           float solarHighlight = (specGlint * 2.4 + broadSheen) * sunPower * daylight;
 
           // Edge anti-aliasing
           float edgeAntialias = 1.0 - smoothstep(0.90, 1.0, capDist2);
-          float alpha = (fresnelRim * 0.72 + core + solarHighlight * 0.90) * edgeAntialias * vAlpha;
+          float alpha = (fresnelRim * 0.75 + tirMirror * 0.60 + baseMirror + meniscusLine + core + solarHighlight * 0.90) * edgeAntialias * vAlpha;
 
-          // Color composition: deep water cyan-blue body + brilliant warm-white sun glint
-          vec3 shallowColor = vec3(0.90, 0.96, 1.0);
-          vec3 deepColor = vec3(0.62, 0.86, 0.98);
+          // Color composition: silvery reflective rim + internal water-mirror + sun glint
+          vec3 shallowColor = vec3(0.92, 0.97, 1.0);
+          vec3 deepColor = vec3(0.68, 0.88, 0.98);
           vec3 baseColor = mix(shallowColor, deepColor, vDepthRatio);
+          vec3 silverRim = vec3(0.95, 0.98, 1.0);
           vec3 glintColor = mix(vec3(1.0), sunColor, 0.35);
 
-          vec3 finalColor = baseColor * (fresnelRim * 0.85 + core * 0.5) + glintColor * solarHighlight;
+          vec3 finalColor = baseColor * (fresnelRim * 0.85 + core * 0.5 + baseMirror)
+                          + silverRim * (tirMirror * 0.90 + meniscusLine * 0.85)
+                          + glintColor * solarHighlight;
 
           gl_FragColor = vec4(finalColor, clamp(alpha, 0.0, 1.0));
         }
@@ -1933,37 +1943,10 @@
         }
       }
 
-      // Part B: Entrained wake bubbles dragged down on duck-dive (points 24..55)
-      let activeTrail = false;
-      let trailDiverX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
-      let trailDiverY = isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos;
-
-      if (cycle >= 2.2 && cycle <= 8.5) {
-        trailDiverX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
-        trailDiverY = isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos;
-        activeTrail = true;
-      } else if (cycle >= 17.7 && cycle <= 23.0) {
-        trailDiverX = isMonofinDeep ? safeInertial.x.pos : mainInertial.x.pos;
-        trailDiverY = isMonofinDeep ? safeInertial.y.pos : mainInertial.y.pos;
-        activeTrail = true;
-      }
-
-      for (let k = 24; k < 56; k++) {
-        if (activeTrail) {
-          const idx = k - 24;
-          const seed = bubbleSeed[k * 2];
-          const spawnY = Math.min(14.8, trailDiverY + (idx / 32.0) * 4.5);
-          const wobbleX = Math.sin(time * 6.5 + seed * 9.0) * 0.08;
-          const wobbleZ = Math.cos(time * 5.8 + seed * 7.5) * 0.08;
-          const rise = ((time * 0.75 + seed * 3.5) % 3.0);
-          let bY = spawnY + rise;
-          if (bY > 15.0 + waveBuoy.y) bY = 15.0 + waveBuoy.y;
-          bubblePositions[k * 3] = trailDiverX + wobbleX;
-          bubblePositions[k * 3 + 1] = bY;
-          bubblePositions[k * 3 + 2] = RIG_Z + wobbleZ;
-        } else {
-          bubblePositions[k * 3 + 1] = -999.0;
-        }
+      // Part B: Entrained wake bubbles (Old fake static points are deactivated - real bubbles use Eulerian mbActive pool)
+      for (let k = 24; k < 54; k++) {
+        bubblePositions[k * 3 + 1] = -999.0;
+        bubbleRadii[k] = 0.0;
       }
 
       // Part C & D: Individual Mask Bubbles Simulation (104 individual bubble entities + 2 Clinging Mask Pockets)
@@ -1973,10 +1956,10 @@
       if (paused) dt = 0.0;
       lastSimTime = time;
 
-      // Cycle boundary reset: if divers are resting at surface or descending (cycle < 22.0 or > 46.0), clear active mask bubbles
-      if (cycle < 22.0 || cycle > 46.0) {
+      // Cycle boundary reset: only clear any stray lingering bubbles at surface breathe-up (cycle < 0.5)
+      if (cycle < 0.5) {
         for (let i = 0; i < MASK_BUBBLE_COUNT; i++) {
-          if (mbActive[i]) {
+          if (mbActive[i] && mbY[i] >= 14.8) {
             mbActive[i] = 0;
             bubblePositions[(56 + i) * 3 + 1] = -999.0;
             bubbleRadii[56 + i] = 0.0;
@@ -1986,6 +1969,8 @@
         deepBurstInterval = 0.65;
         safeBurstTimer = 0.0;
         safeBurstInterval = 0.75;
+        deepDuckTimer = 0.0;
+        safeDuckTimer = 0.0;
       }
 
       const isDeepAscending = (cycle >= 26.2 && cycle <= 42.0);
@@ -2029,7 +2014,80 @@
       }
 
       if (dt > 0.0) {
-        // 2. Irregular Burst Emission from Deep Diver Mask
+        // 2a. Duck-Dive Surface Air Shedding (depth 0 - 2.5m, y: 14.8 -> 12.2m)
+        // Trapped surface air sheds as the diver submerges headfirst, then floats UP towards the surface waves
+        const isDeepDuck = (cycle >= 2.0 && cycle <= 4.8 && deepFaceY > 12.2);
+        const isSafeDuck = (cycle >= 17.5 && cycle <= 20.2 && safeFaceY > 12.2);
+
+        if (isDeepDuck) {
+          deepDuckTimer += dt;
+          if (deepDuckTimer >= 0.22) {
+            deepDuckTimer = 0.0;
+            const seed = fract(Math.sin(time * 43.19 + deepDepth * 11.23) * 43758.5453);
+            const burstCount = 2 + Math.floor(seed * 2.8);
+            let spawned = 0;
+            for (let i = 0; i < MASK_BUBBLE_COUNT && spawned < burstCount; i++) {
+              if (!mbActive[i]) {
+                mbActive[i] = 1;
+                const bSeed1 = fract(Math.sin(i * 19.31 + time * 7.81 + spawned * 3.41) * 43758.5453);
+                const bSeed2 = fract(Math.sin(i * 29.17 + time * 5.67 + spawned * 6.83) * 43758.5453);
+                const initR = 0.016 + 0.022 * bSeed1;
+                const initV = (4.0 / 3.0) * Math.PI * Math.pow(initR * 100.0, 3.0);
+                mbInitVol[i] = initV;
+                mbInitRad[i] = initR;
+                mbVol[i] = initV;
+                mbRad[i] = initR;
+                mbSpawnP[i] = deepP;
+                mbDiverId[i] = 0;
+
+                mbX[i] = deepFaceX + (isMonofinDeep ? 0.045 : -0.045) + (bSeed1 - 0.5) * 0.08;
+                mbY[i] = deepFaceY + 0.04 - spawned * 0.03;
+                mbZ[i] = deepFaceZ + (bSeed2 - 0.5) * 0.08;
+
+                // Positive upward Archimedes buoyancy (rising away from diving body!)
+                mbVy[i] = 0.42 + bSeed1 * 0.25;
+                mbVx[i] = (bSeed1 - 0.5) * 0.06;
+                mbVz[i] = (bSeed2 - 0.5) * 0.06;
+                spawned++;
+              }
+            }
+          }
+        }
+        if (isSafeDuck) {
+          safeDuckTimer += dt;
+          if (safeDuckTimer >= 0.22) {
+            safeDuckTimer = 0.0;
+            const seed = fract(Math.sin(time * 31.47 + safeDepth * 13.51) * 43758.5453);
+            const burstCount = 2 + Math.floor(seed * 2.8);
+            let spawned = 0;
+            for (let i = 0; i < MASK_BUBBLE_COUNT && spawned < burstCount; i++) {
+              if (!mbActive[i]) {
+                mbActive[i] = 1;
+                const bSeed1 = fract(Math.sin(i * 23.41 + time * 8.19 + spawned * 4.13) * 43758.5453);
+                const bSeed2 = fract(Math.sin(i * 37.89 + time * 6.43 + spawned * 5.71) * 43758.5453);
+                const initR = 0.016 + 0.022 * bSeed1;
+                const initV = (4.0 / 3.0) * Math.PI * Math.pow(initR * 100.0, 3.0);
+                mbInitVol[i] = initV;
+                mbInitRad[i] = initR;
+                mbVol[i] = initV;
+                mbRad[i] = initR;
+                mbSpawnP[i] = safeP;
+                mbDiverId[i] = 1;
+
+                mbX[i] = safeFaceX + (isMonofinDeep ? -0.045 : 0.045) + (bSeed1 - 0.5) * 0.08;
+                mbY[i] = safeFaceY + 0.04 - spawned * 0.03;
+                mbZ[i] = safeFaceZ + (bSeed2 - 0.5) * 0.08;
+
+                mbVy[i] = 0.42 + bSeed1 * 0.25;
+                mbVx[i] = (bSeed1 - 0.5) * 0.06;
+                mbVz[i] = (bSeed2 - 0.5) * 0.06;
+                spawned++;
+              }
+            }
+          }
+        }
+
+        // 2b. Irregular Burst Emission from Deep Diver Mask (Ascent)
         // Gas accumulates under the flexible skirt and releases in stochastic bursts (2-5 bubbles of diverse sizes)
         if (isDeepAscending) {
           deepBurstTimer += dt;
@@ -2112,10 +2170,10 @@
         for (let i = 0; i < MASK_BUBBLE_COUNT; i++) {
           if (!mbActive[i]) continue;
 
-          // Boyle's law expansion: V = V_spawn * (P_spawn / P_current)
+          // Boyle's law: V = V_spawn * (P_spawn / P_current)
           const curDepth = Math.max(0.0, 15.0 - mbY[i]);
           const curP = 1.0 + curDepth * 0.10;
-          const pRatio = Math.max(1.0, mbSpawnP[i] / curP);
+          const pRatio = Math.max(0.15, mbSpawnP[i] / curP);
           mbVol[i] = mbInitVol[i] * pRatio;
           mbRad[i] = mbInitRad[i] * Math.pow(pRatio, 0.3333333);
 
