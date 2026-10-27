@@ -527,6 +527,7 @@
         uniform float uArmRelax;
         uniform float uPikeAngle;
         uniform float uHeadYaw;
+        uniform float uDepthCompression;
         varying vec3 vDiverWorldPos;
         varying float vBladeFlex;
         varying float vKickWeight;
@@ -535,6 +536,13 @@
       shader.vertexShader = shader.vertexShader.replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
+        // 0. Boyle's Law chest & wetsuit compression under hydrostatic water pressure
+        if (position.y > -0.06 && position.y < 0.60 && uDepthCompression > 0.001) {
+          float wChest = smoothstep(-0.06, 0.22, position.y) * (1.0 - smoothstep(0.42, 0.60, position.y));
+          float compressFactor = 1.0 - uDepthCompression * (0.11 * wChest + 0.04);
+          transformed.xz *= compressFactor;
+        }
+
         // 1. Arm streamline reach & relax rotation
         if (armWeight > 0.0) {
           float armAngle = uArmRelax * 1.35 * armWeight;
@@ -973,6 +981,7 @@
       uArmRelax: { value: 0 },
       uPikeAngle: { value: 0 },
       uHeadYaw: { value: 0 },
+      uDepthCompression: { value: 0 },
       uBioShimmer: { value: 0 },
       uTime: { value: 0 }
     };
@@ -1034,6 +1043,7 @@
       uArmRelax: { value: 0 },
       uPikeAngle: { value: 0 },
       uHeadYaw: { value: 0 },
+      uDepthCompression: { value: 0 },
       uBioShimmer: { value: 0 },
       uTime: { value: 0 }
     };
@@ -1429,8 +1439,8 @@
           deepTraj.theta = 0.0;
           deepTraj.pikeAngle = 0.0;
           deepTraj.armRelax = 0.0;
-          deepTraj.kickAmp = 0.04 + smoothstep(0, 1, s) * 1.01;
-          deepTraj.kickPhaseRate = 5.8;
+          deepTraj.kickAmp = 0.04 + smoothstep(0, 1, s) * 1.31;
+          deepTraj.kickPhaseRate = 5.0 + smoothstep(0, 1, s) * 2.0; // 5.0 -> 7.0 rad/s
           deepTraj.gazeYaw = 0.0;
           deepTraj.gazePitch = 0.12 * smoothstep(0, 1, s);
         }
@@ -1441,8 +1451,27 @@
         deepTraj.theta = 0.0;
         deepTraj.pikeAngle = 0.0;
         deepTraj.armRelax = 0.0;
-        deepTraj.kickAmp = 1.05;
-        deepTraj.kickPhaseRate = 5.8;
+
+        // Depth-dependent buoyancy & ascent kinetics (Boyle's Law):
+        // 1. Deep struggle (depth > 19m, y < -4.5m): diver is maximally compressed & heaviest (-3 to -4 kg).
+        //    Must kick hard and fast with high amplitude and cadence to overcome negative buoyancy.
+        // 2. Transition zone (depth 19m -> 10m, y in [-4.5, +4.5m]): lungs & wetsuit expand,
+        //    buoyancy transitions through neutral. Diver smoothly eases kicking down.
+        // 3. Effortless glide (depth < 10m, y >= +4.5m to surface): positive buoyancy (+2 to +3 kg)
+        //    carries the diver effortlessly. Diver completely stops kicking (kickAmp = 0) and glides!
+        if (deepTraj.y < -4.5) {
+          deepTraj.kickAmp = 1.35;
+          deepTraj.kickPhaseRate = 7.0;
+        } else if (deepTraj.y < 4.5) {
+          const w = (deepTraj.y - (-4.5)) / (4.5 - (-4.5));
+          const wEase = smoothstep(0.0, 1.0, w);
+          deepTraj.kickAmp = 1.35 * (1.0 - wEase);
+          deepTraj.kickPhaseRate = 7.0 * (1.0 - w) + 3.2 * w;
+        } else {
+          deepTraj.kickAmp = 0.0;
+          deepTraj.kickPhaseRate = 2.0;
+        }
+
         if (cycle >= 35.0 && cycle <= 37.5) {
           deepTraj.gazeYaw = Math.sin((cycle - 35.0) / 2.5 * Math.PI) * 0.48;
         } else {
@@ -1457,7 +1486,7 @@
         deepTraj.theta = 0.05 + 0.03 * t;
         deepTraj.pikeAngle = 0.0;
         deepTraj.armRelax = 0.85;
-        deepTraj.kickAmp = 0.20 - 0.02 * t;
+        deepTraj.kickAmp = 0.20 * tSurf;
         deepTraj.kickPhaseRate = 2.2;
         deepTraj.gazeYaw = 0.04 * Math.sin(time * 0.9);
         deepTraj.gazePitch = -0.05;
@@ -1538,18 +1567,20 @@
         safeTraj.y = hoverY * (1.0 - wAscent) + targetEscortY * wAscent;
         safeTraj.theta = 0.0;
         safeTraj.pikeAngle = 0.0;
-        safeTraj.kickAmp = 0.35 + wAscent * 0.55;
-        safeTraj.kickPhaseRate = 5.8;
+        safeTraj.kickAmp = 0.35 + wAscent * 0.25;
+        safeTraj.kickPhaseRate = 4.8;
         safeTraj.armRelax = 0.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = -0.28 * (1.0 - wAscent) + 0.22 * wAscent; // Eyes transition up to diver
       } else if (cycle < 42.5) {
         // Escorted ascent side-by-side, positioned SLIGHTLY UNDER the deep diver
+        // In shallow buoyant zone (< 11m depth), safety diver eases kicks into a relaxed companion escort glide
         safeTraj.y = deepY - 0.55;
         safeTraj.theta = 0.0;
         safeTraj.pikeAngle = 0.0;
-        safeTraj.kickAmp = 0.90;
-        safeTraj.kickPhaseRate = 5.8;
+        const wGlide = smoothstep(37.4, 40.5, cycle);
+        safeTraj.kickAmp = 0.60 * (1.0 - wGlide) + 0.10 * wGlide;
+        safeTraj.kickPhaseRate = 4.8 * (1.0 - wGlide) + 2.8 * wGlide;
         safeTraj.armRelax = 0.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = 0.22; // Eyes fixed directly on deep diver's face, mask, and airway
@@ -1559,8 +1590,8 @@
         safeTraj.y = (14.2 - 0.55) * (1.0 - tSurf) + (14.2 + waveY * 0.8) * tSurf;
         safeTraj.theta = 0.05 + 0.01 * ((cycle - 42.5) / 7.5);
         safeTraj.pikeAngle = 0.0;
-        safeTraj.kickAmp = 0.90 * (1.0 - tSurf) + 0.20 * tSurf;
-        safeTraj.kickPhaseRate = 5.8 * (1.0 - tSurf) + 2.2 * tSurf;
+        safeTraj.kickAmp = 0.10 * (1.0 - tSurf) + 0.20 * tSurf;
+        safeTraj.kickPhaseRate = 2.8 * (1.0 - tSurf) + 2.2 * tSurf;
         safeTraj.armRelax = 0.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = 0.22 * (1.0 - tSurf) - 0.05 * tSurf;
@@ -1655,6 +1686,12 @@
       const nightBioFactor = smoothstep(0.35, 0.02, daylightVal);
       mainUniforms.uBioShimmer.value = nightBioFactor * Math.min(1.0, monoTraj.kickAmp * 1.35);
       safeUniforms.uBioShimmer.value = nightBioFactor * Math.min(1.0, biTraj.kickAmp * 1.35);
+
+      // Boyle's Law hydrostatic compression: 0 at surface (y = 14.3), 1 at bottom plate (y = -16.8)
+      const monoDepthComp = Math.max(0.0, Math.min(1.0, (14.3 - monoTraj.y) / 31.1));
+      const biDepthComp = Math.max(0.0, Math.min(1.0, (14.3 - biTraj.y) / 31.1));
+      mainUniforms.uDepthCompression.value = monoDepthComp;
+      safeUniforms.uDepthCompression.value = biDepthComp;
 
       mainUniforms.uKickPhase.value = time * monoTraj.kickPhaseRate;
       mainUniforms.uKickAmp.value = monoTraj.kickAmp;
