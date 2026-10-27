@@ -209,7 +209,7 @@
           const px = xArm + rArm * Math.cos(a);
           const py = yArm;
           const pz = zArm + rArm * Math.sin(a);
-          armRow.push(addV(px, py, pz, c / A_COLS, s, s, 0.0, 0.0, 0.0));
+          armRow.push(addV(px, py, pz, c / A_COLS, s, s, 0.0, 0.0, side));
         }
         armGrid.push(armRow);
       }
@@ -222,26 +222,106 @@
         }
       }
 
-      const handApex = addV(0.035, 1.285, side * 0.022, 0.5, 1.0, 1.0, 0.0, 0.0, 0.0);
+      const handApex = addV(0.035, 1.285, side * 0.022, 0.5, 1.0, 1.0, 0.0, 0.0, side);
       for (let c = 0; c < A_COLS; c++) {
         const nextC = (c + 1) % A_COLS;
         indices.push(armGrid[A_ROWS - 1][c], handApex, armGrid[A_ROWS - 1][nextC]);
       }
     }
 
-    // 3. Monofin Blade (y in [-0.88, -1.68])
+    // 3. Anatomical 3D Dual Footpockets (Fodbommen) (y in [-0.88, -1.05])
+    // Left foot at z = -0.065, Right foot at z = +0.065
+    // Molded rubber heel cups (x = -0.045), instep arch (x = +0.045), central rubber bridge
+    const FP_ROWS = 8, FP_COLS = 10;
+    const leftFootGrid = [], rightFootGrid = [];
+
+    for (let side = -1; side <= 1; side += 2) {
+      const footGrid = (side < 0) ? leftFootGrid : rightFootGrid;
+      const zCenter = side * 0.065;
+
+      for (let r = 0; r < FP_ROWS; r++) {
+        const row = [];
+        const t = r / (FP_ROWS - 1);
+        const y = -0.88 - t * 0.17; // -0.88 down to -1.05
+        const kickW = 0.65 + t * 0.10;
+
+        // Heel cup protrudes backward to x = -0.045 for y in [-0.88, -0.98]
+        // Instep arch slopes forward to x = +0.045 for y in [-0.88, -1.02]
+        const wHeel = Math.sin(Math.min(1.0, t / 0.588) * Math.PI);
+        const wInstep = Math.sin(Math.min(1.0, t / 0.823) * Math.PI);
+
+        const rX = 0.038 * (1.0 - t * 0.20);
+        const rZ = 0.028 * (1.0 - t * 0.15);
+
+        for (let c = 0; c < FP_COLS; c++) {
+          const phi = (c / FP_COLS) * Math.PI * 2.0;
+          const cosP = Math.cos(phi);
+          const sinP = Math.sin(phi);
+
+          let px = -0.010 + rX * cosP;
+          let py = y;
+          let pz = zCenter + rZ * sinP;
+
+          // Posterior heel cup (cosP < 0)
+          if (cosP < 0.0) {
+            px -= 0.035 * wHeel * (-cosP);
+          }
+          // Anterior instep arch (cosP > 0)
+          if (cosP > 0.0) {
+            px += 0.045 * wInstep * cosP;
+          }
+
+          // Toe box flattening at y = -1.05
+          if (t > 0.75) {
+            const wFlat = (t - 0.75) / 0.25;
+            px = px * (1.0 - 0.35 * wFlat);
+          }
+
+          row.push(addV(px, py, pz, c / FP_COLS, t, 0.0, kickW, 0.0, 0.0));
+        }
+        footGrid.push(row);
+      }
+
+      for (let r = 0; r < FP_ROWS - 1; r++) {
+        for (let c = 0; c < FP_COLS; c++) {
+          const nextC = (c + 1) % FP_COLS;
+          indices.push(footGrid[r][c], footGrid[r + 1][c], footGrid[r + 1][nextC]);
+          indices.push(footGrid[r][c], footGrid[r + 1][nextC], footGrid[r][nextC]);
+        }
+      }
+    }
+
+    // Central Rubber Bridge connecting the two footpockets (y in [-0.90, -1.05])
+    for (let r = 1; r < FP_ROWS - 1; r++) {
+      const leftInnerAnt = leftFootGrid[r][2];
+      const rightInnerAnt = rightFootGrid[r][7];
+      const leftInnerAntNext = leftFootGrid[r + 1][2];
+      const rightInnerAntNext = rightFootGrid[r + 1][7];
+
+      indices.push(leftInnerAnt, rightInnerAnt, rightInnerAntNext);
+      indices.push(leftInnerAnt, rightInnerAntNext, leftInnerAntNext);
+
+      const leftInnerPost = leftFootGrid[r][3];
+      const rightInnerPost = rightFootGrid[r][6];
+      const leftInnerPostNext = leftFootGrid[r + 1][3];
+      const rightInnerPostNext = rightFootGrid[r + 1][6];
+
+      indices.push(leftInnerPost, leftInnerPostNext, rightInnerPostNext);
+      indices.push(leftInnerPost, rightInnerPostNext, rightInnerPost);
+    }
+
+    // 4. Monofin Blade (y in [-1.05, -1.78], wingspan 0.76m, parabolic tapering)
     const M_ROWS = 24, M_COLS = 14;
     const topGrid = [], botGrid = [];
     for (let r = 0; r < M_ROWS; r++) {
       const topRow = [], botRow = [];
       const tBlade = r / (M_ROWS - 1);
-      const yBase = -0.88 - tBlade * (1.68 - 0.88);
-      // Aligned straight backward along extended leg streamline (no forward cant)
-      const xCenter = -0.01 + tBlade * 0.010;
-      const zHalf = 0.11 + Math.pow(tBlade, 0.82) * 0.27;
-      const thick = 0.050 * (1.0 - tBlade) + 0.006;
-      const kickW = 0.65 + tBlade * 0.35;
-      const bladeFlex = Math.max(0.0, (tBlade - 0.04) / 0.96);
+      const yBase = -1.05 - tBlade * (1.78 - 1.05);
+      const xCenter = -0.005 + tBlade * 0.008;
+      const zHalf = 0.16 + Math.pow(tBlade, 0.82) * 0.22;
+      const thick = 0.038 * (1.0 - tBlade) + 0.005;
+      const kickW = 0.75 + tBlade * 0.25;
+      const bladeFlex = Math.max(0.0, (tBlade - 0.03) / 0.97);
 
       for (let c = 0; c < M_COLS; c++) {
         const uSpan = (c / (M_COLS - 1)) * 2.0 - 1.0;
@@ -261,8 +341,9 @@
         indices.push(topGrid[r][c], topGrid[r + 1][c], topGrid[r + 1][c + 1]);
         indices.push(topGrid[r][c], topGrid[r + 1][c + 1], topGrid[r][c + 1]);
 
-        indices.push(botGrid[r][c], botGrid[r + 1][c], botGrid[r + 1][c + 1]);
-        indices.push(botGrid[r][c], botGrid[r + 1][c + 1], botGrid[r][c + 1]);
+        // Outward-facing winding on botGrid (fixes transparent fin underside)
+        indices.push(botGrid[r][c], botGrid[r + 1][c + 1], botGrid[r + 1][c]);
+        indices.push(botGrid[r][c], botGrid[r][c + 1], botGrid[r + 1][c + 1]);
       }
       // Lateral edge stitching
       indices.push(topGrid[r][0], botGrid[r][0], botGrid[r + 1][0]);
@@ -379,7 +460,7 @@
           const px = xArm + rArm * Math.cos(a);
           const py = yArm;
           const pz = zArm + rArm * Math.sin(a);
-          armRow.push(addV(px, py, pz, c / A_COLS, s, s, 0.0, 0.0, 0.0));
+          armRow.push(addV(px, py, pz, c / A_COLS, s, s, 0.0, 0.0, side));
         }
         armGrid.push(armRow);
       }
@@ -392,7 +473,7 @@
         }
       }
 
-      const handApex = addV(0.035, 1.285, side * 0.022, 0.5, 1.0, 1.0, 0.0, 0.0, 0.0);
+      const handApex = addV(0.035, 1.285, side * 0.022, 0.5, 1.0, 1.0, 0.0, 0.0, side);
       for (let c = 0; c < A_COLS; c++) {
         const nextC = (c + 1) % A_COLS;
         indices.push(armGrid[A_ROWS - 1][c], handApex, armGrid[A_ROWS - 1][nextC]);
@@ -431,26 +512,83 @@
         }
       }
 
-      // 4. Long Bi-Fin Blade at each ankle (y in [-0.88, -1.70], length = 0.82)
-      const F_ROWS = 16, F_COLS = 8;
-      const topFinGrid = [], botFinGrid = [];
+      // 4. Anatomical Footpocket (y in [-0.88, -1.04])
+      // Heel cup (x in [-0.045, 0.0], y in [-0.88, -0.98])
+      // Instep arch (x in [0.0, +0.042], y in [-0.88, -1.02])
+      // Side guide rails along lateral edges
+      const FP_ROWS = 8, FP_COLS = 10;
+      const footGrid = [];
       const cXAnkle = evalStation(-0.88).cX;
+
+      for (let r = 0; r < FP_ROWS; r++) {
+        const footRow = [];
+        const t = r / (FP_ROWS - 1);
+        const y = -0.88 - t * 0.16; // -0.88 down to -1.04
+        const kickW = 0.65 + t * 0.10;
+
+        const wHeel = Math.sin(Math.min(1.0, t / 0.625) * Math.PI);
+        const wInstep = Math.sin(Math.min(1.0, t / 0.875) * Math.PI);
+
+        const rX = 0.038 * (1.0 - t * 0.20);
+        const rZ = 0.030 * (1.0 - t * 0.15);
+
+        for (let c = 0; c < FP_COLS; c++) {
+          const phi = (c / FP_COLS) * Math.PI * 2.0;
+          const cosP = Math.cos(phi);
+          const sinP = Math.sin(phi);
+
+          let px = cXAnkle + rX * cosP;
+          let py = y;
+          let pz = zCenter + rZ * sinP;
+
+          // Posterior heel cup
+          if (cosP < 0.0) {
+            px -= 0.035 * wHeel * (-cosP);
+          }
+          // Anterior instep arch
+          if (cosP > 0.0) {
+            px += 0.042 * wInstep * cosP;
+          }
+
+          // Side guide rails along lateral flanks (sinP ~ +/-1.0)
+          if (Math.abs(sinP) > 0.70) {
+            pz += Math.sign(sinP) * 0.004;
+          }
+
+          footRow.push(addV(px, py, pz, c / FP_COLS, t, 0.0, kickW, 0.0, side));
+        }
+        footGrid.push(footRow);
+      }
+
+      for (let r = 0; r < FP_ROWS - 1; r++) {
+        for (let c = 0; c < FP_COLS; c++) {
+          const nextC = (c + 1) % FP_COLS;
+          indices.push(footGrid[r][c], footGrid[r + 1][c], footGrid[r + 1][nextC]);
+          indices.push(footGrid[r][c], footGrid[r + 1][nextC], footGrid[r][nextC]);
+        }
+      }
+
+      // 5. Long Carbon Bi-Fin Blade (y in [-1.04, -1.82], length = 0.78m, parabolic tapering)
+      const F_ROWS = 18, F_COLS = 8;
+      const topFinGrid = [], botFinGrid = [];
 
       for (let r = 0; r < F_ROWS; r++) {
         const topFinRow = [], botFinRow = [];
         const tFin = r / (F_ROWS - 1);
-        const yFin = -0.88 - tFin * (1.70 - 0.88);
-        // Aligned straight backward along extended leg streamline with pointed toes (no forward tilt)
+        const yFin = -1.04 - tFin * (1.82 - 1.04);
         const xFin = cXAnkle + tFin * 0.008;
-        const zHalf = 0.0525;
-        const thick = 0.024 * (1.0 - tFin * 0.78);
-        const kickW = 0.65 + tFin * 0.35;
-        const bladeFlex = Math.max(0.0, (tFin - 0.04) / 0.96);
+        const zHalf = 0.055;
+        // Parabolic stiffness and thickness tapering
+        const thick = 0.022 * Math.pow(1.0 - tFin, 1.4) + 0.003;
+        const kickW = 0.75 + tFin * 0.25;
+        const bladeFlex = Math.max(0.0, (tFin - 0.03) / 0.97);
 
         for (let c = 0; c < F_COLS; c++) {
           const uSpan = (c / (F_COLS - 1)) * 2.0 - 1.0;
           const zFin = zCenter + uSpan * zHalf;
-          const halfT = thick * 0.5 * (1.0 - 0.5 * uSpan * uSpan);
+          // Side guide rails (sideribber) along blade edges
+          const edgeRail = (Math.abs(uSpan) > 0.82) ? 0.0035 : 0.0;
+          const halfT = thick * 0.5 * (1.0 - 0.40 * uSpan * uSpan) + edgeRail;
 
           topFinRow.push(addV(xFin + halfT, yFin, zFin, c / (F_COLS - 1), tFin, 0.0, kickW, bladeFlex, side));
           botFinRow.push(addV(xFin - halfT, yFin, zFin, c / (F_COLS - 1), tFin, 0.0, kickW, bladeFlex, side));
@@ -464,8 +602,9 @@
           indices.push(topFinGrid[r][c], topFinGrid[r + 1][c], topFinGrid[r + 1][c + 1]);
           indices.push(topFinGrid[r][c], topFinGrid[r + 1][c + 1], topFinGrid[r][c + 1]);
 
+          // Outward-facing winding on botFinGrid (fixes backface culling)
           indices.push(botFinGrid[r][c], botFinGrid[r + 1][c + 1], botFinGrid[r + 1][c]);
-          indices.push(botFinGrid[r][c], botFinGrid[r + 1][c], botFinGrid[r + 1][c + 1]);
+          indices.push(botFinGrid[r][c], botFinGrid[r][c + 1], botFinGrid[r + 1][c + 1]);
         }
         // Lateral edges
         indices.push(topFinGrid[r][0], botFinGrid[r][0], botFinGrid[r + 1][0]);
@@ -507,7 +646,8 @@
     const mat = new T.MeshStandardMaterial({
       color: 0x101922,
       roughness: 0.38,
-      metalness: 0.08
+      metalness: 0.08,
+      side: T.DoubleSide
     });
     mat.onBeforeCompile = shader => {
       Object.assign(shader.uniforms, uniforms);
@@ -519,6 +659,11 @@
         uniform float uKickPhase;
         uniform float uKickAmp;
         uniform float uArmRelax;
+        uniform float uArmRelaxL;
+        uniform float uArmRelaxR;
+        uniform float uArmReachR;
+        uniform float uKneeTuck;
+        uniform float uSpineBend;
         uniform float uPikeAngle;
         uniform float uHeadPitch;
         uniform float uHeadYaw;
@@ -533,6 +678,21 @@
         ${shader.vertexShader}
       `;
       shader.vertexShader = shader.vertexShader.replace(
+        '#include <beginnormal_vertex>',
+        `#include <beginnormal_vertex>
+        if (bladeFlex > 0.01) {
+          float flexSlope = 0.0;
+          if (abs(legSide) > 0.5) {
+            float dynFlex = (legSide > 0.0) ? uBiBladeFlexR : uBiBladeFlexL;
+            flexSlope = -dynFlex * 1.85 * pow(max(0.0, bladeFlex), 0.85) * 0.52 / 0.78;
+          } else {
+            flexSlope = -uMonoBladeFlex * 2.0 * pow(max(0.0, bladeFlex), 1.0) * 0.58 / 0.73;
+          }
+          objectNormal = normalize(vec3(objectNormal.x - flexSlope * objectNormal.y, objectNormal.y + flexSlope * objectNormal.x, objectNormal.z));
+        }
+        `
+      );
+      shader.vertexShader = shader.vertexShader.replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
         // 0. Boyle's Law chest & wetsuit compression under hydrostatic water pressure
@@ -542,38 +702,76 @@
           transformed.xz *= compressFactor;
         }
 
-        // 1. Arm streamline reach & relax rotation + active hover/level-holding scull towards rope
+        // 1. Two-segment rigid skeletal kinematic arm (Upper arm shoulder-to-elbow + Forearm elbow-to-hand)
         if (armWeight > 0.0) {
-          float scull = (uArmRelax > 0.35) ? sin(uTime * 2.4 + sign(position.z) * 1.2) * 0.06 * uArmRelax : 0.0;
-          float armAngle = (uArmRelax * 1.35 + scull) * armWeight;
-          vec3 shoulderPivot = vec3(0.015, 0.52, sign(position.z) * 0.175);
-          vec3 relArm = transformed - shoulderPivot;
-          float sA = sin(armAngle);
-          float cA = cos(armAngle);
-          // Angle forearms slightly inward toward the dive rope line:
-          float ropeInward = (uArmRelax > 0.35) ? smoothstep(0.0, 1.0, armWeight) * 0.030 * sign(position.z) : 0.0;
-          vec3 rotatedArm = vec3(relArm.x * cA + relArm.y * sA, -relArm.x * sA + relArm.y * cA, relArm.z - ropeInward);
+          float sideArm = (abs(legSide) > 0.5) ? legSide : sign(position.z);
+          float relax = (sideArm > 0.0) ? uArmRelaxR : uArmRelaxL;
+          float reach = (sideArm > 0.0) ? uArmReachR : 0.0;
 
-          // Natural organic elbow compliance (soft natural bend when relaxed)
-          float elbowBend = (uArmRelax > 0.15) ? sin(smoothstep(0.35, 0.85, armWeight) * 3.14159) * 0.042 * uArmRelax : 0.0;
-          rotatedArm.x += elbowBend;
+          // Living scull & streamline micro-resonance
+          float scull = (relax > 0.35) ? sin(uTime * 2.4 + sideArm * 1.2) * 0.05 * relax : 0.0;
+          float streamResonance = (1.0 - relax) * (1.0 - reach) * sin(uKickPhase + 1.2) * uKickAmp * 0.012;
 
-          // Living palm & wrist sculling
-          float wristScull = (uArmRelax > 0.25) ? sin(uTime * 2.6 + sign(position.z) * 1.6) * 0.024 * smoothstep(0.60, 1.0, armWeight) * uArmRelax : 0.0;
-          rotatedArm.z += wristScull;
+          // Upper arm kinematics:
+          // reach = 1.0 -> rotates forward (+X) by ~87 deg (1.52 rad) to touch bottom plate/rope
+          // relax = 1.0 -> rotates down (-Y) by ~168 deg (2.93 rad) to hang naturally along ribs
+          float pitchUpper = reach * 1.52 + (1.0 - reach) * (relax * (2.93 + scull));
+          float sP1 = sin(pitchUpper);
+          float cP1 = cos(pitchUpper);
 
-          // Subtle overhead streamline micro-resonance matching kinetic body wave
-          float armMicro = (1.0 - uArmRelax) * sin(uKickPhase + 1.2) * uKickAmp * armWeight * 0.014;
-          rotatedArm.x += armMicro;
+          // Forearm & elbow hinge kinematics:
+          // When relaxed, elbow flexes naturally by 22 deg (0.38 rad)
+          // When reaching, arm is straight for plate touch
+          float elbowFlex = reach * 0.05 + (1.0 - reach) * (relax * 0.38);
+          float pitchFore = pitchUpper - elbowFlex;
+          float sP2 = sin(pitchFore);
+          float cP2 = cos(pitchFore);
 
-          transformed = mix(transformed, shoulderPivot + rotatedArm, armWeight);
+          vec3 shoulderPivot = vec3(0.015, 0.52, sideArm * 0.175);
+          vec3 elbowRest = vec3(0.028, 0.86, sideArm * 0.106);
+
+          float latClearance = -relax * 0.069 * sideArm;
+          float ropeInward = reach * 0.08 * (-sideArm);
+
+          vec3 upperRest = elbowRest - shoulderPivot;
+          vec3 elbowRotated = shoulderPivot + vec3(
+            upperRest.x * cP1 + upperRest.y * sP1 + streamResonance,
+            -upperRest.x * sP1 + upperRest.y * cP1,
+            upperRest.z + latClearance + ropeInward
+          );
+
+          // Rigid upper arm (y in [0.52, 0.86])
+          vec3 relUpper = transformed - shoulderPivot;
+          vec3 posUpper = shoulderPivot + vec3(
+            relUpper.x * cP1 + relUpper.y * sP1 + streamResonance,
+            -relUpper.x * sP1 + relUpper.y * cP1,
+            relUpper.z + (clamp((position.y - 0.52) / 0.34, 0.0, 1.0)) * (latClearance + ropeInward)
+          );
+
+          // Rigid forearm (y in [0.86, 1.285])
+          vec3 relFore = transformed - elbowRest;
+          float wForeSpan = clamp((position.y - 0.86) / 0.425, 0.0, 1.0);
+          float wristWiggle = (relax > 0.3) ? sin(uTime * 2.8 + sideArm * 1.5) * 0.018 * relax * wForeSpan : 0.0;
+          vec3 posFore = elbowRotated + vec3(
+            relFore.x * cP2 + relFore.y * sP2 + streamResonance,
+            -relFore.x * sP2 + relFore.y * cP2,
+            relFore.z + latClearance + ropeInward + wristWiggle
+          );
+
+          // Seamless blending at elbow hinge (y in [0.83, 0.89])
+          float wElbowHinge = smoothstep(0.83, 0.89, position.y);
+          vec3 posArm = mix(posUpper, posFore, wElbowHinge);
+
+          // Seamless blending into shoulder collar (y in [0.52, 0.58])
+          float wShoulderBlend = smoothstep(0.52, 0.58, position.y);
+          transformed = mix(transformed, posArm, wShoulderBlend);
         }
 
-        // 2. Biomechanical Hip Flexion (uPikeAngle)
+        // 2. Biomechanical Hip Flexion (uPikeAngle), Knee Tuck & Spine Bend
         if (position.y < -0.04 && uPikeAngle > 0.001) {
           float wPike = smoothstep(-0.04, -0.32, position.y);
-          float kneeTuck = smoothstep(-0.48, -0.80, position.y) * 0.22 * uPikeAngle;
-          float pikeA = uPikeAngle * wPike - kneeTuck;
+          float kneeTuckAngle = smoothstep(-0.48, -0.80, position.y) * 0.22 * uPikeAngle;
+          float pikeA = uPikeAngle * wPike - kneeTuckAngle;
           vec3 hipPivot = vec3(0.0, -0.06, 0.0);
           vec3 relLeg = transformed - hipPivot;
           float sP = sin(pikeA);
@@ -584,6 +782,19 @@
             relLeg.z
           );
           transformed = mix(transformed, hipPivot + rotatedLeg, wPike);
+        }
+
+        // 2b. Knee Tuck during 3D bottom turn (drastically reduces moment of inertia)
+        if (uKneeTuck > 0.001 && position.y < -0.45 && position.y > -1.05) {
+          float wKnee = smoothstep(-0.45, -0.65, position.y) * (1.0 - smoothstep(-0.95, -1.05, position.y));
+          transformed.x -= uKneeTuck * wKnee * 0.12;
+          transformed.y += uKneeTuck * wKnee * 0.05;
+        }
+
+        // 2c. Spine Bend during 3D bottom turn (athletic lateral curvature towards rope)
+        if (uSpineBend > 0.001 && position.y > -0.20 && position.y < 0.60) {
+          float wSpine = sin(smoothstep(-0.20, 0.60, position.y) * 3.14159);
+          transformed.x += uSpineBend * wSpine * 0.065;
         }
 
         // 3. Head Pitch & Yaw Gaze (uHeadPitch, uHeadYaw)
@@ -1155,6 +1366,11 @@
       uKickPhase: { value: 0 },
       uKickAmp: { value: 1.0 },
       uArmRelax: { value: 0 },
+      uArmRelaxL: { value: 0 },
+      uArmRelaxR: { value: 0 },
+      uArmReachR: { value: 0 },
+      uKneeTuck: { value: 0 },
+      uSpineBend: { value: 0 },
       uPikeAngle: { value: 0 },
       uHeadPitch: { value: 0 },
       uHeadYaw: { value: 0 },
@@ -1258,6 +1474,11 @@
       uKickPhase: { value: 0 },
       uKickAmp: { value: 1.0 },
       uArmRelax: { value: 0 },
+      uArmRelaxL: { value: 0 },
+      uArmRelaxR: { value: 0 },
+      uArmReachR: { value: 0 },
+      uKneeTuck: { value: 0 },
+      uSpineBend: { value: 0 },
       uPikeAngle: { value: 0 },
       uHeadPitch: { value: 0 },
       uHeadYaw: { value: 0 },
@@ -1516,6 +1737,10 @@
     const vF = new T.Vector3();
     const vS = new T.Vector3();
     const basisMatrix = new T.Matrix4();
+    const qPitch = new T.Quaternion();
+    const qRoll = new T.Quaternion();
+    const qYaw = new T.Quaternion();
+    const qCombined = new T.Quaternion();
 
     const torchWorldDir = new T.Vector3();
     const torchWorldPos = new T.Vector3();
@@ -1543,6 +1768,13 @@
       theta: { pos: 0.08, vel: 0 },
       pike: { pos: 0, vel: 0 },
       arm: { pos: 0.85, vel: 0 },
+      armL: { pos: 0.85, vel: 0 },
+      armR: { pos: 0.85, vel: 0 },
+      armReach: { pos: 0, vel: 0 },
+      roll: { pos: 0, vel: 0 },
+      turnYaw: { pos: 0, vel: 0 },
+      kneeTuck: { pos: 0, vel: 0 },
+      spineBend: { pos: 0, vel: 0 },
       yaw: { pos: 0, vel: 0 },
       pitch: { pos: -0.05, vel: 0 }
     };
@@ -1553,6 +1785,13 @@
       theta: { pos: 0.06, vel: 0 },
       pike: { pos: 0, vel: 0 },
       arm: { pos: 0.0, vel: 0 },
+      armL: { pos: 0.0, vel: 0 },
+      armR: { pos: 0.0, vel: 0 },
+      armReach: { pos: 0, vel: 0 },
+      roll: { pos: 0, vel: 0 },
+      turnYaw: { pos: 0, vel: 0 },
+      kneeTuck: { pos: 0, vel: 0 },
+      spineBend: { pos: 0, vel: 0 },
       yaw: { pos: 0, vel: 0 },
       pitch: { pos: -0.05, vel: 0 }
     };
@@ -1609,11 +1848,15 @@
     // Preallocated Trajectory Results
     const deepTraj = {
       y: 0, theta: 0, kickAmp: 0, kickPhaseRate: 0,
-      armRelax: 0, pikeAngle: 0, gazeYaw: 0, gazePitch: 0
+      armRelax: 0, armRelaxL: 0, armRelaxR: 0, armReachR: 0,
+      pikeAngle: 0, kneeTuck: 0, spineBend: 0,
+      roll: 0, turnYaw: 0, gazeYaw: 0, gazePitch: 0
     };
     const safeTraj = {
       y: 0, theta: 0, kickAmp: 0, kickPhaseRate: 0,
-      armRelax: 0, pikeAngle: 0, gazeYaw: 0, gazePitch: 0
+      armRelax: 0, armRelaxL: 0, armRelaxR: 0, armReachR: 0,
+      pikeAngle: 0, kneeTuck: 0, spineBend: 0,
+      roll: 0, turnYaw: 0, gazeYaw: 0, gazePitch: 0
     };
 
     // Helper: Evaluates coupled wave propagation and diver rope tug at nominal rope Y
@@ -1642,13 +1885,23 @@
     }
 
     // Helper: Exact 3D orientation facing IN towards the dive rope at RIG_X
-    // Used for safety and continuous visual orientation throughout descent, freefall, turn, and ascent
-    function orientDiver(mesh, pitch, toRopeSign) {
+    // Combines pitch around transverse axis, roll around longitudinal spine axis, and yaw precession
+    function orientDiver3D(mesh, pitch, roll, yaw, toRopeSign) {
       vF.set(toRopeSign, 0.0, 0.0);
       vU.set(0.0, Math.cos(pitch), -Math.sin(pitch) * toRopeSign);
       vS.set(0.0, Math.sin(pitch) * toRopeSign, Math.cos(pitch) * toRopeSign);
       basisMatrix.makeBasis(vF, vU, vS);
-      mesh.quaternion.setFromRotationMatrix(basisMatrix);
+      qPitch.setFromRotationMatrix(basisMatrix);
+
+      qRoll.setFromAxisAngle(unitY, roll);
+      qYaw.setFromAxisAngle(unitY, yaw * toRopeSign);
+
+      qCombined.copy(qPitch).multiply(qRoll);
+      mesh.quaternion.copy(qYaw).multiply(qCombined);
+    }
+
+    function orientDiver(mesh, pitch, toRopeSign) {
+      orientDiver3D(mesh, pitch, 0.0, 0.0, toRopeSign);
     }
 
     // Helper: Deep Diver Trajectory (50s Cycle)
@@ -1660,7 +1913,14 @@
         deepTraj.kickAmp = 0.18;
         deepTraj.kickPhaseRate = 2.2;
         deepTraj.armRelax = 0.85;
+        deepTraj.armRelaxL = 0.85;
+        deepTraj.armRelaxR = 0.85;
+        deepTraj.armReachR = 0.0;
         deepTraj.pikeAngle = 0.0;
+        deepTraj.kneeTuck = 0.0;
+        deepTraj.spineBend = 0.0;
+        deepTraj.roll = 0.0;
+        deepTraj.turnYaw = 0.0;
         deepTraj.gazeYaw = 0.04 * Math.sin(time * 0.9);
         deepTraj.gazePitch = -0.05;
       } else if (cycle < 4.2) {
@@ -1674,6 +1934,13 @@
         deepTraj.theta = 0.08 + smoothstep(0.0, 0.65, s) * (Math.PI - 0.08);
         // Arms immediately glide into overhead streamline piercing the water
         deepTraj.armRelax = 0.85 * (1.0 - smoothstep(0.0, 0.35, s));
+        deepTraj.armRelaxL = deepTraj.armRelax;
+        deepTraj.armRelaxR = deepTraj.armRelax;
+        deepTraj.armReachR = 0.0;
+        deepTraj.roll = 0.0;
+        deepTraj.turnYaw = 0.0;
+        deepTraj.kneeTuck = 0.0;
+        deepTraj.spineBend = 0.0;
         // Hip pike and leg lift: fold hips while torso dives, then lift legs straight up into the air
         if (s <= 0.38) {
           const u = s / 0.38;
@@ -1697,7 +1964,14 @@
         deepTraj.y = 11.4 + t * (4.8 - 11.4);
         deepTraj.theta = Math.PI;
         deepTraj.pikeAngle = 0.0;
+        deepTraj.kneeTuck = 0.0;
+        deepTraj.spineBend = 0.0;
+        deepTraj.roll = 0.0;
+        deepTraj.turnYaw = 0.0;
         deepTraj.armRelax = 0.0;
+        deepTraj.armRelaxL = 0.0;
+        deepTraj.armRelaxR = 0.0;
+        deepTraj.armReachR = 0.0;
         // Powerful, deep kicks at realistic cadence (3.8 rad/s), smoothly easing approaching 10m
         const wNeutral = smoothstep(0.65, 1.0, t);
         deepTraj.kickAmp = 1.20 * (1.0 - wNeutral);
@@ -1711,7 +1985,14 @@
         deepTraj.y = 4.8 - (4.8 - (-15.8)) * (0.65 * u + 0.35 * Math.pow(u, 1.35));
         deepTraj.theta = Math.PI;
         deepTraj.pikeAngle = 0.0;
+        deepTraj.kneeTuck = 0.0;
+        deepTraj.spineBend = 0.0;
+        deepTraj.roll = 0.0;
+        deepTraj.turnYaw = 0.0;
         deepTraj.armRelax = 0.0;
+        deepTraj.armRelaxL = 0.0;
+        deepTraj.armRelaxR = 0.0;
+        deepTraj.armReachR = 0.0;
         deepTraj.kickAmp = 0.0; // Completely motionless, straight fins in pure streamline glide!
         deepTraj.kickPhaseRate = 0.0;
         if (cycle >= 17.0 && cycle <= 19.5) {
@@ -1728,19 +2009,36 @@
           const t = (cycle - 22.5) / 1.5;
           deepTraj.y = -15.8 + smoothstep(0, 1, t) * (-16.8 - (-15.8));
           deepTraj.theta = Math.PI;
-          deepTraj.armRelax = smoothstep(0, 1, t) * 0.85; // Reaching arm out to grip the rope!
+          deepTraj.armRelax = 0.0;
+          deepTraj.armRelaxL = 0.0;
+          deepTraj.armRelaxR = 0.0;
+          deepTraj.armReachR = smoothstep(0, 1, t) * 0.85; // Reaching right arm out to touch plate/rope!
           deepTraj.pikeAngle = 0.0;
+          deepTraj.kneeTuck = 0.0;
+          deepTraj.spineBend = 0.0;
+          deepTraj.roll = 0.0;
+          deepTraj.turnYaw = 0.0;
           deepTraj.kickAmp = 0.0;
           deepTraj.kickPhaseRate = 0.0;
           deepTraj.gazeYaw = 0.0;
           deepTraj.gazePitch = -0.15 + t * 0.15;
         } else if (cycle < 26.2) {
-          // Diver holds the rope at the bottom plate and pivots 180 deg around this fixed point (u: 0 -> 1)
+          // True 3D Corkscrew Bottom Turn:
+          // Pivots pitch 180 deg (head-down to head-up), rolls 180 deg around spine axis,
+          // yaws around vertical line, tucks knees to reduce moment of inertia, curves spine,
+          // and grips the plate/line with the right arm while left arm stays streamlined.
           const u = (cycle - 24.0) / 2.2;
           deepTraj.y = -16.8 - 0.12 * Math.sin(u * Math.PI);
           deepTraj.theta = Math.PI * (1.0 - smoothstep(0, 1, u));
-          deepTraj.pikeAngle = Math.sin(u * Math.PI) * 1.25;
-          deepTraj.armRelax = 0.85 * (1.0 - smoothstep(0.40, 1.0, u)); // Hand holding the rope
+          deepTraj.roll = Math.sin(u * Math.PI) * Math.PI; // 180° roll along spine axis
+          deepTraj.turnYaw = Math.sin(u * Math.PI) * 0.55; // 31.5° precession around vertical line
+          deepTraj.armReachR = Math.sin(u * Math.PI) * 1.0; // Right arm reaches plate/line
+          deepTraj.kneeTuck = Math.sin(u * Math.PI) * 0.85; // Compact knee tuck
+          deepTraj.spineBend = Math.sin(u * Math.PI) * 0.35; // Athletic lateral curve toward rope
+          deepTraj.armRelax = 0.0;
+          deepTraj.armRelaxL = 0.0;
+          deepTraj.armRelaxR = 0.0;
+          deepTraj.pikeAngle = Math.sin(u * Math.PI) * 0.55;
           deepTraj.kickAmp = 0.04;
           deepTraj.kickPhaseRate = 1.8;
           deepTraj.gazeYaw = Math.sin(u * Math.PI) * 0.40;
@@ -1750,8 +2048,15 @@
           const s = (cycle - 26.2) / 2.0;
           deepTraj.y = -16.8 + 2.026 * (s * s);
           deepTraj.theta = 0.0;
+          deepTraj.roll = 0.0;
+          deepTraj.turnYaw = 0.0;
+          deepTraj.kneeTuck = 0.0;
+          deepTraj.spineBend = 0.0;
           deepTraj.pikeAngle = 0.0;
           deepTraj.armRelax = 0.0;
+          deepTraj.armRelaxL = 0.0;
+          deepTraj.armRelaxR = 0.0;
+          deepTraj.armReachR = (1.0 - smoothstep(0, 0.45, s)) * 0.50; // Launch release into upward ascent
           deepTraj.kickAmp = 0.04 + smoothstep(0, 1, s) * 1.26;
           deepTraj.kickPhaseRate = 2.6 + smoothstep(0, 1, s) * 1.6; // 2.6 -> 4.2 rad/s peak
           deepTraj.gazeYaw = 0.0;
@@ -1762,8 +2067,15 @@
         const t = (cycle - 28.2) / 14.3;
         deepTraj.y = -14.774 + t * (14.2 - (-14.774));
         deepTraj.theta = 0.0;
+        deepTraj.roll = 0.0;
+        deepTraj.turnYaw = 0.0;
+        deepTraj.kneeTuck = 0.0;
+        deepTraj.spineBend = 0.0;
         deepTraj.pikeAngle = 0.0;
         deepTraj.armRelax = 0.0;
+        deepTraj.armRelaxL = 0.0;
+        deepTraj.armRelaxR = 0.0;
+        deepTraj.armReachR = 0.0;
 
         // Depth-dependent buoyancy & ascent kinetics (Boyle's Law):
         // 1. Deep struggle (depth > 19m, y < -4.5m): diver is maximally compressed & heaviest (-3 to -4 kg).
@@ -1797,8 +2109,15 @@
         const tSurf = smoothstep(42.5, 44.5, cycle);
         deepTraj.y = 14.2 + (14.3 - 14.2) * t + waveY * 0.8 * tSurf;
         deepTraj.theta = 0.05 + 0.03 * t;
+        deepTraj.roll = 0.0;
+        deepTraj.turnYaw = 0.0;
+        deepTraj.kneeTuck = 0.0;
+        deepTraj.spineBend = 0.0;
         deepTraj.pikeAngle = 0.0;
         deepTraj.armRelax = 0.85;
+        deepTraj.armRelaxL = 0.85;
+        deepTraj.armRelaxR = 0.85;
+        deepTraj.armReachR = 0.0;
         deepTraj.kickAmp = 0.20 * tSurf;
         deepTraj.kickPhaseRate = 2.0;
         deepTraj.gazeYaw = 0.04 * Math.sin(time * 0.9);
@@ -1811,6 +2130,12 @@
     // tugs on the rope at the bottom turn (cycle 24.8s). Then duck-dives, descends to ~10m depth,
     // turns and escorts the diver face-to-face up to the surface.
     function evalSafetyTrajectory(cycle, deepY, waveY, time) {
+      safeTraj.roll = 0.0;
+      safeTraj.turnYaw = 0.0;
+      safeTraj.kneeTuck = 0.0;
+      safeTraj.spineBend = 0.0;
+      safeTraj.armReachR = 0.0;
+
       if (cycle < 24.8) {
         // 1. Surface Watch with Snorkel (0.0 - 24.8s):
         // Floating prone beside the buoy with head in water, breathing through snorkel,
@@ -1821,6 +2146,8 @@
         safeTraj.kickAmp = 0.04; // Gentle idle surface sculling to hold station beside buoy
         safeTraj.kickPhaseRate = 1.4;
         safeTraj.armRelax = 0.75; // Relaxed arms resting beside buoy
+        safeTraj.armRelaxL = 0.75;
+        safeTraj.armRelaxR = 0.75;
         safeTraj.gazeYaw = 0.04 * Math.sin(time * 0.75); // Alert scanning down the line
         safeTraj.gazePitch = -0.38; // Looking straight down the vertical rope!
       } else if (cycle < 27.2) {
@@ -1845,6 +2172,8 @@
         }
         safeTraj.kickPhaseRate = 3.8;
         safeTraj.armRelax = 0.0;
+        safeTraj.armRelaxL = 0.0;
+        safeTraj.armRelaxR = 0.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = -0.15;
       } else if (cycle < 34.5) {
@@ -1859,7 +2188,9 @@
         // As safety diver approaches 10m meeting depth (after cycle 32.5), arms break out of streamline
         // and reach forward towards the rope to stabilize depth level and maintain visual orientation!
         const wReach = smoothstep(32.5, 34.0, cycle);
-        safeTraj.armRelax = wReach * 0.90;
+        safeTraj.armRelax = wReach * 0.75;
+        safeTraj.armRelaxL = safeTraj.armRelax;
+        safeTraj.armRelaxR = safeTraj.armRelax;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = -0.15; // Eyes fixed down the line watching deep diver approach
       } else if (cycle < 36.8) {
@@ -1874,7 +2205,9 @@
         safeTraj.y = hoverY * (1.0 - t) + targetEscortY * t;
         safeTraj.kickAmp = 0.45;
         safeTraj.kickPhaseRate = 3.0;
-        safeTraj.armRelax = 0.90; // Active arms forward holding level and rope orientation!
+        safeTraj.armRelax = 0.75;
+        safeTraj.armRelaxL = 0.75;
+        safeTraj.armRelaxR = 0.75;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = -0.15 * (1.0 - t) + 0.22 * t; // Eyes transition up to meet diver
       } else if (cycle < 42.5) {
@@ -1886,7 +2219,9 @@
         const wGlide = smoothstep(37.4, 40.5, cycle);
         safeTraj.kickAmp = 0.40 * (1.0 - wGlide) + 0.08 * wGlide;
         safeTraj.kickPhaseRate = 3.2 * (1.0 - wGlide) + 2.0 * wGlide;
-        safeTraj.armRelax = 0.70; // Attentive escort posture with hands in front ready to assist, NOT overhead arrow!
+        safeTraj.armRelax = 0.70; // Attentive escort posture with hands down along torso/thighs ready to assist!
+        safeTraj.armRelaxL = 0.70;
+        safeTraj.armRelaxR = 0.70;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = 0.22; // Direct visual contact on deep diver's eyes and mask
       } else {
@@ -1898,6 +2233,8 @@
         safeTraj.kickAmp = 0.08 * (1.0 - tSurf) + 0.04 * tSurf;
         safeTraj.kickPhaseRate = 1.4;
         safeTraj.armRelax = 0.75 * tSurf;
+        safeTraj.armRelaxL = safeTraj.armRelax;
+        safeTraj.armRelaxR = safeTraj.armRelax;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = 0.22 * (1.0 - tSurf) - 0.38 * tSurf; // Returns gaze down line
       }
@@ -2028,6 +2365,13 @@
       stepInertial(mainInertial.z, diverRopePosMono.z, 8.0, 1.15, dtPhase);
       stepInertial(mainInertial.pike, monoTraj.pikeAngle, 10.0, 1.1, dtPhase);
       stepInertial(mainInertial.arm, monoTraj.armRelax, 8.5, 1.1, dtPhase);
+      stepInertial(mainInertial.armL, (monoTraj.armRelaxL !== undefined) ? monoTraj.armRelaxL : monoTraj.armRelax, 8.5, 1.1, dtPhase);
+      stepInertial(mainInertial.armR, (monoTraj.armRelaxR !== undefined) ? monoTraj.armRelaxR : monoTraj.armRelax, 8.5, 1.1, dtPhase);
+      stepInertial(mainInertial.armReach, monoTraj.armReachR || 0.0, 9.0, 1.1, dtPhase);
+      stepInertial(mainInertial.roll, monoTraj.roll || 0.0, 9.0, 1.1, dtPhase);
+      stepInertial(mainInertial.turnYaw, monoTraj.turnYaw || 0.0, 9.0, 1.1, dtPhase);
+      stepInertial(mainInertial.kneeTuck, monoTraj.kneeTuck || 0.0, 9.0, 1.1, dtPhase);
+      stepInertial(mainInertial.spineBend, monoTraj.spineBend || 0.0, 9.0, 1.1, dtPhase);
       stepInertial(mainInertial.yaw, monoTraj.gazeYaw, 7.5, 1.1, dtPhase);
       stepInertial(mainInertial.pitch, monoTraj.gazePitch, 7.5, 1.1, dtPhase);
 
@@ -2038,12 +2382,19 @@
       stepInertial(safeInertial.z, diverRopePosSafe.z, 8.0, 1.15, dtPhase);
       stepInertial(safeInertial.pike, biTraj.pikeAngle, 10.0, 1.1, dtPhase);
       stepInertial(safeInertial.arm, biTraj.armRelax, 8.5, 1.1, dtPhase);
+      stepInertial(safeInertial.armL, (biTraj.armRelaxL !== undefined) ? biTraj.armRelaxL : biTraj.armRelax, 8.5, 1.1, dtPhase);
+      stepInertial(safeInertial.armR, (biTraj.armRelaxR !== undefined) ? biTraj.armRelaxR : biTraj.armRelax, 8.5, 1.1, dtPhase);
+      stepInertial(safeInertial.armReach, biTraj.armReachR || 0.0, 9.0, 1.1, dtPhase);
+      stepInertial(safeInertial.roll, biTraj.roll || 0.0, 9.0, 1.1, dtPhase);
+      stepInertial(safeInertial.turnYaw, biTraj.turnYaw || 0.0, 9.0, 1.1, dtPhase);
+      stepInertial(safeInertial.kneeTuck, biTraj.kneeTuck || 0.0, 9.0, 1.1, dtPhase);
+      stepInertial(safeInertial.spineBend, biTraj.spineBend || 0.0, 9.0, 1.1, dtPhase);
       stepInertial(safeInertial.yaw, biTraj.gazeYaw, 7.5, 1.1, dtPhase);
       stepInertial(safeInertial.pitch, biTraj.gazePitch, 7.5, 1.1, dtPhase);
 
       // Position & Orient Monofin Diver (Left side, facing +X toward rope)
       mainDiverMesh.position.set(mainInertial.x.pos, mainInertial.y.pos, mainInertial.z.pos);
-      orientDiver(mainDiverMesh, mainInertial.theta.pos, 1.0);
+      orientDiver3D(mainDiverMesh, mainInertial.theta.pos, mainInertial.roll.pos, mainInertial.turnYaw.pos, 1.0);
 
       // Bioluminescent fin shear shimmer at night
       const nightBioFactor = smoothstep(0.35, 0.02, daylightVal);
@@ -2079,6 +2430,11 @@
       mainUniforms.uKickPhase.value = monoKickPhase;
       mainUniforms.uKickAmp.value = monoTraj.kickAmp;
       mainUniforms.uArmRelax.value = mainInertial.arm.pos;
+      mainUniforms.uArmRelaxL.value = mainInertial.armL.pos;
+      mainUniforms.uArmRelaxR.value = mainInertial.armR.pos;
+      mainUniforms.uArmReachR.value = mainInertial.armReach.pos;
+      mainUniforms.uKneeTuck.value = mainInertial.kneeTuck.pos;
+      mainUniforms.uSpineBend.value = mainInertial.spineBend.pos;
       mainUniforms.uPikeAngle.value = mainInertial.pike.pos;
       mainUniforms.uHeadPitch.value = mainInertial.pitch.pos;
       mainUniforms.uHeadYaw.value = mainInertial.yaw.pos;
@@ -2086,11 +2442,16 @@
 
       // Position & Orient Bi-fin Diver (Right side, facing -X toward rope)
       safetyDiverMesh.position.set(safeInertial.x.pos, safeInertial.y.pos, safeInertial.z.pos);
-      orientDiver(safetyDiverMesh, safeInertial.theta.pos, -1.0);
+      orientDiver3D(safetyDiverMesh, safeInertial.theta.pos, safeInertial.roll.pos, safeInertial.turnYaw.pos, -1.0);
 
       safeUniforms.uKickPhase.value = biKickPhase;
       safeUniforms.uKickAmp.value = biTraj.kickAmp;
       safeUniforms.uArmRelax.value = safeInertial.arm.pos;
+      safeUniforms.uArmRelaxL.value = safeInertial.armL.pos;
+      safeUniforms.uArmRelaxR.value = safeInertial.armR.pos;
+      safeUniforms.uArmReachR.value = safeInertial.armReach.pos;
+      safeUniforms.uKneeTuck.value = safeInertial.kneeTuck.pos;
+      safeUniforms.uSpineBend.value = safeInertial.spineBend.pos;
       safeUniforms.uPikeAngle.value = safeInertial.pike.pos;
       safeUniforms.uHeadPitch.value = safeInertial.pitch.pos;
       safeUniforms.uHeadYaw.value = safeInertial.yaw.pos;
