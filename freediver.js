@@ -526,6 +526,7 @@
         uniform float uKickAmp;
         uniform float uArmRelax;
         uniform float uPikeAngle;
+        uniform float uHeadPitch;
         uniform float uHeadYaw;
         uniform float uDepthCompression;
         uniform float uMonoBladeFlex;
@@ -578,19 +579,36 @@
           transformed = mix(transformed, hipPivot + rotatedLeg, wPike);
         }
 
-        // 3. Head Yaw Glancing (uHeadYaw)
-        if (position.y > 0.62 && abs(uHeadYaw) > 0.001) {
+        // 3. Head Pitch & Yaw Gaze (uHeadPitch, uHeadYaw)
+        // Keeps the diver's gaze actively directed towards the rope for safety and visual orientation
+        if (position.y > 0.62) {
           float wHead = smoothstep(0.62, 0.74, position.y);
-          float sH = sin(uHeadYaw * wHead);
-          float cH = cos(uHeadYaw * wHead);
           vec3 neckPivot = vec3(0.012, 0.62, 0.0);
           vec3 relHead = transformed - neckPivot;
-          vec3 turnedHead = vec3(
-            relHead.x * cH - relHead.z * sH,
-            relHead.y,
-            relHead.x * sH + relHead.z * cH
-          );
-          transformed = mix(transformed, neckPivot + turnedHead, wHead);
+
+          // Pitch: Nod/tilt head towards dive line (+X) or along line
+          if (abs(uHeadPitch) > 0.001) {
+            float sP = sin(uHeadPitch * wHead);
+            float cP = cos(uHeadPitch * wHead);
+            relHead = vec3(
+              relHead.x * cP - relHead.y * sP,
+              relHead.x * sP + relHead.y * cP,
+              relHead.z
+            );
+          }
+
+          // Yaw: Glancing left/right towards rope and buddy
+          if (abs(uHeadYaw) > 0.001) {
+            float sH = sin(uHeadYaw * wHead);
+            float cH = cos(uHeadYaw * wHead);
+            relHead = vec3(
+              relHead.x * cH - relHead.z * sH,
+              relHead.y,
+              relHead.x * sH + relHead.z * cH
+            );
+          }
+
+          transformed = neckPivot + relHead;
         }
 
         // 4. Undulation & compliant kicks (along local X)
@@ -988,6 +1006,7 @@
       uKickAmp: { value: 1.0 },
       uArmRelax: { value: 0 },
       uPikeAngle: { value: 0 },
+      uHeadPitch: { value: 0 },
       uHeadYaw: { value: 0 },
       uDepthCompression: { value: 0 },
       uBioShimmer: { value: 0 },
@@ -1090,6 +1109,7 @@
       uKickAmp: { value: 1.0 },
       uArmRelax: { value: 0 },
       uPikeAngle: { value: 0 },
+      uHeadPitch: { value: 0 },
       uHeadYaw: { value: 0 },
       uDepthCompression: { value: 0 },
       uBioShimmer: { value: 0 },
@@ -1462,13 +1482,12 @@
       outVec.z = RIG_Z + horizZ;
     }
 
-    // Helper: Singularity-free orientation in sagittal X-Y plane toward the rope
+    // Helper: Exact 3D orientation facing IN towards the dive rope at RIG_X
+    // Used for safety and continuous visual orientation throughout descent, freefall, turn, and ascent
     function orientDiver(mesh, pitch, toRopeSign) {
-      vU.set(toRopeSign * Math.sin(pitch), Math.cos(pitch), 0.0).normalize();
-      vR.set(toRopeSign * Math.cos(pitch), -Math.sin(pitch), 0.18).normalize();
-      const d = vR.dot(vU);
-      vF.copy(vR).addScaledVector(vU, -d).normalize();
-      vS.crossVectors(vF, vU).normalize();
+      vF.set(toRopeSign, 0.0, 0.0);
+      vU.set(0.0, Math.cos(pitch), -Math.sin(pitch) * toRopeSign);
+      vS.set(0.0, Math.sin(pitch) * toRopeSign, Math.cos(pitch) * toRopeSign);
       basisMatrix.makeBasis(vF, vU, vS);
       mesh.quaternion.setFromRotationMatrix(basisMatrix);
     }
@@ -1885,6 +1904,7 @@
       mainUniforms.uKickAmp.value = monoTraj.kickAmp;
       mainUniforms.uArmRelax.value = mainInertial.arm.pos;
       mainUniforms.uPikeAngle.value = mainInertial.pike.pos;
+      mainUniforms.uHeadPitch.value = mainInertial.pitch.pos;
       mainUniforms.uHeadYaw.value = mainInertial.yaw.pos;
       mainUniforms.uTime.value = time;
 
@@ -1896,6 +1916,7 @@
       safeUniforms.uKickAmp.value = biTraj.kickAmp;
       safeUniforms.uArmRelax.value = safeInertial.arm.pos;
       safeUniforms.uPikeAngle.value = safeInertial.pike.pos;
+      safeUniforms.uHeadPitch.value = safeInertial.pitch.pos;
       safeUniforms.uHeadYaw.value = safeInertial.yaw.pos;
       safeUniforms.uTime.value = time;
 
@@ -2340,7 +2361,7 @@
       );
       prevMainPos.copy(mainDiverMesh.position);
       mainDiverState.position.copy(mainDiverMesh.position);
-      mainDiverState.heading.set(Math.sin(mainInertial.theta.pos), Math.cos(mainInertial.theta.pos), 0.0).normalize();
+      mainDiverState.heading.set(0.0, Math.cos(mainInertial.theta.pos), -Math.sin(mainInertial.theta.pos) * 1.0).normalize();
       mainDiverState.kickAmp = monoTraj.kickAmp;
       mainDiverState.visible = group.visible;
 
@@ -2351,7 +2372,7 @@
       );
       prevSafePos.copy(safetyDiverMesh.position);
       safetyDiverState.position.copy(safetyDiverMesh.position);
-      safetyDiverState.heading.set(-Math.sin(safeInertial.theta.pos), Math.cos(safeInertial.theta.pos), 0.0).normalize();
+      safetyDiverState.heading.set(0.0, Math.cos(safeInertial.theta.pos), -Math.sin(safeInertial.theta.pos) * (-1.0)).normalize();
       safetyDiverState.kickAmp = biTraj.kickAmp;
       safetyDiverState.visible = group.visible;
 
