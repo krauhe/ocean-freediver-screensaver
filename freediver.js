@@ -1293,6 +1293,8 @@
     const prevMainPos = new T.Vector3(RIG_X - 0.78, 14.3, RIG_Z);
     const prevSafePos = new T.Vector3(RIG_X + 0.82, 14.2, RIG_Z);
     let lastUpdateTime = undefined;
+    let monoKickPhase = 0.0;
+    let biKickPhase = 0.0;
 
     // Preallocated Trajectory Results
     const deepTraj = {
@@ -1376,60 +1378,58 @@
         deepTraj.kickPhaseRate = 5.2;
         deepTraj.gazeYaw = 0.0; // Calm, steady forward focus down the line (no head-wobble)
         deepTraj.gazePitch = -0.15;
-      } else if (cycle < 14.5) {
-        // Active descent down to freefall depth (y: 11.4 -> -2.0)
-        const t = (cycle - 4.2) / 10.3;
-        deepTraj.y = 11.4 + t * (-2.0 - 11.4);
+      } else if (cycle < 10.0) {
+        // Active descent: Accelerating and fighting positive buoyancy down to 10m depth (y: 11.4 -> 4.8)
+        const t = (cycle - 4.2) / 5.8;
+        deepTraj.y = 11.4 + t * (4.8 - 11.4);
         deepTraj.theta = Math.PI;
         deepTraj.pikeAngle = 0.0;
         deepTraj.armRelax = 0.0;
-        deepTraj.kickAmp = 1.0;
-        deepTraj.kickPhaseRate = 5.2;
+        // Powerful, deep kicks at realistic cadence (3.8 rad/s), smoothly easing approaching 10m
+        const wNeutral = smoothstep(0.65, 1.0, t);
+        deepTraj.kickAmp = 1.20 * (1.0 - wNeutral);
+        deepTraj.kickPhaseRate = 3.8 * (1.0 - wNeutral) + 1.8 * wNeutral;
         deepTraj.gazeYaw = 0.0;
         deepTraj.gazePitch = -0.15;
       } else if (cycle < 22.5) {
-        // Hydrodynamic freefall (y: -2.0 -> -15.8)
-        const t = (cycle - 14.5) / 8.0;
-        deepTraj.y = -2.0 + t * (-15.8 - (-2.0));
+        // Hydrodynamic Freefall: Neutral/negative buoyancy from 10m depth down to bottom plate (y: 4.8 -> -15.8)
+        // Diver coasts effortlessly on gravity with zero kicking!
+        const u = (cycle - 10.0) / 12.5;
+        deepTraj.y = 4.8 - (4.8 - (-15.8)) * (0.65 * u + 0.35 * Math.pow(u, 1.35));
         deepTraj.theta = Math.PI;
         deepTraj.pikeAngle = 0.0;
         deepTraj.armRelax = 0.0;
-        if (cycle < 17.0) {
-          deepTraj.kickAmp = 1.0 - smoothstep(14.5, 17.0, cycle) * 0.97;
-        } else {
-          deepTraj.kickAmp = 0.03;
-        }
-        deepTraj.kickPhaseRate = 2.0;
+        deepTraj.kickAmp = 0.0; // Completely motionless, straight fins in pure streamline glide!
+        deepTraj.kickPhaseRate = 0.0;
         if (cycle >= 17.0 && cycle <= 19.5) {
-          deepTraj.gazeYaw = Math.sin((cycle - 17.0) / 2.5 * Math.PI) * 0.48;
+          deepTraj.gazeYaw = Math.sin((cycle - 17.0) / 2.5 * Math.PI) * 0.45;
           deepTraj.gazePitch = -0.15;
         } else {
           deepTraj.gazeYaw = 0.0;
           deepTraj.gazePitch = -0.15;
         }
       } else if (cycle < 28.2) {
-        // Continuous, silky-smooth Bottom Turn at bottom plate (no double-tuck, no angle popping)
+        // Continuous Bottom Turn holding the rope at bottom plate (y = -16.8)
         if (cycle < 24.0) {
           // Approach & deceleration into bottom plate (y: -15.8 -> -16.8)
           const t = (cycle - 22.5) / 1.5;
           deepTraj.y = -15.8 + smoothstep(0, 1, t) * (-16.8 - (-15.8));
           deepTraj.theta = Math.PI;
-          deepTraj.armRelax = smoothstep(0, 1, t) * 0.85;
+          deepTraj.armRelax = smoothstep(0, 1, t) * 0.85; // Reaching arm out to grip the rope!
           deepTraj.pikeAngle = 0.0;
-          deepTraj.kickAmp = 0.03;
-          deepTraj.kickPhaseRate = 2.0;
+          deepTraj.kickAmp = 0.0;
+          deepTraj.kickPhaseRate = 0.0;
           deepTraj.gazeYaw = 0.0;
           deepTraj.gazePitch = -0.15 + t * 0.15;
         } else if (cycle < 26.2) {
-          // Single, fluid forward compact tuck pivot around the rope (u: 0 -> 1)
+          // Diver holds the rope at the bottom plate and pivots 180 deg around this fixed point (u: 0 -> 1)
           const u = (cycle - 24.0) / 2.2;
-          deepTraj.y = -16.8 - 0.10 * Math.sin(u * Math.PI);
+          deepTraj.y = -16.8 - 0.12 * Math.sin(u * Math.PI);
           deepTraj.theta = Math.PI * (1.0 - smoothstep(0, 1, u));
-          // Pure sinusoidal tuck that starts at 0, peaks at 1.20, and untucks cleanly to 0
-          deepTraj.pikeAngle = Math.sin(u * Math.PI) * 1.20;
-          deepTraj.armRelax = 0.85 * (1.0 - smoothstep(0.35, 1.0, u));
+          deepTraj.pikeAngle = Math.sin(u * Math.PI) * 1.25;
+          deepTraj.armRelax = 0.85 * (1.0 - smoothstep(0.40, 1.0, u)); // Hand holding the rope
           deepTraj.kickAmp = 0.04;
-          deepTraj.kickPhaseRate = 2.0;
+          deepTraj.kickPhaseRate = 1.8;
           deepTraj.gazeYaw = Math.sin(u * Math.PI) * 0.40;
           deepTraj.gazePitch = 0.12 * Math.sin(u * Math.PI);
         } else {
@@ -1439,8 +1439,8 @@
           deepTraj.theta = 0.0;
           deepTraj.pikeAngle = 0.0;
           deepTraj.armRelax = 0.0;
-          deepTraj.kickAmp = 0.04 + smoothstep(0, 1, s) * 1.31;
-          deepTraj.kickPhaseRate = 5.0 + smoothstep(0, 1, s) * 2.0; // 5.0 -> 7.0 rad/s
+          deepTraj.kickAmp = 0.04 + smoothstep(0, 1, s) * 1.26;
+          deepTraj.kickPhaseRate = 2.6 + smoothstep(0, 1, s) * 1.6; // 2.6 -> 4.2 rad/s peak
           deepTraj.gazeYaw = 0.0;
           deepTraj.gazePitch = 0.12 * smoothstep(0, 1, s);
         }
@@ -1454,22 +1454,22 @@
 
         // Depth-dependent buoyancy & ascent kinetics (Boyle's Law):
         // 1. Deep struggle (depth > 19m, y < -4.5m): diver is maximally compressed & heaviest (-3 to -4 kg).
-        //    Must kick hard and fast with high amplitude and cadence to overcome negative buoyancy.
+        //    Highest kick amplitude and cadence, but physically grounded (~0.67 Hz / 4.2 rad/s).
         // 2. Transition zone (depth 19m -> 10m, y in [-4.5, +4.5m]): lungs & wetsuit expand,
-        //    buoyancy transitions through neutral. Diver smoothly eases kicking down.
+        //    buoyancy transitions through neutral. Strong, steep decline in frequency and amplitude.
         // 3. Effortless glide (depth < 10m, y >= +4.5m to surface): positive buoyancy (+2 to +3 kg)
         //    carries the diver effortlessly. Diver completely stops kicking (kickAmp = 0) and glides!
         if (deepTraj.y < -4.5) {
-          deepTraj.kickAmp = 1.35;
-          deepTraj.kickPhaseRate = 7.0;
+          deepTraj.kickAmp = 1.30;
+          deepTraj.kickPhaseRate = 4.2; // Peak cadence at bottom
         } else if (deepTraj.y < 4.5) {
           const w = (deepTraj.y - (-4.5)) / (4.5 - (-4.5));
           const wEase = smoothstep(0.0, 1.0, w);
-          deepTraj.kickAmp = 1.35 * (1.0 - wEase);
-          deepTraj.kickPhaseRate = 7.0 * (1.0 - w) + 3.2 * w;
+          deepTraj.kickAmp = 1.30 * (1.0 - wEase);
+          deepTraj.kickPhaseRate = 4.2 * (1.0 - wEase) + 1.8 * wEase; // Steeper drop approaching 10m
         } else {
           deepTraj.kickAmp = 0.0;
-          deepTraj.kickPhaseRate = 2.0;
+          deepTraj.kickPhaseRate = 0.0;
         }
 
         if (cycle >= 35.0 && cycle <= 37.5) {
@@ -1487,7 +1487,7 @@
         deepTraj.pikeAngle = 0.0;
         deepTraj.armRelax = 0.85;
         deepTraj.kickAmp = 0.20 * tSurf;
-        deepTraj.kickPhaseRate = 2.2;
+        deepTraj.kickPhaseRate = 2.0;
         deepTraj.gazeYaw = 0.04 * Math.sin(time * 0.9);
         deepTraj.gazePitch = -0.05;
       }
@@ -1521,9 +1521,9 @@
         if (s <= 0.65) {
           safeTraj.kickAmp = 0.05;
         } else {
-          safeTraj.kickAmp = 0.05 + smoothstep(0.65, 1.0, s) * 0.90;
+          safeTraj.kickAmp = 0.05 + smoothstep(0.65, 1.0, s) * 0.85;
         }
-        safeTraj.kickPhaseRate = 6.4;
+        safeTraj.kickPhaseRate = 3.6;
         safeTraj.armRelax = 0.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = -0.15;
@@ -1533,8 +1533,8 @@
         safeTraj.y = 11.4 + t * (4.2 - 11.4);
         safeTraj.theta = Math.PI;
         safeTraj.pikeAngle = 0.0;
-        safeTraj.kickAmp = 0.95;
-        safeTraj.kickPhaseRate = 6.4;
+        safeTraj.kickAmp = 0.85;
+        safeTraj.kickPhaseRate = 3.6;
         safeTraj.armRelax = 0.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = -0.15;
@@ -1545,16 +1545,16 @@
           safeTraj.pikeAngle = smoothstep(0, 1, t) * 1.10;
           safeTraj.theta = Math.PI * (1.0 - smoothstep(0, 1, t) * 0.75);
           safeTraj.y = 4.2 + (3.8 - 4.2) * t;
-          safeTraj.kickAmp = 0.95 - 0.60 * t;
-          safeTraj.kickPhaseRate = 5.2;
+          safeTraj.kickAmp = 0.85 - 0.60 * t;
+          safeTraj.kickPhaseRate = 3.0;
           safeTraj.gazePitch = -0.15 - 0.10 * t;
         } else {
           const t = (cycle - 28.5) / 6.5;
           safeTraj.pikeAngle = 1.10 * (1.0 - smoothstep(0, 1, Math.min(1.0, t * 2.5)));
           safeTraj.theta = (Math.PI * 0.25) * (1.0 - smoothstep(0, 1, Math.min(1.0, t * 2.0)));
           safeTraj.y = 3.8 + 0.12 * Math.sin((cycle - 28.5) * 1.5);
-          safeTraj.kickAmp = 0.35;
-          safeTraj.kickPhaseRate = 3.8;
+          safeTraj.kickAmp = 0.22;
+          safeTraj.kickPhaseRate = 2.4;
           safeTraj.gazePitch = -0.28; // Looking down the line watching for the deep diver
         }
         safeTraj.armRelax = 0.0;
@@ -1567,8 +1567,8 @@
         safeTraj.y = hoverY * (1.0 - wAscent) + targetEscortY * wAscent;
         safeTraj.theta = 0.0;
         safeTraj.pikeAngle = 0.0;
-        safeTraj.kickAmp = 0.35 + wAscent * 0.25;
-        safeTraj.kickPhaseRate = 4.8;
+        safeTraj.kickAmp = 0.22 + wAscent * 0.25;
+        safeTraj.kickPhaseRate = 3.2;
         safeTraj.armRelax = 0.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = -0.28 * (1.0 - wAscent) + 0.22 * wAscent; // Eyes transition up to diver
@@ -1579,8 +1579,8 @@
         safeTraj.theta = 0.0;
         safeTraj.pikeAngle = 0.0;
         const wGlide = smoothstep(37.4, 40.5, cycle);
-        safeTraj.kickAmp = 0.60 * (1.0 - wGlide) + 0.10 * wGlide;
-        safeTraj.kickPhaseRate = 4.8 * (1.0 - wGlide) + 2.8 * wGlide;
+        safeTraj.kickAmp = 0.40 * (1.0 - wGlide) + 0.08 * wGlide;
+        safeTraj.kickPhaseRate = 3.2 * (1.0 - wGlide) + 2.0 * wGlide;
         safeTraj.armRelax = 0.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = 0.22; // Eyes fixed directly on deep diver's face, mask, and airway
@@ -1590,8 +1590,8 @@
         safeTraj.y = (14.2 - 0.55) * (1.0 - tSurf) + (14.2 + waveY * 0.8) * tSurf;
         safeTraj.theta = 0.05 + 0.01 * ((cycle - 42.5) / 7.5);
         safeTraj.pikeAngle = 0.0;
-        safeTraj.kickAmp = 0.10 * (1.0 - tSurf) + 0.20 * tSurf;
-        safeTraj.kickPhaseRate = 2.8 * (1.0 - tSurf) + 2.2 * tSurf;
+        safeTraj.kickAmp = 0.08 * (1.0 - tSurf) + 0.20 * tSurf;
+        safeTraj.kickPhaseRate = 2.0;
         safeTraj.armRelax = 0.0;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = 0.22 * (1.0 - tSurf) - 0.05 * tSurf;
@@ -1608,14 +1608,20 @@
       const diveIndex = Math.floor((time + 8.0) / CYCLE_PERIOD);
       const isMonofinDeep = (diveIndex % 2 === 0);
 
-      // 1. Bottom-Turn Rope Tug Impulse (Diver pulling down on rope at cycle 25.0 - 27.5s)
+      // 1. Bottom-Turn Rope Tug Impulse (Diver gripping and pulling down on rope at cycle 24.0 - 31.0s)
       let tugAmount = 0.0;
-      if (cycle >= 25.0 && cycle <= 27.5) {
-        const p = (cycle - 25.0) / 2.5;
-        tugAmount = Math.sin(p * Math.PI) * Math.exp(-(cycle - 25.0) * 0.5) * 0.42;
-      } else if (cycle > 27.5 && cycle <= 29.0) {
-        const p = (cycle - 27.5) / 1.5;
-        tugAmount = -0.10 * Math.sin(p * Math.PI) * Math.exp(-(cycle - 27.5) * 1.0);
+      if (cycle >= 24.0 && cycle < 26.0) {
+        // Braking & swing pull as diver grips rope
+        const p = (cycle - 24.0) / 2.0;
+        tugAmount = Math.sin(p * Math.PI) * 0.48;
+      } else if (cycle >= 26.0 && cycle < 28.0) {
+        // Powerful upward launch pull (pulling down on rope with arm)
+        const p = (cycle - 26.0) / 2.0;
+        tugAmount = Math.sin(p * Math.PI) * 0.85;
+      } else if (cycle >= 28.0 && cycle < 31.0) {
+        // Elastic recoil & heave bounce of buoy and rope
+        const p = (cycle - 28.0) / 3.0;
+        tugAmount = -0.35 * Math.sin(p * Math.PI * 3.0) * Math.exp(-p * 3.2);
       }
 
       // 2. Coupled Buoy, Rope, Bottom Plate & Ballast Motion
@@ -1623,7 +1629,8 @@
 
       evalRopePoint(ROPE_TOP_Y, time, tugAmount, buoyPos);
       buoyGroup.position.copy(buoyPos);
-      buoyGroup.rotation.set(waveBuoy.slopeZ * 0.35, 0, -waveBuoy.slopeX * 0.35);
+      const tugTilt = isMonofinDeep ? -tugAmount * 0.16 : tugAmount * 0.16;
+      buoyGroup.rotation.set(waveBuoy.slopeZ * 0.35 + tugAmount * 0.20, 0, -waveBuoy.slopeX * 0.35 + tugTilt);
 
       // Update 49 height-rings of the rope geometry directly
       for (let iy = 0; iy <= 48; iy++) {
@@ -1675,8 +1682,16 @@
       const monoTraj = isMonofinDeep ? deepTraj : safeTraj;
       const biTraj = isMonofinDeep ? safeTraj : deepTraj;
 
-      const monoX = RIG_X - 0.78;
-      const biX = RIG_X + 0.82;
+      let monoX = RIG_X - 0.78;
+      let biX = RIG_X + 0.82;
+      if (cycle >= 23.5 && cycle <= 26.8) {
+        const uTurn = smoothstep(23.5, 24.8, cycle) * (1.0 - smoothstep(25.8, 26.8, cycle));
+        if (isMonofinDeep) {
+          monoX = (RIG_X - 0.78) + uTurn * 0.40;
+        } else {
+          biX = (RIG_X + 0.82) - uTurn * 0.40;
+        }
+      }
 
       // Position & Orient Monofin Diver (Left side, facing +X toward rope)
       mainDiverMesh.position.set(monoX, monoTraj.y, RIG_Z);
@@ -1693,7 +1708,12 @@
       mainUniforms.uDepthCompression.value = monoDepthComp;
       safeUniforms.uDepthCompression.value = biDepthComp;
 
-      mainUniforms.uKickPhase.value = time * monoTraj.kickPhaseRate;
+      let dtPhase = (lastUpdateTime !== undefined && time > lastUpdateTime) ? Math.min(time - lastUpdateTime, 0.1) : 0.016;
+      if (paused) dtPhase = 0.0;
+      monoKickPhase += monoTraj.kickPhaseRate * dtPhase;
+      biKickPhase += biTraj.kickPhaseRate * dtPhase;
+
+      mainUniforms.uKickPhase.value = monoKickPhase;
       mainUniforms.uKickAmp.value = monoTraj.kickAmp;
       mainUniforms.uArmRelax.value = monoTraj.armRelax;
       mainUniforms.uPikeAngle.value = monoTraj.pikeAngle;
@@ -1704,7 +1724,7 @@
       safetyDiverMesh.position.set(biX, biTraj.y, RIG_Z);
       orientDiver(safetyDiverMesh, biTraj.theta, -1.0);
 
-      safeUniforms.uKickPhase.value = time * biTraj.kickPhaseRate;
+      safeUniforms.uKickPhase.value = biKickPhase;
       safeUniforms.uKickAmp.value = biTraj.kickAmp;
       safeUniforms.uArmRelax.value = biTraj.armRelax;
       safeUniforms.uPikeAngle.value = biTraj.pikeAngle;
