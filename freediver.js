@@ -1333,19 +1333,29 @@
 
     function stepInertial(state, targetPos, omegaN, zeta, dt) {
       if (dt <= 0.0) return state.pos;
-      const f = 1.0 + 2.0 * dt * zeta * omegaN;
+      if (!Number.isFinite(state.pos) || !Number.isFinite(state.vel)) {
+        state.pos = targetPos;
+        state.vel = 0.0;
+        return state.pos;
+      }
+      const clampedDt = Math.min(dt, 0.05);
       const oo = omegaN * omegaN;
-      const detInv = 1.0 / (f + dt * dt * oo);
-      const newPos = (state.pos + dt * state.vel + dt * dt * oo * targetPos) * detInv;
-      state.vel = (state.vel + dt * oo * (targetPos - state.pos)) * detInv;
-      state.pos = newPos;
+      const denom = 1.0 + 2.0 * clampedDt * zeta * omegaN + clampedDt * clampedDt * oo;
+      state.vel = (state.vel + clampedDt * oo * (targetPos - state.pos)) / denom;
+      state.pos += clampedDt * state.vel;
       return state.pos;
     }
 
     function stepFinOscillator(state, targetFoot, dt) {
       if (dt <= 0.0) return;
-      const substeps = Math.ceil(dt / 0.016);
-      const subDt = dt / substeps;
+      if (!Number.isFinite(state.pos) || !Number.isFinite(state.vel)) {
+        state.pos = targetFoot;
+        state.vel = 0.0;
+        return;
+      }
+      const clampedDt = Math.min(dt, 0.05);
+      const substeps = Math.ceil(clampedDt / 0.016);
+      const subDt = clampedDt / substeps;
       const kStiff = 36.0;
       const cDamp = 8.5;
       for (let s = 0; s < substeps; s++) {
@@ -1762,7 +1772,12 @@
         }
       }
 
-      let dtPhase = (lastUpdateTime !== undefined && time > lastUpdateTime) ? Math.min(time - lastUpdateTime, 0.1) : 0.016;
+      let dtPhase = 0.0;
+      if (lastUpdateTime === undefined) {
+        dtPhase = 0.016;
+      } else if (time > lastUpdateTime) {
+        dtPhase = Math.min(time - lastUpdateTime, 0.05);
+      }
       if (paused) dtPhase = 0.0;
 
       // 2nd-Order Inertial Tracking for Monofin Diver
@@ -2220,8 +2235,7 @@
       lanyardGeom.attributes.position.needsUpdate = true;
 
       // 7. Active Divers State for wakes / bioluminescence
-      let velDt = (lastUpdateTime !== undefined && time > lastUpdateTime) ? Math.min(time - lastUpdateTime, 0.1) : 0.016;
-      if (velDt <= 0.0001) velDt = 0.016;
+      const velDt = (dtPhase > 0.0001) ? dtPhase : 0.016;
 
       mainDiverState.velocity.set(
         (mainDiverMesh.position.x - prevMainPos.x) / velDt,
