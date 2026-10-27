@@ -265,6 +265,24 @@
           vec3 transmission=exp(-vec3(.027,.014,.009)*distanceToSurface);
           vec3 waterPath=oceanRadiance(direction);
           vec3 ceiling=surfaceLight*transmission+waterPath*(1.-transmission);
+
+          // Layer 1: Hydrodynamic wave-crest shear bioluminescence
+          float nightBio=smoothstep(.32,.02,daylight);
+          if(nightBio>.001){
+            float waveSteepness=length(wave.yz);
+            float waveHeight=wave.x;
+            if(waveSteepness>.32 && waveHeight>.18){
+              float waveShear=smoothstep(.32,.62,waveSteepness)*smoothstep(.18,.55,waveHeight);
+              float foamNoise=noise(surfaceWorldPosition.xz*2.8+vec2(time*.35,-time*.22));
+              float microFoam=.52+.48*foamNoise;
+              float waveGlow=waveShear*nightBio*microFoam*3.4;
+              vec3 waveBioCore=vec3(.04,.78,1.00);
+              vec3 waveBioPeak=vec3(.50,.96,1.00);
+              vec3 waveBioColor=mix(waveBioCore,waveBioPeak,clamp(waveShear*1.6-.25,0.,1.));
+              ceiling+=waveBioColor*waveGlow*transmission;
+            }
+          }
+
           float visibility=1.-smoothstep(105.,165.,distanceToSurface);
           color=mix(color,ceiling,visibility);
         }
@@ -1476,6 +1494,10 @@
       offset:new T.Vector3(),velocity:new T.Vector3(),
       rotationOffset:new T.Quaternion(),angularVelocity:new T.Vector3(),
       finTurnInteraction:new T.Vector2(),
+      prevCaudalTip:new T.Vector3(),
+      prevPectoralL:new T.Vector3(),
+      prevPectoralR:new T.Vector3(),
+      hasPrevFinPos:false,
       extraSwimPhase:0,burstPower:0});
   }
   // Asymmetric paths and different orbit periods avoid synchronised movement.
@@ -1582,7 +1604,6 @@
       uniform vec4 animalHeadings[24];
       attribute float size;attribute vec2 particleSeed;attribute float nearWater;
       varying float alpha;varying float illumination;varying vec2 tumble;
-      varying float bioFlash;varying float bioGlowAlpha;
       void main(){
         // All particles share a slow rightward current, slightly into the scene.
         // Local eddies are weaker than the current, so neighbours travel together.
@@ -1601,7 +1622,6 @@
         p.z+=.35*cos(time*.017+phase);
 
         vec3 wakeOffset=vec3(0.);
-        float bioTrigger=0.;
         for(int k=0;k<24;k++){
           if(k>=activeAnimalCount)break;
           vec4 st=animalStates[k];
@@ -1634,20 +1654,9 @@
           float swirlPhase=along*2.4-time*3.6+particleSeed.x;
           float nearWake=exp(-behind*2.1);
           wakeOffset+=(swirlDir*sin(swirlPhase)*.42+radialDir*.18)*inWake*radialWake*nearWake*activity*st.w;
-
-          // 3. Mechanical shear stress for dinoflagellate bioluminescence (triggered on contact & wake!)
-          float contactShear=(1.-smoothstep(st.w*.45,st.w*3.3,radialDist))
-            *(1.-smoothstep(bodyHalf*.95,bodyHalf*1.65,abs(along)));
-          float wakeShear=inWake*radialWake*(1.-behind*.62);
-          float animalExcite=max(contactShear*1.30,wakeShear*1.08)*clamp(activity,0.,2.2);
-          bioTrigger=max(bioTrigger,animalExcite);
         }
         // Respect flowFade so boundary recycling stays invisible even in wakes
         p+=wakeOffset*flowFade;
-
-        float spontaneous=step(.965,particleSeed.y)*pow(.5+.5*sin(time*1.35+particleSeed.x*19.),8.)*.52;
-        float shimmer=.70+.30*sin(time*6.5+particleSeed.x*29.+particleSeed.y*17.);
-        bioFlash=(bioTrigger*shimmer*1.35+spontaneous)*flowFade;
 
         float depth=max(0.,15.-p.y);
         illumination=0.;
@@ -1663,13 +1672,10 @@
         vec4 mv=modelViewMatrix*vec4(p,1.);
         gl_Position=projectionMatrix*mv;
         float pixels=size*440.*pixelRatio/max(.1,-mv.z);
-        float nightFactor=smoothstep(.32,.02,daylight);
-        float nightFlash=nightFactor*bioFlash;
-        gl_PointSize=clamp(pixels+clamp(nightFlash,0.,1.5)*3.5*pixelRatio,1.,9.);
+        gl_PointSize=clamp(pixels,1.,7.);
         float distanceToEye=length(mv.xyz);
         alpha=exp(-distanceToEye*.022)*smoothstep(.8,3.,distanceToEye)
           *min(1.,pixels*pixels)*(.18+.24*particleSeed.y)*flowFade;
-        bioGlowAlpha=nightFlash*exp(-distanceToEye*.013)*smoothstep(.8,3.,distanceToEye)*flowFade*.92;
         // Most particles are round dust; sparse flakes turn edge-on as they roll.
         tumble=vec2(time*(.08+particleSeed.y*.08)+particleSeed.x,
           particleSeed.y>.82?.3+.7*abs(sin(time*.11+particleSeed.x)):1.);
@@ -1677,7 +1683,6 @@
     fragmentShader:`
       uniform float daylight;uniform vec3 sunColor;
       varying float alpha;varying float illumination;varying vec2 tumble;
-      varying float bioFlash;varying float bioGlowAlpha;
       void main(){
         vec2 point=gl_PointCoord-.5;
         point=mat2(cos(tumble.x),sin(tumble.x),-sin(tumble.x),cos(tumble.x))*point;
@@ -1685,14 +1690,9 @@
         float radius=length(point);
         float coverage=1.-smoothstep(.04,.5,radius);
         vec3 tint=mix(vec3(.36,.62,.84),sunColor,.45*clamp(illumination,0.,1.));
-        float dustAlpha=coverage*alpha*(.20+.50*daylight+.85*illumination);
-        float glowRadius=length(gl_PointCoord-.5);
-        float glowShape=exp(-glowRadius*glowRadius*11.)*(1.-smoothstep(.32,.5,glowRadius));
-        vec3 bioColor=mix(vec3(.08,.76,1.0),vec3(.34,1.0,.88),clamp(bioFlash*.55,0.,1.));
-        float glowAlpha=glowShape*bioGlowAlpha;
-        float totalAlpha=clamp(dustAlpha+glowAlpha,0.,1.);
-        vec3 finalColor=mix(tint,bioColor,clamp(glowAlpha/max(.0001,totalAlpha),0.,1.));
-        gl_FragColor=vec4(finalColor,totalAlpha);
+        float dustAlpha=coverage*alpha*(daylight*.60+.85*illumination);
+        if(dustAlpha<=.002)discard;
+        gl_FragColor=vec4(tint,dustAlpha);
       }`
   });
   const particles=new T.Points(particleGeometry,particleMaterial);
@@ -1708,6 +1708,188 @@
     document.getElementById('particle-count-value').value=String(count);
     redrawNeeded=true;
   }
+
+  // ---------------------------------------------------------------------------
+  // Layer 2: Hydrodynamic Wake & Scintillation Ring-Buffer System (10,000 Points)
+  // ---------------------------------------------------------------------------
+  function createBioluminescenceWakeSystem(T, scene) {
+    const N = 10000;
+    const geometry = new T.BufferGeometry();
+    const posArray = new Float32Array(N * 3);
+    const velArray = new Float32Array(N * 3);
+    const bioArray = new Float32Array(N * 4); // x: birthTime, y: intensity, z: seed, w: particleType
+
+    for (let i = 0; i < N; i++) {
+      bioArray[i * 4 + 0] = -100.0;
+      bioArray[i * 4 + 1] = 0.0;
+      bioArray[i * 4 + 2] = 0.0;
+      bioArray[i * 4 + 3] = 0.0;
+    }
+
+    const posAttr = new T.BufferAttribute(posArray, 3);
+    const velAttr = new T.BufferAttribute(velArray, 3);
+    const bioAttr = new T.BufferAttribute(bioArray, 4);
+
+    posAttr.setUsage(T.DynamicDrawUsage);
+    velAttr.setUsage(T.DynamicDrawUsage);
+    bioAttr.setUsage(T.DynamicDrawUsage);
+
+    geometry.setAttribute('position', posAttr);
+    geometry.setAttribute('aVelocity', velAttr);
+    geometry.setAttribute('aBioData', bioAttr);
+
+    const uniforms = {
+      uTime: { value: 0 },
+      uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) }
+    };
+
+    const material = new T.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      blending: T.AdditiveBlending,
+      toneMapped: false,
+      uniforms: uniforms,
+      vertexShader: `
+        uniform float uTime;
+        uniform float uPixelRatio;
+        attribute vec3 aVelocity;
+        attribute vec4 aBioData;
+
+        varying float vAlpha;
+        varying float vType;
+        varying float vCamDist;
+
+        void main(){
+          float birthTime = aBioData.x;
+          float age = uTime - birthTime;
+
+          if (age <= 0.0 || age > 1.25 || aBioData.y <= 0.001) {
+            gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+            gl_PointSize = 0.0;
+            return;
+          }
+
+          // Dobbelt-eksponentiel biokemisk kinetik: tauRise = 25ms, tauDecay = 220ms (320ms for halo)
+          float tauRise = 0.025;
+          float tauDecay = mix(0.22, 0.32, aBioData.w);
+          float localAge = max(0.0, age - aBioData.z * 0.08 * (1.0 - aBioData.w));
+          float flash = (tauDecay / (tauDecay - tauRise)) * (exp(-localAge / tauDecay) - exp(-localAge / tauRise));
+
+          vAlpha = clamp(flash * aBioData.y, 0.0, 1.0);
+          vType = aBioData.w;
+
+          // Hydrodynamisk viskoes advektion med opbremsning i vandet
+          float dragFactor = (1.0 - exp(-age * 3.2)) / 3.2;
+          vec3 currentPos = position + aVelocity * dragFactor;
+
+          vec4 mvPosition = modelViewMatrix * vec4(currentPos, 1.0);
+          vCamDist = max(0.2, -mvPosition.z);
+          gl_Position = projectionMatrix * mvPosition;
+
+          // Point size: 1.0 - 2.6 px for micro-spores, max 8.0 px for subtle diffuse mist
+          float baseSize = mix(0.015, 0.060 * (1.0 + age * 0.4), vType);
+          float projectedSize = (baseSize * uPixelRatio * 380.0) / vCamDist;
+          gl_PointSize = (vType < 0.5) ? clamp(projectedSize, 1.0, 2.6) : clamp(projectedSize, 2.0, 8.0);
+        }
+      `,
+      fragmentShader: `
+        varying float vAlpha;
+        varying float vType;
+        varying float vCamDist;
+
+        void main(){
+          if (vAlpha <= 0.002) discard;
+
+          vec2 uv = gl_PointCoord * 2.0 - 1.0;
+          float r2 = dot(uv, uv);
+          if (r2 > 1.0) discard;
+
+          // Skarp eksponentiel kerne for type 0, bloed diffus Gauss for type 1
+          float radialProfile = (vType < 0.5)
+            ? exp(-r2 * 6.5) * (1.0 - r2)
+            : exp(-r2 * 3.8) * pow(1.0 - r2, 1.6) * 0.12;
+
+          vec3 coreCyan = vec3(0.04, 0.78, 1.00);
+          vec3 peakWhiteCyan = vec3(0.50, 0.96, 1.00);
+          float energy = vAlpha * radialProfile;
+          vec3 bioColor = mix(coreCyan, peakWhiteCyan, clamp(energy * 1.5, 0.0, 1.0));
+
+          // Beer-Lambert absorption i vandet
+          vec3 waterExtinction = exp(-vec3(0.24, 0.040, 0.015) * vCamDist);
+          bioColor *= waterExtinction;
+
+          gl_FragColor = vec4(bioColor * energy * 2.4, 1.0);
+        }
+      `
+    });
+
+    const mesh = new T.Points(geometry, material);
+    mesh.name = 'Bioluminescence Wake Particles';
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 3;
+    scene.add(mesh);
+
+    let bioHead = 0;
+    let needsUpdate = false;
+
+    function emitBurst(x, y, z, vx, vy, vz, shearIntensity, count) {
+      if (shearIntensity <= 0.01 || count <= 0) return;
+      const birthTime = uniforms.uTime.value;
+      const clampedIntensity = Math.min(2.5, shearIntensity);
+
+      for (let c = 0; c < count; c++) {
+        const idx = bioHead;
+        bioHead = (bioHead + 1) % N;
+
+        const isHalo = Math.random() > 0.96;
+        const pType = isHalo ? 1.0 : 0.0;
+        const seed = Math.random();
+
+        const jitter = isHalo ? 0.08 : 0.035;
+        const jx = (Math.random() - 0.5) * jitter * 2;
+        const jy = (Math.random() - 0.5) * jitter * 2;
+        const jz = (Math.random() - 0.5) * jitter * 2;
+
+        const pIdx = idx * 3;
+        posArray[pIdx + 0] = x + jx;
+        posArray[pIdx + 1] = y + jy;
+        posArray[pIdx + 2] = z + jz;
+
+        const vJitter = isHalo ? 0.10 : 0.05;
+        velArray[pIdx + 0] = vx + (Math.random() - 0.5) * vJitter;
+        velArray[pIdx + 1] = vy + (Math.random() - 0.5) * vJitter;
+        velArray[pIdx + 2] = vz + (Math.random() - 0.5) * vJitter;
+
+        const bIdx = idx * 4;
+        bioArray[bIdx + 0] = birthTime;
+        bioArray[bIdx + 1] = clampedIntensity * (0.75 + 0.5 * Math.random());
+        bioArray[bIdx + 2] = seed;
+        bioArray[bIdx + 3] = pType;
+      }
+      needsUpdate = true;
+    }
+
+    function update(time) {
+      uniforms.uTime.value = time;
+      if (needsUpdate) {
+        posAttr.needsUpdate = true;
+        velAttr.needsUpdate = true;
+        bioAttr.needsUpdate = true;
+        needsUpdate = false;
+      }
+    }
+
+    return {
+      emitBurst,
+      update,
+      mesh,
+      uniforms
+    };
+  }
+
+  const oceanBioluminescence = createBioluminescenceWakeSystem(T, scene);
+  window.oceanBioluminescence = oceanBioluminescence;
 
   // Background fish use instancing: many fish, one draw call.
   function buildSmallFishGeometry() {
@@ -2071,7 +2253,7 @@
   const remoraUp = new T.Vector3(0, 1, 0);
   const jellyfish=window.createJellyfish(T,scene,waterUniforms,oceanOptics);
   const freedivers = window.createFreedivers
-    ? window.createFreedivers(T, scene, waterUniforms, oceanOptics)
+    ? window.createFreedivers(T, scene, waterUniforms, oceanOptics, oceanBioluminescence)
     : null;
   const showFreediversInput = document.getElementById('show-freedivers');
   if (showFreediversInput && freedivers) {
@@ -2084,7 +2266,8 @@
 
   let paused=matchMedia('(prefers-reduced-motion: reduce)').matches;
   let speed=Number(document.getElementById('speed').value);
-  let animationTime=0;
+  // Randomized start offset so every visit starts at a different, organic point in time
+  let animationTime = Math.random() * 600.0;
   let lastFrame=performance.now();
   let lastRendered=0;
   let lastLightingUpdate=-Infinity;
@@ -2270,12 +2453,44 @@
   // Preallocated scratch objects for renderScene — zero heap allocations per frame
   const boidForces=Array.from({length:40},()=>new T.Vector3());
   const boidP1=new T.Vector3(),boidP2=new T.Vector3(),boidDiff=new T.Vector3();
+  const freediverLOS = new T.Vector3();
+  const sharkToCam = new T.Vector3();
+  const losProjPoint = new T.Vector3();
+  const losClearanceVec = new T.Vector3();
   const maxCandidateAnimals=100;
   const candidateAnimals=new Array(maxCandidateAnimals).fill(null);
   const animalSortIndices=new Int32Array(maxCandidateAnimals);
   const animalSortDists=new Float32Array(maxCandidateAnimals);
   const animalForwardScratch=new T.Vector3();
   const localAngularScratch=new T.Vector3();
+
+  // Scratch objects and kinematic fin tracker for bioluminescent shear wake
+  const bioSharkTipScratch=new T.Vector3();
+  const bioSharkTipWorld=new T.Vector3();
+  const bioFinVel=new T.Vector3();
+  const bioSharkForward=new T.Vector3();
+  const bioJellyRimScratch=new T.Vector3();
+  const bioJellyExpelScratch=new T.Vector3();
+
+  function getSharkFinWorldPos(shark,lx,ly,lz,flexVal,isPectoral,out){
+    const tail=T.MathUtils.clamp((1.8-lx)/6.2,0,1.2);
+    const head=T.MathUtils.clamp((lx-1.8)/1.5,0,1);
+    const phase=shark.uniforms.swimTime.value*1.9+lx*.91+shark.uniforms.swimPhase.value;
+    const wave=Math.sin(phase)-.15*Math.sin(phase*2);
+    let defY=ly+shark.uniforms.dragBend.value.x*tail*tail;
+    let defZ=lz+wave*(tail*tail*.57-head*.1)*shark.uniforms.swimPower.value
+                  +shark.uniforms.dragBend.value.y*tail*tail;
+    if(flexVal>0){
+      if(isPectoral)defY+=flexVal*shark.uniforms.finTurn.value.y;
+      else defZ+=flexVal*shark.uniforms.finTurn.value.x;
+    }
+    bioSharkTipScratch.set(lx,defY,defZ);
+    out.copy(bioSharkTipScratch)
+       .multiplyScalar(shark.scale)
+       .applyQuaternion(shark.mesh.quaternion)
+       .add(shark.mesh.position);
+    return out;
+  }
 
   function updateAnimalPhysics(shark,sharkIndex,elapsed){
     if(!shark.mesh.visible || (shark.isJellyfish&&!jellyfish.group.visible)){
@@ -2418,6 +2633,7 @@
     if (freedivers) freedivers.update(animationTime, paused, speed);
     waterUniforms.time.value=animationTime;
     particleUniforms.time.value=animationTime;
+    oceanBioluminescence.update(animationTime);
     if(!paused && !heldShark)easedPointer.lerp(pointer,.015);
     camera.position.x=Math.sin(animationTime*.027)*.75+easedPointer.x*.65;
     camera.position.y=3.5+Math.sin(animationTime*.039)*.24+easedPointer.y*.35;
@@ -2436,15 +2652,39 @@
         if(!sharks[i].mesh.visible||sharks[i]===heldShark)continue;
         const s1=sharks[i], ph1=s1.phase+animationTime*s1.rate*s1.direction;
         boidP1.set(Math.sin(ph1)*s1.rx,s1.y+Math.sin(ph1*2+s1.phase)*.85,s1.z+Math.cos(ph1)*s1.rz).add(s1.offset);
-        if (freedivers && freedivers.group.visible && boidP1.y >= freedivers.ropeBottomY - 3 && boidP1.y <= freedivers.ropeTopY + 2) {
-          const rdx = boidP1.x - freedivers.rigX;
-          const rdz = boidP1.z - freedivers.rigZ;
-          const rDistSq = rdx * rdx + rdz * rdz;
-          if (rDistSq < 81.0 && rDistSq > 0.01) {
-            const rDist = Math.sqrt(rDistSq);
-            const rPush = (1.0 - rDist / 9.0) * 6.5;
-            boidForces[i].x += (rdx / rDist) * rPush;
-            boidForces[i].z += (rdz / rDist) * rPush;
+        if (freedivers && freedivers.group.visible) {
+          // 1. Direct Repulsion from the Freediver Rig & Shot Line
+          if (boidP1.y >= freedivers.ropeBottomY - 3 && boidP1.y <= freedivers.ropeTopY + 2) {
+            const rdx = boidP1.x - freedivers.rigX;
+            const rdz = boidP1.z - freedivers.rigZ;
+            const rDistSq = rdx * rdx + rdz * rdz;
+            if (rDistSq < 144.0 && rDistSq > 0.01) {
+              const rDist = Math.sqrt(rDistSq);
+              const rPush = (1.0 - rDist / 12.0) * 7.5;
+              boidForces[i].x += (rdx / rDist) * rPush;
+              boidForces[i].z += (rdz / rDist) * rPush;
+            }
+          }
+
+          // 2. Camera-to-Freediver Sightline Corridor Clearance (prevents sharks from swimming in front of the divers)
+          // Camera is at camera.position; Freediver target center is at (freedivers.rigX, 0.0, freedivers.rigZ)
+          freediverLOS.set(freedivers.rigX - camera.position.x, 0.0 - camera.position.y, freedivers.rigZ - camera.position.z);
+          const losLenSq = freediverLOS.lengthSq();
+          if (losLenSq > 1.0) {
+            sharkToCam.subVectors(boidP1, camera.position);
+            const uLOS = sharkToCam.dot(freediverLOS) / losLenSq;
+            if (uLOS > 0.05 && uLOS < 0.95) {
+              losProjPoint.copy(camera.position).addScaledVector(freediverLOS, uLOS);
+              losClearanceVec.subVectors(boidP1, losProjPoint);
+              const losDistSq = losClearanceVec.lengthSq();
+              const clearRadius = 6.5;
+              if (losDistSq < clearRadius * clearRadius && losDistSq > 0.001) {
+                const losDist = Math.sqrt(losDistSq);
+                const losPush = (1.0 - losDist / clearRadius) * 5.5;
+                // Gently nudge shark away from the sightline corridor
+                boidForces[i].addScaledVector(losClearanceVec, losPush / losDist);
+              }
+            }
           }
         }
         for(let j=0;j<i;j++){
@@ -2467,6 +2707,103 @@
     for(let i=0;i<sharks.length;i++) updateAnimalPhysics(sharks[i],i,elapsed);
     if(jellyfish && jellyfish.group && jellyfish.group.visible){
       for(let i=0;i<jellyfish.animals.length;i++) updateAnimalPhysics(jellyfish.animals[i],i,elapsed);
+    }
+
+    // Hydrodynamic Shear Wake Bioluminescence (Sharks & Jellyfish)
+    const nightBioFactor = Math.max(0, Math.min(1, (0.32 - waterUniforms.daylight.value) / 0.30));
+    if (nightBioFactor > 0.01 && elapsed > 0.001) {
+      for (let i = 0; i < sharks.length; i++) {
+        const s = sharks[i];
+        if (!s.mesh.visible) continue;
+        bioSharkForward.set(1, 0, 0).applyQuaternion(s.mesh.quaternion).normalize();
+
+        // 1. Caudal fin upper lobe tip: lx = -4.685, ly = 1.95, lz = 0.0
+        getSharkFinWorldPos(s, -4.685, 1.95, 0.0, 0.35, false, bioSharkTipWorld);
+        if (s.hasPrevFinPos) {
+          bioFinVel.subVectors(bioSharkTipWorld, s.prevCaudalTip).divideScalar(elapsed);
+          const finSpeed = bioFinVel.length();
+          if (finSpeed > 0.45) {
+            const shear = Math.min(2.0, (finSpeed - 0.45) / 0.85);
+            const count = Math.min(6, Math.floor(1 + shear * 4));
+            oceanBioluminescence.emitBurst(
+              bioSharkTipWorld.x, bioSharkTipWorld.y, bioSharkTipWorld.z,
+              bioFinVel.x * 0.32 - bioSharkForward.x * 0.28,
+              bioFinVel.y * 0.32,
+              bioFinVel.z * 0.32 - bioSharkForward.z * 0.28,
+              shear * nightBioFactor,
+              count
+            );
+          }
+        }
+        s.prevCaudalTip.copy(bioSharkTipWorld);
+
+        // 2. Pectoral tips (during fast turns/speed)
+        getSharkFinWorldPos(s, -1.275, -0.57, -2.18, 1.0, true, bioSharkTipWorld);
+        if (s.hasPrevFinPos) {
+          bioFinVel.subVectors(bioSharkTipWorld, s.prevPectoralL).divideScalar(elapsed);
+          const finSpeed = bioFinVel.length();
+          if (finSpeed > 0.45) {
+            const shear = Math.min(1.8, (finSpeed - 0.45) / 0.85);
+            oceanBioluminescence.emitBurst(
+              bioSharkTipWorld.x, bioSharkTipWorld.y, bioSharkTipWorld.z,
+              bioFinVel.x * 0.30 - bioSharkForward.x * 0.20,
+              bioFinVel.y * 0.30,
+              bioFinVel.z * 0.30 - bioSharkForward.z * 0.20,
+              shear * nightBioFactor * 0.75,
+              Math.min(3, Math.floor(1 + shear * 2))
+            );
+          }
+        }
+        s.prevPectoralL.copy(bioSharkTipWorld);
+
+        getSharkFinWorldPos(s, -1.275, -0.57, 2.18, 1.0, true, bioSharkTipWorld);
+        if (s.hasPrevFinPos) {
+          bioFinVel.subVectors(bioSharkTipWorld, s.prevPectoralR).divideScalar(elapsed);
+          const finSpeed = bioFinVel.length();
+          if (finSpeed > 0.45) {
+            const shear = Math.min(1.8, (finSpeed - 0.45) / 0.85);
+            oceanBioluminescence.emitBurst(
+              bioSharkTipWorld.x, bioSharkTipWorld.y, bioSharkTipWorld.z,
+              bioFinVel.x * 0.30 - bioSharkForward.x * 0.20,
+              bioFinVel.y * 0.30,
+              bioFinVel.z * 0.30 - bioSharkForward.z * 0.20,
+              shear * nightBioFactor * 0.75,
+              Math.min(3, Math.floor(1 + shear * 2))
+            );
+          }
+        }
+        s.prevPectoralR.copy(bioSharkTipWorld);
+        s.hasPrevFinPos = true;
+      }
+
+      // Jellyfish peripheral vortex ring emission during active contraction
+      if (jellyfish && jellyfish.group && jellyfish.group.visible) {
+        for (let j = 0; j < jellyfish.animals.length; j++) {
+          const a = jellyfish.animals[j];
+          if (!a.body.visible) continue;
+          const cycle = (animationTime * (0.22 + 0.012 * Math.sin(a.phase)) + a.phase) % 1;
+          if (cycle > 0.02 && cycle < 0.16) {
+            const contractionShear = Math.sin((cycle - 0.02) / 0.14 * Math.PI) * 0.85;
+            if (contractionShear > 0.20) {
+              const rimRadius = 0.88 * a.scale;
+              for (let b = 0; b < 2; b++) {
+                const angle = Math.random() * Math.PI * 2;
+                bioJellyRimScratch.set(Math.cos(angle) * rimRadius, -0.12 * a.scale, Math.sin(angle) * rimRadius);
+                bioJellyRimScratch.applyQuaternion(a.body.quaternion).add(a.body.position);
+                bioJellyExpelScratch.set(0, -0.32, 0).applyQuaternion(a.body.quaternion);
+                oceanBioluminescence.emitBurst(
+                  bioJellyRimScratch.x, bioJellyRimScratch.y, bioJellyRimScratch.z,
+                  bioJellyExpelScratch.x + a.velocity.x * 0.25,
+                  bioJellyExpelScratch.y + a.velocity.y * 0.25,
+                  bioJellyExpelScratch.z + a.velocity.z * 0.25,
+                  contractionShear * nightBioFactor * 0.80,
+                  1
+                );
+              }
+            }
+          }
+        }
+      }
     }
 
     for (let r = 0; r < maxRemoras; r++) {

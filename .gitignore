@@ -1,5 +1,6 @@
 # Local browser checks and screenshots are excluded from the release.
 validation/
+scratch/
 
 # Local editor and system files.
 .vscode/

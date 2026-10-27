@@ -88,13 +88,13 @@
 
   // Cross-section stations along diver longitudinal axis (y in [-0.88, +0.85])
   const STATIONS = [
-    { y: -0.88, rX: 0.055, rZ: 0.075, cX: -0.010 }, // Ankles
-    { y: -0.68, rX: 0.072, rZ: 0.095, cX: -0.018 }, // Calves
-    { y: -0.48, rX: 0.068, rZ: 0.092, cX:  0.005 }, // Knees
-    { y: -0.26, rX: 0.095, rZ: 0.125, cX:  0.010 }, // Thighs
-    { y: -0.06, rX: 0.112, rZ: 0.148, cX: -0.022 }, // Hips / buttocks
-    { y:  0.14, rX: 0.092, rZ: 0.132, cX:  0.008 }, // Waist
-    { y:  0.38, rX: 0.122, rZ: 0.168, cX:  0.024 }, // Chest
+    { y: -0.88, rX: 0.065, rZ: 0.085, cX: -0.010 }, // Ankles
+    { y: -0.68, rX: 0.082, rZ: 0.108, cX: -0.018 }, // Calves
+    { y: -0.48, rX: 0.080, rZ: 0.105, cX:  0.005 }, // Knees
+    { y: -0.26, rX: 0.105, rZ: 0.135, cX:  0.010 }, // Thighs
+    { y: -0.06, rX: 0.120, rZ: 0.155, cX: -0.022 }, // Hips / buttocks
+    { y:  0.14, rX: 0.100, rZ: 0.140, cX:  0.008 }, // Waist
+    { y:  0.38, rX: 0.130, rZ: 0.175, cX:  0.024 }, // Chest
     { y:  0.54, rX: 0.105, rZ: 0.185, cX:  0.005 }, // Shoulders
     { y:  0.63, rX: 0.062, rZ: 0.065, cX:  0.012 }, // Neck
     { y:  0.75, rX: 0.102, rZ: 0.088, cX:  0.022 }, // Head & neoprene hood
@@ -663,9 +663,9 @@
   // ---------------------------------------------------------------------------
   function createDiverMaterial(T, uniforms) {
     const mat = new T.MeshStandardMaterial({
-      color: 0x1a2e46,
-      roughness: 0.28,
-      metalness: 0.22,
+      color: 0x11161e,
+      roughness: 0.68,
+      metalness: 0.0,
       side: T.DoubleSide
     });
     mat.onBeforeCompile = shader => {
@@ -711,6 +711,19 @@
             flexSlope = -uMonoBladeFlex * 2.0 * pow(max(0.0, bladeFlex), 1.0) * 0.58 / 0.73;
           }
           objectNormal = normalize(vec3(objectNormal.x - flexSlope * objectNormal.y, objectNormal.y + flexSlope * objectNormal.x, objectNormal.z));
+        }
+        if (position.y < -0.04 && uPikeAngle > 0.001) {
+          float wPike = smoothstep(-0.04, -0.32, position.y);
+          float kneeTuckAngle = smoothstep(-0.48, -0.80, position.y) * 0.22 * uPikeAngle;
+          float pikeA = uPikeAngle * wPike - kneeTuckAngle;
+          float sP = sin(pikeA);
+          float cP = cos(pikeA);
+          vec3 rotNorm = vec3(
+            objectNormal.x * cP - objectNormal.y * sP,
+            objectNormal.x * sP + objectNormal.y * cP,
+            objectNormal.z
+          );
+          objectNormal = normalize(mix(objectNormal, rotNorm, wPike));
         }
         `
       );
@@ -917,64 +930,51 @@
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-        // High-Visibility Competition Fin Graphics & Wetsuit Panels
+        // High-Visibility Competition Fin Graphics & Authentic Neoprene Wetsuit
         if (vBladeFlex > 0.005 || (vKickWeight > 0.74 && vDiverLocalY < -1.03)) {
-          // 1. High-Modulus Carbon Fiber Epoxy Matrix with directional weave
-          vec3 carbonDark = vec3(0.065, 0.095, 0.135);
-          vec3 carbonLuster = vec3(0.145, 0.205, 0.285);
+          // 1. High-Modulus Carbon Fiber Epoxy Matrix with subtle directional weave
+          vec3 carbonDark = vec3(0.045, 0.060, 0.080);
+          vec3 carbonLuster = vec3(0.085, 0.115, 0.150);
           float weave = sin(vFinUv.x * 130.0) * sin(vFinUv.y * 180.0) * 0.5 + 0.5;
-          vec3 finBase = mix(carbonDark, carbonLuster, weave * 0.40);
+          vec3 finBase = mix(carbonDark, carbonLuster, weave * 0.35);
 
-          // 2. High-Visibility Molded Rubber Water Rails (Sideribber) along outer lateral borders
-          // Arctic White for vivid 50m underwater visibility & silhouette clarity
+          // 2. Matte Molded Silicone Water Rails (Sideribber) along outer lateral borders
           float railDist = abs(vFinUv.x - 0.5) * 2.0;
           float railMask = smoothstep(0.74, 0.86, railDist);
-          vec3 railColor = vec3(0.90, 0.96, 1.0);
+          vec3 railColor = vec3(0.82, 0.86, 0.90);
 
-          // 3. Aerodynamic Dual Racing Stripes (Molchanovs World Record design)
-          float stripeDist = abs(abs(vFinUv.x - 0.5) * 2.0 - 0.42);
-          float stripeMask = smoothstep(0.08, 0.02, stripeDist)
-                           * smoothstep(0.06, 0.18, vFinUv.y)
-                           * (1.0 - smoothstep(0.86, 0.96, vFinUv.y));
-          vec3 stripeColor = vec3(0.14, 0.78, 0.96); // Electric Cyan
-
-          // 4. Crescent Trailing Edge Accent Trim
-          float tipTrim = smoothstep(0.92, 0.97, vFinUv.y);
-          vec3 tipColor = vec3(0.92, 0.97, 1.0);
-
-          // 5. Central Championship Gold Crest / Chevron Emblem
+          // 3. Subtle hydrodynamic crest / emblem (matte dark contrast)
           float crestY = smoothstep(0.22, 0.32, vFinUv.y) * (1.0 - smoothstep(0.42, 0.52, vFinUv.y));
           float crestX = smoothstep(0.20, 0.0, abs(vFinUv.x - 0.5) * 2.0);
-          float crestMask = crestY * crestX * 0.90;
-          vec3 crestColor = vec3(0.96, 0.86, 0.40);
+          float crestMask = crestY * crestX * 0.65;
+          vec3 crestColor = vec3(0.12, 0.16, 0.22);
 
-          // Composite graphics
+          // Composite fin graphics
           vec3 finCol = finBase;
-          finCol = mix(finCol, stripeColor, stripeMask * 0.92);
           finCol = mix(finCol, crestColor, crestMask);
           finCol = mix(finCol, railColor, railMask);
-          finCol = mix(finCol, tipColor, tipTrim * 0.88);
 
           diffuseColor.rgb = finCol;
         } else {
-          // High-Contrast Competition Wetsuit Panels (Yamamoto 45 Smoothskin)
-          vec3 suitBase = vec3(0.11, 0.19, 0.30); // Deep competition navy
-          vec3 cyanFlank = vec3(0.18, 0.78, 0.96); // Vivid Electric Cyan
-          vec3 silverAccent = vec3(0.90, 0.95, 1.0); // Titanium Platinum White
+          // Authentic Vulcanized Neoprene Wetsuit (Yamamoto 45)
+          vec3 suitBase = vec3(0.070, 0.090, 0.120); // Dark oceanic anthracite
+          vec3 compressPanel = vec3(0.085, 0.125, 0.165); // Subtle tone-in-tone compression panels
+          vec3 seamStitch = vec3(0.120, 0.160, 0.200); // Subtle dark seam stitching
+          vec3 darkCuff = vec3(0.050, 0.065, 0.085); // Clean dark watertight seal cuffs
 
-          // Lateral flank panels along torso and outer legs (abs(vNormal.z) > 0.45)
+          // Lateral anatomical compression panels along torso and outer legs
           float flankMask = smoothstep(0.45, 0.75, abs(vNormal.z)) * smoothstep(-0.85, -0.60, vDiverLocalY) * (1.0 - smoothstep(0.55, 0.72, vDiverLocalY));
-          // Racing pinstripe bordering the flank panel
-          float stripeBorder = smoothstep(0.045, 0.015, abs(abs(vNormal.z) - 0.48)) * smoothstep(-0.85, 0.55, vDiverLocalY);
+          // Subtle seam stitching bordering the flank panel
+          float seamMask = smoothstep(0.045, 0.015, abs(abs(vNormal.z) - 0.48)) * smoothstep(-0.85, 0.55, vDiverLocalY);
 
-          // Safety wrist and ankle cuffs
+          // Clean dark wrist and ankle cuffs
           float wristCuff = smoothstep(1.12, 1.16, vDiverLocalY) * (1.0 - smoothstep(1.22, 1.26, vDiverLocalY));
           float ankleCuff = smoothstep(-0.86, -0.82, vDiverLocalY) * (1.0 - smoothstep(-0.76, -0.72, vDiverLocalY));
           float cuffMask = max(wristCuff, ankleCuff);
 
-          vec3 suitCol = mix(suitBase, cyanFlank, flankMask * 0.85);
-          suitCol = mix(suitCol, silverAccent, stripeBorder * 0.90);
-          suitCol = mix(suitCol, silverAccent, cuffMask * 0.95);
+          vec3 suitCol = mix(suitBase, compressPanel, flankMask * 0.60);
+          suitCol = mix(suitCol, seamStitch, seamMask * 0.70);
+          suitCol = mix(suitCol, darkCuff, cuffMask * 0.85);
 
           diffuseColor.rgb = suitCol;
         }
@@ -987,10 +987,10 @@
         if (vBladeFlex > 0.005 || (vKickWeight > 0.74 && vDiverLocalY < -1.03)) {
           float railDist = abs(vFinUv.x - 0.5) * 2.0;
           float railMask = smoothstep(0.74, 0.86, railDist);
-          roughnessFactor = mix(0.14, 0.42, railMask);
+          roughnessFactor = mix(0.30, 0.62, railMask);
         } else {
-          // Glossy Yamamoto 45 smoothskin neoprene reflects caustics and ambient light
-          roughnessFactor = 0.24;
+          // Vulcanized neoprene rubber soft satin matte finish
+          roughnessFactor = 0.70;
         }
         `
       );
@@ -1001,9 +1001,10 @@
         if (vBladeFlex > 0.005 || (vKickWeight > 0.74 && vDiverLocalY < -1.03)) {
           float railDist = abs(vFinUv.x - 0.5) * 2.0;
           float railMask = smoothstep(0.74, 0.86, railDist);
-          metalnessFactor = mix(0.60, 0.04, railMask);
+          metalnessFactor = mix(0.04, 0.0, railMask);
         } else {
-          metalnessFactor = 0.32;
+          // Pure dielectric vulcanized neoprene rubber (zero metalness)
+          metalnessFactor = 0.0;
         }
         `
       );
@@ -1017,28 +1018,18 @@
         vec3 pathAbsorption = exp(-vec3(0.015, 0.005, 0.001) * viewDist);
         outgoingLight *= mix(vec3(1.0), verticalAbsorption * pathAbsorption, 0.55);
 
-        // Bottom Plate & Deep Water Contrast Booster (Prevents darkness fadeout at depth)
+        // Subtle ambient depth floor (preserves silhouette clarity against abyss without additive mirror sheen)
         float depthContrast = smoothstep(6.0, 32.0, waterDepth);
-        float distToPlate = max(0.0, vDiverWorldPos.y - (-17.5));
-        float plateBounce = exp(-0.16 * distToPlate);
-        vec3 beaconLight = vec3(0.24, 0.60, 0.88) * plateBounce * 0.75;
+        outgoingLight = max(outgoingLight, vec3(0.016, 0.024, 0.035) * depthContrast);
 
-        // Silhouette edge Fresnel (crisp outline against dark ocean)
-        float bodyFresnel = pow(1.0 - abs(dot(normalize(vNormal), normalize(-vViewPosition))), 2.2);
-        vec3 silhouetteRim = vec3(0.18, 0.48, 0.72) * bodyFresnel * (0.40 + 0.60 * depthContrast);
-
-        outgoingLight += beaconLight + silhouetteRim;
-
-        if (vBladeFlex > 0.005 || (vKickWeight > 0.74 && vDiverLocalY < -1.03)) {
-          float carbonRim = pow(1.0 - abs(dot(normalize(vNormal), normalize(-vViewPosition))), 2.4);
-          outgoingLight += vec3(0.16, 0.40, 0.58) * carbonRim * 0.75;
-        }
         if (uBioShimmer > 0.001) {
-          float finEdge = smoothstep(0.40, 0.95, vKickWeight);
-          float bioPulse = sin(uTime * 8.5 - vBladeFlex * 5.5) * 0.5 + 0.5;
-          float bioEmission = finEdge * uBioShimmer * (0.55 + 0.45 * bioPulse);
-          vec3 bioColor = mix(vec3(0.08, 0.76, 1.0), vec3(0.34, 1.0, 0.88), 0.35);
-          outgoingLight += bioColor * bioEmission * 0.75;
+          float finBorder = smoothstep(0.65, 0.98, abs(vFinUv.x - 0.5) * 2.0);
+          float finTip = smoothstep(0.70, 0.98, vBladeFlex);
+          float finEdgeMask = max(finBorder, finTip) * smoothstep(0.55, 0.92, vKickWeight);
+          float bioPulse = sin(uTime * 12.0 - vBladeFlex * 6.0) * 0.5 + 0.5;
+          float bioEmission = finEdgeMask * uBioShimmer * (0.65 + 0.35 * bioPulse);
+          vec3 bioColor = mix(vec3(0.04, 0.78, 1.00), vec3(0.50, 0.96, 1.00), clamp(bioEmission * 1.2, 0.0, 1.0));
+          outgoingLight += bioColor * bioEmission * 1.1;
         }
         #include <opaque_fragment>
         `
@@ -1211,7 +1202,8 @@
   // ---------------------------------------------------------------------------
   // Primary Module Factory
   // ---------------------------------------------------------------------------
-  window.createFreedivers = function(T, scene, waterUniforms, oceanOptics) {
+  window.createFreedivers = function(T, scene, waterUniforms, oceanOptics, oceanBioluminescence) {
+    const oceanBio = oceanBioluminescence || window.oceanBioluminescence;
     const RIG_X = -13.5;
     const RIG_Z = -20.0;
     const ROPE_TOP_Y = 15.0;
@@ -1594,7 +1586,8 @@
       return snorkelGroup;
     }
 
-    mainDiverMesh.add(createSnorkel(T));
+    const mainSnorkel = createSnorkel(T);
+    mainDiverMesh.add(mainSnorkel);
     mainDiverMesh.add(mainTorchGroup);
     group.add(mainDiverMesh);
 
@@ -1655,7 +1648,8 @@
     safeGlintMesh.position.set(0.055, 0.023, 0.0);
     safeTorchGroup.add(safeGlintMesh);
 
-    safetyDiverMesh.add(createSnorkel(T));
+    const safeSnorkel = createSnorkel(T);
+    safetyDiverMesh.add(safeSnorkel);
     safetyDiverMesh.add(safeTorchGroup);
     group.add(safetyDiverMesh);
 
@@ -1826,7 +1820,7 @@
     // -------------------------------------------------------------------------
     const mainDiverState = {
       visible: true,
-      position: new T.Vector3(RIG_X - 0.78, 14.3, RIG_Z),
+      position: new T.Vector3(RIG_X - 0.78, 14.55, RIG_Z),
       velocity: new T.Vector3(0, 0, 0),
       heading: new T.Vector3(0, 1, 0),
       scale: DIVER_SCALE,
@@ -1834,7 +1828,7 @@
     };
     const safetyDiverState = {
       visible: true,
-      position: new T.Vector3(RIG_X + 0.82, 14.2, RIG_Z),
+      position: new T.Vector3(RIG_X + 0.82, 14.55, RIG_Z),
       velocity: new T.Vector3(0, 0, 0),
       heading: new T.Vector3(0, 1, 0),
       scale: DIVER_SCALE,
@@ -1883,18 +1877,48 @@
     const safeGogglesPos = new T.Vector3();
     const maskTempVec = new T.Vector3();
     const maskSpawnPos = new T.Vector3();
-    const prevMainPos = new T.Vector3(RIG_X - 0.78, 14.3, RIG_Z);
-    const prevSafePos = new T.Vector3(RIG_X + 0.82, 14.2, RIG_Z);
+    const prevMainPos = new T.Vector3(RIG_X - 0.78, 14.55, RIG_Z);
+    const prevSafePos = new T.Vector3(RIG_X + 0.82, 14.55, RIG_Z);
+
+    // Preallocated scratch vectors for bioluminescent wake emissions (0 heap allocations)
+    const bioMonoTipLocal = new T.Vector3();
+    const bioMonoTipL = new T.Vector3();
+    const bioMonoTipM = new T.Vector3();
+    const bioMonoTipR = new T.Vector3();
+    const prevBioMonoTipL = new T.Vector3();
+    const prevBioMonoTipM = new T.Vector3();
+    const prevBioMonoTipR = new T.Vector3();
+    const bioMonoVelL = new T.Vector3();
+    const bioMonoVelM = new T.Vector3();
+    const bioMonoVelR = new T.Vector3();
+    let hasBioMonoPrev = false;
+
+    const bioBiTipLocal = new T.Vector3();
+    const bioBiTipL = new T.Vector3();
+    const bioBiTipR = new T.Vector3();
+    const prevBioBiTipL = new T.Vector3();
+    const prevBioBiTipR = new T.Vector3();
+    const bioBiVelL = new T.Vector3();
+    const bioBiVelR = new T.Vector3();
+    let hasBioBiPrev = false;
+
+    const bioHandLocal = new T.Vector3();
+    const bioHandWorld = new T.Vector3();
+    const prevBioHandWorld = new T.Vector3();
+    const bioHandVel = new T.Vector3();
+    let hasBioHandPrev = false;
+
+    const bioDiverForward = new T.Vector3();
     let lastUpdateTime = undefined;
     let monoKickPhase = 0.0;
     let biKickPhase = 0.0;
 
     // Preallocated 2nd-Order Inertial Tracking States
     const mainInertial = {
-      y: { pos: 14.3, vel: 0 },
+      y: { pos: 14.55, vel: 0 },
       x: { pos: RIG_X - 0.78, vel: 0 },
       z: { pos: RIG_Z, vel: 0 },
-      theta: { pos: 0.08, vel: 0 },
+      theta: { pos: 1.45, vel: 0 },
       pike: { pos: 0, vel: 0 },
       arm: { pos: 0.85, vel: 0 },
       armL: { pos: 0.85, vel: 0 },
@@ -1905,24 +1929,24 @@
       kneeTuck: { pos: 0, vel: 0 },
       spineBend: { pos: 0, vel: 0 },
       yaw: { pos: 0, vel: 0 },
-      pitch: { pos: -0.05, vel: 0 }
+      pitch: { pos: -0.35, vel: 0 }
     };
     const safeInertial = {
-      y: { pos: 14.2, vel: 0 },
+      y: { pos: 14.55, vel: 0 },
       x: { pos: RIG_X + 0.82, vel: 0 },
       z: { pos: RIG_Z, vel: 0 },
-      theta: { pos: 0.06, vel: 0 },
+      theta: { pos: 1.45, vel: 0 },
       pike: { pos: 0, vel: 0 },
-      arm: { pos: 0.0, vel: 0 },
-      armL: { pos: 0.0, vel: 0 },
-      armR: { pos: 0.0, vel: 0 },
+      arm: { pos: 0.85, vel: 0 },
+      armL: { pos: 0.85, vel: 0 },
+      armR: { pos: 0.85, vel: 0 },
       armReach: { pos: 0, vel: 0 },
       roll: { pos: 0, vel: 0 },
       turnYaw: { pos: 0, vel: 0 },
       kneeTuck: { pos: 0, vel: 0 },
       spineBend: { pos: 0, vel: 0 },
       yaw: { pos: 0, vel: 0 },
-      pitch: { pos: -0.05, vel: 0 }
+      pitch: { pos: -0.38, vel: 0 }
     };
 
     // Preallocated Elastodynamic Fin States
@@ -2021,7 +2045,7 @@
     function orientDiver3D(mesh, pitch, roll, yaw, toRopeSign, baseYaw = 0.0, naturalSway = 0.0) {
       vF.set(toRopeSign, 0.0, 0.0);
       vU.set(0.0, Math.cos(pitch), -Math.sin(pitch) * toRopeSign);
-      vS.set(0.0, Math.sin(pitch) * toRopeSign, Math.cos(pitch) * toRopeSign);
+      vS.crossVectors(vF, vU).normalize();
       basisMatrix.makeBasis(vF, vU, vS);
       qPitch.setFromRotationMatrix(basisMatrix);
 
@@ -2038,13 +2062,19 @@
     }
 
     // Helper: Deep Diver Trajectory (50s Cycle)
-    function evalDeepTrajectory(cycle, waveY, time) {
+    function evalDeepTrajectory(cycle, waveY, time, diveIndex = 0) {
+      const varDepth = (hash2(diveIndex, 2.1) - 0.5) * 0.4;
+      const varRate = 1.0 + (hash2(diveIndex, 4.3) - 0.5) * 0.08;
+      const targetPlateDepth = -16.8 + varDepth;
+      const targetFreefallBottom = -15.8 + varDepth * 0.5;
+      const ascentStartDepth = -14.774 + varDepth * 0.5;
+
       if (cycle < 2.0) {
-        // Surface breathe-up at buoy
-        deepTraj.y = 14.3 + waveY * 0.8;
-        deepTraj.theta = 0.08;
-        deepTraj.kickAmp = 0.18;
-        deepTraj.kickPhaseRate = 2.2;
+        // Surface breathe-up at buoy (prone floating posture, mask in water, snorkel breathing)
+        deepTraj.y = 14.55 + waveY * 0.8;
+        deepTraj.theta = 1.45;
+        deepTraj.kickAmp = 0.06;
+        deepTraj.kickPhaseRate = 1.2 * varRate;
         deepTraj.armRelax = 0.85;
         deepTraj.armRelaxL = 0.85;
         deepTraj.armRelaxR = 0.85;
@@ -2055,16 +2085,16 @@
         deepTraj.roll = 0.0;
         deepTraj.turnYaw = 0.0;
         deepTraj.gazeYaw = 0.04 * Math.sin(time * 0.9);
-        deepTraj.gazePitch = -0.05;
+        deepTraj.gazePitch = -0.35;
       } else if (cycle < 4.2) {
         // Biomechanical Duck-Dive (gliding, uninterrupted continuous descent:
         // forward streamline -> hip pike -> vertical leg lift -> kick entry with zero stalling)
         const s = (cycle - 2.0) / 2.2;
-        const y0 = 14.3 + waveY * 0.8;
+        const y0 = 14.55 + waveY * 0.8;
         // Uninterrupted, accelerating downward glide (no plateau, no floating up)
         deepTraj.y = y0 - (y0 - 11.4) * Math.pow(s, 1.25);
-        // Clean sagittal rotation from surface float to vertical head-down
-        deepTraj.theta = 0.08 + smoothstep(0.0, 0.65, s) * (Math.PI - 0.08);
+        // Clean sagittal rotation from prone surface float to vertical head-down
+        deepTraj.theta = 1.45 + smoothstep(0.0, 0.65, s) * (Math.PI - 1.45);
         // Arms immediately glide into overhead streamline piercing the water
         deepTraj.armRelax = 0.85 * (1.0 - smoothstep(0.0, 0.35, s));
         deepTraj.armRelaxL = deepTraj.armRelax;
@@ -2088,7 +2118,7 @@
         } else {
           deepTraj.kickAmp = 0.05 + smoothstep(0.65, 1.0, s) * 0.95;
         }
-        deepTraj.kickPhaseRate = 5.2;
+        deepTraj.kickPhaseRate = 5.2 * varRate;
         deepTraj.gazeYaw = 0.0; // Calm, steady forward focus down the line (no head-wobble)
         deepTraj.gazePitch = -0.15;
       } else if (cycle < 10.0) {
@@ -2108,14 +2138,14 @@
         // Powerful, deep kicks at realistic cadence (3.8 rad/s), smoothly easing approaching 10m
         const wNeutral = smoothstep(0.65, 1.0, t);
         deepTraj.kickAmp = 1.20 * (1.0 - wNeutral);
-        deepTraj.kickPhaseRate = 3.8 * (1.0 - wNeutral) + 1.8 * wNeutral;
+        deepTraj.kickPhaseRate = (3.8 * (1.0 - wNeutral) + 1.8 * wNeutral) * varRate;
         deepTraj.gazeYaw = 0.0;
         deepTraj.gazePitch = -0.15;
       } else if (cycle < 22.5) {
-        // Hydrodynamic Freefall: Neutral/negative buoyancy from 10m depth down to bottom plate (y: 4.8 -> -15.8)
+        // Hydrodynamic Freefall: Neutral/negative buoyancy from 10m depth down to bottom plate
         // Diver coasts effortlessly on gravity with zero kicking!
         const u = (cycle - 10.0) / 12.5;
-        deepTraj.y = 4.8 - (4.8 - (-15.8)) * (0.65 * u + 0.35 * Math.pow(u, 1.35));
+        deepTraj.y = 4.8 - (4.8 - targetFreefallBottom) * (0.65 * u + 0.35 * Math.pow(u, 1.35));
         deepTraj.theta = Math.PI;
         deepTraj.pikeAngle = 0.0;
         deepTraj.kneeTuck = 0.0;
@@ -2136,11 +2166,11 @@
           deepTraj.gazePitch = -0.15;
         }
       } else if (cycle < 28.2) {
-        // Continuous Bottom Turn holding the rope at bottom plate (y = -16.8)
+        // Continuous Bottom Turn holding the rope at bottom plate (y = -16.8 + varDepth)
         if (cycle < 24.0) {
-          // Approach & deceleration into bottom plate (y: -15.8 -> -16.8)
+          // Approach & deceleration into bottom plate (y: targetFreefallBottom -> targetPlateDepth)
           const t = (cycle - 22.5) / 1.5;
-          deepTraj.y = -15.8 + smoothstep(0, 1, t) * (-16.8 - (-15.8));
+          deepTraj.y = targetFreefallBottom + smoothstep(0, 1, t) * (targetPlateDepth - targetFreefallBottom);
           deepTraj.theta = Math.PI;
           deepTraj.armRelax = 0.0;
           deepTraj.armRelaxL = 0.0;
@@ -2156,30 +2186,31 @@
           deepTraj.gazeYaw = 0.0;
           deepTraj.gazePitch = -0.15 + t * 0.15;
         } else if (cycle < 26.2) {
-          // True 3D Corkscrew Bottom Turn:
-          // Pivots pitch 180 deg (head-down to head-up), rolls 180 deg around spine axis,
-          // yaws around vertical line, tucks knees to reduce moment of inertia, curves spine,
+          // Authentic 3D Competition Bottom Turn (Orbital Pivot):
+          // Pivots pitch 180 deg (head-down to head-up) around the bottom plate, maintains
+          // an inward bank (~10.3 deg) presenting the dorsal aspect of the diver and monofin
+          // at a 3/4 angle (zero edge-on vanishing), tucks knees, curves spine,
           // and grips the plate/line with the right arm while left arm stays streamlined.
           const u = (cycle - 24.0) / 2.2;
-          deepTraj.y = -16.8 - 0.12 * Math.sin(u * Math.PI);
+          deepTraj.y = targetPlateDepth - 0.12 * Math.sin(u * Math.PI);
           deepTraj.theta = Math.PI * (1.0 - smoothstep(0, 1, u));
-          deepTraj.roll = Math.sin(u * Math.PI) * Math.PI; // 180° roll along spine axis
-          deepTraj.turnYaw = Math.sin(u * Math.PI) * 0.55; // 31.5° precession around vertical line
+          deepTraj.roll = Math.sin(u * Math.PI) * 0.18;
+          deepTraj.turnYaw = Math.sin(u * Math.PI) * 0.20;
           deepTraj.armReachR = Math.sin(u * Math.PI) * 1.0; // Right arm reaches plate/line
-          deepTraj.kneeTuck = Math.sin(u * Math.PI) * 0.85; // Compact knee tuck
-          deepTraj.spineBend = Math.sin(u * Math.PI) * 0.35; // Athletic lateral curve toward rope
+          deepTraj.kneeTuck = Math.sin(u * Math.PI) * 0.65;
+          deepTraj.spineBend = Math.sin(u * Math.PI) * 0.25;
           deepTraj.armRelax = 0.0;
           deepTraj.armRelaxL = 0.0;
           deepTraj.armRelaxR = 0.0;
-          deepTraj.pikeAngle = Math.sin(u * Math.PI) * 0.55;
+          deepTraj.pikeAngle = Math.sin(u * Math.PI) * 0.45;
           deepTraj.kickAmp = 0.04;
-          deepTraj.kickPhaseRate = 1.8;
-          deepTraj.gazeYaw = Math.sin(u * Math.PI) * 0.40;
+          deepTraj.kickPhaseRate = 1.8 * varRate;
+          deepTraj.gazeYaw = Math.sin(u * Math.PI) * 0.25;
           deepTraj.gazePitch = 0.12 * Math.sin(u * Math.PI);
         } else {
           // Launch pull & kick acceleration off the plate (s: 0 -> 1, zero velocity jerk)
           const s = (cycle - 26.2) / 2.0;
-          deepTraj.y = -16.8 + 2.026 * (s * s);
+          deepTraj.y = targetPlateDepth + (ascentStartDepth - targetPlateDepth) * (s * s);
           deepTraj.theta = 0.0;
           deepTraj.roll = 0.0;
           deepTraj.turnYaw = 0.0;
@@ -2191,14 +2222,14 @@
           deepTraj.armRelaxR = 0.0;
           deepTraj.armReachR = (1.0 - smoothstep(0, 0.45, s)) * 0.50; // Launch release into upward ascent
           deepTraj.kickAmp = 0.04 + smoothstep(0, 1, s) * 1.26;
-          deepTraj.kickPhaseRate = 2.6 + smoothstep(0, 1, s) * 1.6; // 2.6 -> 4.2 rad/s peak
+          deepTraj.kickPhaseRate = (2.6 + smoothstep(0, 1, s) * 1.6) * varRate; // 2.6 -> 4.2 rad/s peak
           deepTraj.gazeYaw = 0.0;
           deepTraj.gazePitch = 0.12 * smoothstep(0, 1, s);
         }
       } else if (cycle < 42.5) {
-        // Deep ascent to surface with matching C1 velocity (y: -14.774 -> +14.2)
+        // Deep ascent to surface with matching C1 velocity (y: ascentStartDepth -> +14.2)
         const t = (cycle - 28.2) / 14.3;
-        deepTraj.y = -14.774 + t * (14.2 - (-14.774));
+        deepTraj.y = ascentStartDepth + t * (14.2 - ascentStartDepth);
         deepTraj.theta = 0.0;
         deepTraj.roll = 0.0;
         deepTraj.turnYaw = 0.0;
@@ -2219,12 +2250,12 @@
         //    carries the diver effortlessly. Diver completely stops kicking (kickAmp = 0) and glides!
         if (deepTraj.y < -4.5) {
           deepTraj.kickAmp = 1.30;
-          deepTraj.kickPhaseRate = 4.2; // Peak cadence at bottom
+          deepTraj.kickPhaseRate = 4.2 * varRate; // Peak cadence at bottom
         } else if (deepTraj.y < 4.5) {
           const w = (deepTraj.y - (-4.5)) / (4.5 - (-4.5));
           const wEase = smoothstep(0.0, 1.0, w);
           deepTraj.kickAmp = 1.30 * (1.0 - wEase);
-          deepTraj.kickPhaseRate = 4.2 * (1.0 - wEase) + 1.8 * wEase; // Steeper drop approaching 10m
+          deepTraj.kickPhaseRate = (4.2 * (1.0 - wEase) + 1.8 * wEase) * varRate; // Steeper drop approaching 10m
         } else {
           deepTraj.kickAmp = 0.0;
           deepTraj.kickPhaseRate = 0.0;
@@ -2238,10 +2269,10 @@
         deepTraj.gazePitch = 0.12;
       } else {
         // Surface recovery & protocol at buoy (42.5 - 50.0s)
-        const t = (cycle - 42.5) / 7.5;
         const tSurf = smoothstep(42.5, 44.5, cycle);
-        deepTraj.y = 14.2 + (14.3 - 14.2) * t + waveY * 0.8 * tSurf;
-        deepTraj.theta = 0.05 + 0.03 * t;
+        deepTraj.y = 14.2 * (1.0 - tSurf) + (14.55 + waveY * 0.8) * tSurf;
+        const tProne = smoothstep(44.5, 47.5, cycle);
+        deepTraj.theta = tProne * 1.45;
         deepTraj.roll = 0.0;
         deepTraj.turnYaw = 0.0;
         deepTraj.kneeTuck = 0.0;
@@ -2251,10 +2282,10 @@
         deepTraj.armRelaxL = 0.85;
         deepTraj.armRelaxR = 0.85;
         deepTraj.armReachR = 0.0;
-        deepTraj.kickAmp = 0.20 * tSurf;
-        deepTraj.kickPhaseRate = 2.0;
+        deepTraj.kickAmp = 0.18 * (1.0 - tProne) + 0.06 * tProne;
+        deepTraj.kickPhaseRate = (2.0 * (1.0 - tProne) + 1.2 * tProne) * varRate;
         deepTraj.gazeYaw = 0.04 * Math.sin(time * 0.9);
-        deepTraj.gazePitch = -0.05;
+        deepTraj.gazePitch = 0.12 * (1.0 - tProne) - 0.35 * tProne;
       }
     }
 
@@ -2262,7 +2293,9 @@
     // Procedure: Lying prone on surface with snorkel, watching down the line until the deep diver
     // tugs on the rope at the bottom turn (cycle 24.8s). Then duck-dives, descends to ~10m depth,
     // turns and escorts the diver face-to-face up to the surface.
-    function evalSafetyTrajectory(cycle, deepY, waveY, time) {
+    function evalSafetyTrajectory(cycle, deepY, waveY, time, diveIndex = 0) {
+      const varDepth = (hash2(diveIndex, 2.1) - 0.5) * 0.4;
+      const varRate = 1.0 + (hash2(diveIndex, 4.3) - 0.5) * 0.08;
       safeTraj.roll = 0.0;
       safeTraj.turnYaw = 0.0;
       safeTraj.kneeTuck = 0.0;
@@ -2273,24 +2306,24 @@
         // 1. Surface Watch with Snorkel (0.0 - 24.8s):
         // Floating prone beside the buoy with head in water, breathing through snorkel,
         // gaze locked straight DOWN the vertical rope watching for the deep diver.
-        safeTraj.y = 14.2 + waveY * 0.8;
-        safeTraj.theta = 0.04; // Prone surface posture (face down)
+        safeTraj.y = 14.55 + waveY * 0.8;
+        safeTraj.theta = 1.45; // ~83° horizontal prone floating posture on the water surface
         safeTraj.pikeAngle = 0.0;
-        safeTraj.kickAmp = 0.04; // Gentle idle surface sculling to hold station beside buoy
-        safeTraj.kickPhaseRate = 1.4;
-        safeTraj.armRelax = 1.0; // Relaxed arms resting naturally beside buoy
-        safeTraj.armRelaxL = 1.0;
-        safeTraj.armRelaxR = 1.0;
+        safeTraj.kickAmp = 0.06; // Gentle lazy surface fin sculling to hold station beside buoy
+        safeTraj.kickPhaseRate = 1.2 * varRate;
+        safeTraj.armRelax = 0.85; // Arms relaxed forward resting on/beside buoy rim
+        safeTraj.armRelaxL = 0.85;
+        safeTraj.armRelaxR = 0.85;
+        safeTraj.gazePitch = -0.38; // Face immersed, mask pointed straight down the vertical rope monitoring deep diver
         safeTraj.gazeYaw = 0.04 * Math.sin(time * 0.75); // Alert scanning down the line
-        safeTraj.gazePitch = -0.38; // Looking straight down the vertical rope!
       } else if (cycle < 27.2) {
-        // 2. Alert & Athletic Duck-Dive on Bottom Rope Tug (24.8 - 27.2s):
+        // 2. Athletic Duck-Dive plunge triggered by bottom rope tug (24.8 - 27.2s):
         // Deep diver grabs rope plate at bottom (cycle 24.0 - 26.0s), shaking the buoy.
-        // Safety diver reacts immediately to the tug, removes snorkel, pikes hips and plunges!
+        // Safety diver reacts immediately to the bottom tug, removes snorkel, pikes hips and plunges!
         const s = (cycle - 24.8) / 2.4;
-        const y0 = 14.2 + waveY * 0.8;
+        const y0 = 14.55 + waveY * 0.8;
         safeTraj.y = y0 - (y0 - 11.4) * Math.pow(s, 1.25);
-        safeTraj.theta = 0.04 + smoothstep(0.0, 0.65, s) * (Math.PI - 0.04);
+        safeTraj.theta = 1.45 + smoothstep(0.0, 0.65, s) * (Math.PI - 1.45);
         if (s <= 0.38) {
           const u = s / 0.38;
           safeTraj.pikeAngle = smoothstep(0, 1, u) * 1.35;
@@ -2298,14 +2331,10 @@
           const u = Math.min(1.0, (s - 0.38) / 0.42);
           safeTraj.pikeAngle = 1.35 * (1.0 - smoothstep(0, 1, u));
         }
-        if (s <= 0.65) {
-          safeTraj.kickAmp = 0.05;
-        } else {
-          safeTraj.kickAmp = 0.05 + smoothstep(0.65, 1.0, s) * 0.90;
-        }
-        safeTraj.kickPhaseRate = 3.8;
+        safeTraj.kickAmp = (s <= 0.65) ? 0.05 : (0.05 + smoothstep(0.65, 1.0, s) * 0.95);
+        safeTraj.kickPhaseRate = 3.8 * varRate;
         // Arms smoothly extend forward into overhead streamline to pierce water
-        safeTraj.armRelax = 1.0 * (1.0 - smoothstep(0.0, 0.45, s));
+        safeTraj.armRelax = 0.85 * (1.0 - smoothstep(0.0, 0.45, s));
         safeTraj.armRelaxL = safeTraj.armRelax;
         safeTraj.armRelaxR = safeTraj.armRelax;
         safeTraj.gazeYaw = 0.0;
@@ -2314,11 +2343,12 @@
         // 3. High-Speed Bi-fin Safety Descent to 10m depth (27.2 - 34.5s):
         // Descends rapidly down the rope from y = 11.4 to y = 4.2m (depth ~10.8m)
         const t = (cycle - 27.2) / 7.3;
-        safeTraj.y = 11.4 + t * (4.2 - 11.4);
+        const targetHoverY = 4.2 + varDepth * 0.25;
+        safeTraj.y = 11.4 + t * (targetHoverY - 11.4);
         safeTraj.theta = Math.PI;
         safeTraj.pikeAngle = 0.0;
         safeTraj.kickAmp = 0.95;
-        safeTraj.kickPhaseRate = 3.8;
+        safeTraj.kickPhaseRate = 3.8 * varRate;
         // Streamline during fast descent; eases smoothly into relaxed posture as rendezvous approaches
         const wReach = smoothstep(33.0, 34.5, cycle);
         safeTraj.armRelax = wReach;
@@ -2332,11 +2362,11 @@
         const t = (cycle - 34.5) / 2.3;
         safeTraj.pikeAngle = Math.sin(t * Math.PI) * 1.15;
         safeTraj.theta = Math.PI * (1.0 - smoothstep(0, 1, t)); // Smooth 180° pivot from down to up!
-        const hoverY = 4.2 - 0.25 * Math.sin(t * Math.PI);
+        const hoverY = (4.2 + varDepth * 0.25) - 0.25 * Math.sin(t * Math.PI);
         const targetEscortY = deepY - 0.55;
         safeTraj.y = hoverY * (1.0 - t) + targetEscortY * t;
         safeTraj.kickAmp = 0.45;
-        safeTraj.kickPhaseRate = 3.0;
+        safeTraj.kickPhaseRate = 3.0 * varRate;
         safeTraj.armRelax = 1.0;
         safeTraj.armRelaxL = 1.0;
         safeTraj.armRelaxR = 1.0;
@@ -2350,7 +2380,7 @@
         safeTraj.pikeAngle = 0.0;
         const wGlide = smoothstep(37.4, 40.5, cycle);
         safeTraj.kickAmp = 0.40 * (1.0 - wGlide) + 0.08 * wGlide;
-        safeTraj.kickPhaseRate = 3.2 * (1.0 - wGlide) + 2.0 * wGlide;
+        safeTraj.kickPhaseRate = (3.2 * (1.0 - wGlide) + 2.0 * wGlide) * varRate;
         safeTraj.armRelax = 1.0; // Fully relaxed down alongside lateral thighs ready to assist!
         safeTraj.armRelaxL = 1.0;
         safeTraj.armRelaxR = 1.0;
@@ -2359,16 +2389,17 @@
       } else {
         // 6. Surface Recovery & Protocol at Buoy (42.5 - 50.0s)
         const tSurf = smoothstep(42.5, 44.5, cycle);
-        safeTraj.y = (14.2 - 0.55) * (1.0 - tSurf) + (14.2 + waveY * 0.8) * tSurf;
-        safeTraj.theta = 0.04;
+        safeTraj.y = (14.2 - 0.55) * (1.0 - tSurf) + (14.55 + waveY * 0.8) * tSurf;
+        const tProne = smoothstep(43.5, 46.5, cycle);
+        safeTraj.theta = tProne * 1.45;
         safeTraj.pikeAngle = 0.0;
-        safeTraj.kickAmp = 0.08 * (1.0 - tSurf) + 0.04 * tSurf;
-        safeTraj.kickPhaseRate = 1.4;
-        safeTraj.armRelax = 1.0;
-        safeTraj.armRelaxL = 1.0;
-        safeTraj.armRelaxR = 1.0;
+        safeTraj.kickAmp = 0.15 * (1.0 - tProne) + 0.06 * tProne;
+        safeTraj.kickPhaseRate = (2.0 * (1.0 - tProne) + 1.2 * tProne) * varRate;
+        safeTraj.armRelax = 0.85;
+        safeTraj.armRelaxL = 0.85;
+        safeTraj.armRelaxR = 0.85;
         safeTraj.gazeYaw = 0.0;
-        safeTraj.gazePitch = 0.22 * (1.0 - tSurf) - 0.38 * tSurf; // Returns gaze down line
+        safeTraj.gazePitch = 0.22 * (1.0 - tProne) - 0.38 * tProne; // Returns gaze down line
       }
     }
 
@@ -2461,8 +2492,8 @@
       lampDomeMat.color.setRGB(0.75 * lampPower, 0.92 * lampPower, 1.0 * lampPower);
 
       // 3. Diver Role Alternation every 50-second cycle
-      evalDeepTrajectory(cycle, waveBuoy.y, time);
-      evalSafetyTrajectory(cycle, deepTraj.y, waveBuoy.y, time);
+      evalDeepTrajectory(cycle, waveBuoy.y, time, diveIndex);
+      evalSafetyTrajectory(cycle, deepTraj.y, waveBuoy.y, time, diveIndex);
 
       const monoTraj = isMonofinDeep ? deepTraj : safeTraj;
       const biTraj = isMonofinDeep ? safeTraj : deepTraj;
@@ -2476,23 +2507,25 @@
       let biTargetX = diverRopePosSafe.x + 0.72;
       let biTargetZ = diverRopePosSafe.z - 0.24;
       if (cycle >= 23.5 && cycle <= 26.8) {
-        const uTurn = smoothstep(23.5, 24.8, cycle) * (1.0 - smoothstep(25.8, 26.8, cycle));
+        const sTurn = (cycle - 23.5) / 3.3;
+        const uArc = Math.sin(sTurn * Math.PI);
         if (isMonofinDeep) {
-          monoTargetX = (diverRopePosMono.x - 0.70) + uTurn * 0.42;
-          monoTargetZ = (diverRopePosMono.z - 0.28) + Math.sin(uTurn * Math.PI) * 0.38;
+          monoTargetX = (diverRopePosMono.x - 0.70) + uArc * 0.35;
+          monoTargetZ = (diverRopePosMono.z - 0.28) + uArc * 0.28;
         } else {
-          biTargetX = (diverRopePosSafe.x + 0.72) - uTurn * 0.42;
-          biTargetZ = (diverRopePosSafe.z - 0.24) + Math.sin(uTurn * Math.PI) * 0.38;
+          biTargetX = (diverRopePosSafe.x + 0.72) - uArc * 0.35;
+          biTargetZ = (diverRopePosSafe.z - 0.24) + uArc * 0.28;
         }
       }
 
-      let dtPhase = 0.0;
+      let dt = 0.016;
       if (lastUpdateTime === undefined) {
-        dtPhase = 0.016;
+        dt = 0.016;
       } else if (time > lastUpdateTime) {
-        dtPhase = Math.min(time - lastUpdateTime, 0.05);
+        dt = Math.min(time - lastUpdateTime, 0.05);
       }
-      if (paused) dtPhase = 0.0;
+      if (paused) dt = 0.0;
+      const dtPhase = dt;
 
       // 2nd-Order Inertial Tracking for Monofin Diver
       stepInertial(mainInertial.theta, monoTraj.theta, 9.0, 1.1, dtPhase);
@@ -2595,6 +2628,156 @@
       safeUniforms.uHeadYaw.value = safeInertial.yaw.pos;
       safeUniforms.uTime.value = time;
 
+      // -----------------------------------------------------------------------
+      // Hydrodynamic Bioluminescent Wake Emission (Monofin, Bi-fins, Hands)
+      // -----------------------------------------------------------------------
+      if (oceanBio && nightBioFactor > 0.01 && dt > 0.001) {
+        // 1. Monofin Diver: Blade Trailing Edge (Left corner, Middle, Right corner)
+        const monoDisp = Math.sin(monoKickPhase - 3.4) * monoTraj.kickAmp * 0.25 + mainUniforms.uMonoBladeFlex.value * 0.58;
+
+        bioMonoTipLocal.set(0.003 + monoDisp, -1.78, -0.38);
+        bioMonoTipL.copy(bioMonoTipLocal).multiplyScalar(DIVER_SCALE).applyQuaternion(mainDiverMesh.quaternion).add(mainDiverMesh.position);
+
+        bioMonoTipLocal.set(0.003 + monoDisp, -1.71, 0.0);
+        bioMonoTipM.copy(bioMonoTipLocal).multiplyScalar(DIVER_SCALE).applyQuaternion(mainDiverMesh.quaternion).add(mainDiverMesh.position);
+
+        bioMonoTipLocal.set(0.003 + monoDisp, -1.78, 0.38);
+        bioMonoTipR.copy(bioMonoTipLocal).multiplyScalar(DIVER_SCALE).applyQuaternion(mainDiverMesh.quaternion).add(mainDiverMesh.position);
+
+        if (hasBioMonoPrev) {
+          bioMonoVelL.subVectors(bioMonoTipL, prevBioMonoTipL).divideScalar(dt);
+          bioMonoVelM.subVectors(bioMonoTipM, prevBioMonoTipM).divideScalar(dt);
+          bioMonoVelR.subVectors(bioMonoTipR, prevBioMonoTipR).divideScalar(dt);
+
+          const vCenter = bioMonoVelM.length();
+          if (monoTraj.kickAmp > 0.08 && vCenter > 0.45) {
+            const shear = Math.min(2.2, (vCenter - 0.45) / 0.70);
+            bioDiverForward.set(0, 1, 0).applyQuaternion(mainDiverMesh.quaternion);
+
+            // Center wake burst (micro-spores + Mie halo)
+            const countCenter = Math.min(5, Math.floor(1 + shear * 3));
+            oceanBio.emitBurst(
+              bioMonoTipM.x, bioMonoTipM.y, bioMonoTipM.z,
+              bioMonoVelM.x * 0.35 - bioDiverForward.x * 0.25,
+              bioMonoVelM.y * 0.35 - bioDiverForward.y * 0.25,
+              bioMonoVelM.z * 0.35 - bioDiverForward.z * 0.25,
+              shear * nightBioFactor,
+              countCenter
+            );
+
+            // Outer tip vortices
+            oceanBio.emitBurst(
+              bioMonoTipL.x, bioMonoTipL.y, bioMonoTipL.z,
+              bioMonoVelL.x * 0.32 - bioDiverForward.x * 0.20,
+              bioMonoVelL.y * 0.32 - bioDiverForward.y * 0.20,
+              bioMonoVelL.z * 0.32 - bioDiverForward.z * 0.20,
+              shear * nightBioFactor * 0.85,
+              2
+            );
+            oceanBio.emitBurst(
+              bioMonoTipR.x, bioMonoTipR.y, bioMonoTipR.z,
+              bioMonoVelR.x * 0.32 - bioDiverForward.x * 0.20,
+              bioMonoVelR.y * 0.32 - bioDiverForward.y * 0.20,
+              bioMonoVelR.z * 0.32 - bioDiverForward.z * 0.20,
+              shear * nightBioFactor * 0.85,
+              2
+            );
+          }
+        }
+        prevBioMonoTipL.copy(bioMonoTipL);
+        prevBioMonoTipM.copy(bioMonoTipM);
+        prevBioMonoTipR.copy(bioMonoTipR);
+        hasBioMonoPrev = true;
+
+        // 2. Safety Diver: Alternating Bi-Fin Blade Tips (Left & Right)
+        const biDispL = Math.sin(biKickPhase) * biTraj.kickAmp * 0.28 + safeUniforms.uBiBladeFlexL.value * 0.52;
+        bioBiTipLocal.set(0.008 + biDispL, -1.82, -0.095);
+        bioBiTipL.copy(bioBiTipLocal).multiplyScalar(DIVER_SCALE).applyQuaternion(safetyDiverMesh.quaternion).add(safetyDiverMesh.position);
+
+        const biDispR = -Math.sin(biKickPhase) * biTraj.kickAmp * 0.28 + safeUniforms.uBiBladeFlexR.value * 0.52;
+        bioBiTipLocal.set(0.008 + biDispR, -1.82, 0.095);
+        bioBiTipR.copy(bioBiTipLocal).multiplyScalar(DIVER_SCALE).applyQuaternion(safetyDiverMesh.quaternion).add(safetyDiverMesh.position);
+
+        if (hasBioBiPrev) {
+          bioBiVelL.subVectors(bioBiTipL, prevBioBiTipL).divideScalar(dt);
+          bioBiVelR.subVectors(bioBiTipR, prevBioBiTipR).divideScalar(dt);
+          bioDiverForward.set(0, 1, 0).applyQuaternion(safetyDiverMesh.quaternion);
+
+          if (biTraj.kickAmp > 0.08) {
+            const vBiL = bioBiVelL.length();
+            if (vBiL > 0.45) {
+              const shearL = Math.min(2.0, (vBiL - 0.45) / 0.70);
+              oceanBio.emitBurst(
+                bioBiTipL.x, bioBiTipL.y, bioBiTipL.z,
+                bioBiVelL.x * 0.35 - bioDiverForward.x * 0.20,
+                bioBiVelL.y * 0.35 - bioDiverForward.y * 0.20,
+                bioBiVelL.z * 0.35 - bioDiverForward.z * 0.20,
+                shearL * nightBioFactor,
+                Math.min(4, Math.floor(1 + shearL * 2))
+              );
+            }
+            const vBiR = bioBiVelR.length();
+            if (vBiR > 0.45) {
+              const shearR = Math.min(2.0, (vBiR - 0.45) / 0.70);
+              oceanBio.emitBurst(
+                bioBiTipR.x, bioBiTipR.y, bioBiTipR.z,
+                bioBiVelR.x * 0.35 - bioDiverForward.x * 0.20,
+                bioBiVelR.y * 0.35 - bioDiverForward.y * 0.20,
+                bioBiVelR.z * 0.35 - bioDiverForward.z * 0.20,
+                shearR * nightBioFactor,
+                Math.min(4, Math.floor(1 + shearR * 2))
+              );
+            }
+          }
+        }
+        prevBioBiTipL.copy(bioBiTipL);
+        prevBioBiTipR.copy(bioBiTipR);
+        hasBioBiPrev = true;
+
+        // 3. Duck-Dive & Tag Reach Hand Vortices
+        const isDuck = (cycle >= 2.0 && cycle <= 4.8) || (cycle >= 24.8 && cycle <= 27.5);
+        const isTagReach = (mainUniforms.uArmReachR.value > 0.05);
+        if (isDuck || isTagReach) {
+          const armRelax = mainUniforms.uArmRelaxR.value;
+          const armReach = mainUniforms.uArmReachR.value;
+          const wStream = (1.0 - armRelax) * (1.0 - armReach);
+          const wRelax = armRelax * (1.0 - armReach);
+          const wReach = armReach;
+          bioHandLocal.set(
+            0.035 * wStream + 0.055 * wRelax + 0.72 * wReach,
+            1.285 * wStream + (-0.18) * wRelax + 0.52 * wReach,
+            0.022 * wStream + 0.198 * wRelax + 0.04 * wReach
+          );
+          bioHandWorld.copy(bioHandLocal).multiplyScalar(DIVER_SCALE).applyQuaternion(mainDiverMesh.quaternion).add(mainDiverMesh.position);
+
+          if (hasBioHandPrev) {
+            bioHandVel.subVectors(bioHandWorld, prevBioHandWorld).divideScalar(dt);
+            const handSpeed = bioHandVel.length();
+            if (handSpeed > 0.45) {
+              const shearHand = Math.min(2.0, (handSpeed - 0.45) / 0.70);
+              oceanBio.emitBurst(
+                bioHandWorld.x, bioHandWorld.y, bioHandWorld.z,
+                bioHandVel.x * 0.30,
+                bioHandVel.y * 0.30,
+                bioHandVel.z * 0.30,
+                shearHand * nightBioFactor,
+                Math.min(3, Math.floor(1 + shearHand * 2))
+              );
+            }
+          }
+          prevBioHandWorld.copy(bioHandWorld);
+          hasBioHandPrev = true;
+        } else {
+          hasBioHandPrev = false;
+        }
+      }
+
+      // Snorkel Visibility Management (Safety diver keeps snorkel on during surface watch, deep diver removes upon descent)
+      const monoSnorkelVis = isMonofinDeep ? (mainInertial.y.pos > 13.5 && cycle < 2.0) : (mainInertial.y.pos > 13.0);
+      const safeSnorkelVis = isMonofinDeep ? (safeInertial.y.pos > 13.0) : (safeInertial.y.pos > 13.5 && cycle < 2.0);
+      mainSnorkel.visible = monoSnorkelVis;
+      safeSnorkel.visible = safeSnorkelVis;
+
       // 4. Forehead Torch & Camera Glint (Active ONLY on current Deep Diver at NIGHT)
       // Weak intimate beam illuminating face and in toward the dive rope
       const torchBasePower = nightFactor * 0.30;
@@ -2654,10 +2837,10 @@
         splashProgress = (cycle - 2.0) / 2.4;
         splashCenterX = isMonofinDeep ? mainInertial.x.pos : safeInertial.x.pos;
         splashCenterZ = isMonofinDeep ? mainInertial.z.pos : safeInertial.z.pos;
-      } else if (cycle >= 17.5 && cycle <= 19.9) {
+      } else if (cycle >= 24.8 && cycle <= 27.2) {
         // Safety diver duck-dive
         activeSplash = true;
-        splashProgress = (cycle - 17.5) / 2.4;
+        splashProgress = (cycle - 24.8) / 2.4;
         splashCenterX = isMonofinDeep ? safeInertial.x.pos : mainInertial.x.pos;
         splashCenterZ = isMonofinDeep ? safeInertial.z.pos : mainInertial.z.pos;
       } else if (cycle >= 41.5 && cycle <= 45.0) {
@@ -2690,8 +2873,6 @@
       // Part C & D: Individual Mask Bubbles Simulation (104 individual bubble entities + 2 Clinging Mask Pockets)
       // Clinging air pocket on mask skirt, stochastic burst emission, Davies-Taylor buoyant velocity (v ~ sqrt(R)),
       // low-pressure wake drafting, Boyle's law expansion, and coalescence into large, fast-rising spherical caps!
-      let dt = (lastSimTime !== undefined && time > lastSimTime) ? Math.min(time - lastSimTime, 0.05) : 0.016;
-      if (paused) dt = 0.0;
       lastSimTime = time;
 
       // Cycle boundary reset: only clear any stray lingering bubbles at surface breathe-up (cycle < 0.5)
