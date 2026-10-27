@@ -546,14 +546,17 @@
           transformed.xz *= compressFactor;
         }
 
-        // 1. Arm streamline reach & relax rotation
+        // 1. Arm streamline reach & relax rotation + active hover/level-holding scull towards rope
         if (armWeight > 0.0) {
-          float armAngle = uArmRelax * 1.35 * armWeight;
+          float scull = (uArmRelax > 0.35) ? sin(uTime * 2.4 + sign(position.z) * 1.2) * 0.06 * uArmRelax : 0.0;
+          float armAngle = (uArmRelax * 1.35 + scull) * armWeight;
           vec3 shoulderPivot = vec3(0.0, 0.52, sign(position.z) * 0.11);
           vec3 relArm = transformed - shoulderPivot;
           float sA = sin(armAngle);
           float cA = cos(armAngle);
-          vec3 rotatedArm = vec3(relArm.x * cA + relArm.y * sA, -relArm.x * sA + relArm.y * cA, relArm.z);
+          // Angle forearms slightly inward toward the dive rope line:
+          float ropeInward = (uArmRelax > 0.35) ? smoothstep(0.0, 1.0, armWeight) * 0.030 * sign(position.z) : 0.0;
+          vec3 rotatedArm = vec3(relArm.x * cA + relArm.y * sA, -relArm.x * sA + relArm.y * cA, relArm.z - ropeInward);
           transformed = mix(transformed, shoulderPivot + rotatedArm, armWeight);
         }
 
@@ -1670,12 +1673,16 @@
         safeTraj.pikeAngle = 0.0;
         safeTraj.kickAmp = 0.95;
         safeTraj.kickPhaseRate = 3.8;
-        safeTraj.armRelax = 0.0;
+        // As safety diver approaches 10m meeting depth (after cycle 32.5), arms break out of streamline
+        // and reach forward towards the rope to stabilize depth level and maintain visual orientation!
+        const wReach = smoothstep(32.5, 34.0, cycle);
+        safeTraj.armRelax = wReach * 0.90;
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = -0.15; // Eyes fixed down the line watching deep diver approach
       } else if (cycle < 36.8) {
         // 4. Turn & Rendezvous Intercept (34.5 - 36.8s):
-        // Sweeping 180° turn around y ≈ 4.0m to meet ascending deep diver
+        // Sweeping 180° turn around y ≈ 4.0m to meet ascending deep diver.
+        // Arms are actively forward towards the rope holding level in the water column (no stiff arrow/pileform)!
         const t = (cycle - 34.5) / 2.3;
         safeTraj.pikeAngle = Math.sin(t * Math.PI) * 1.15;
         safeTraj.theta = Math.PI * (1.0 - smoothstep(0, 1, t)); // Smooth 180° pivot from down to up!
@@ -1684,19 +1691,19 @@
         safeTraj.y = hoverY * (1.0 - t) + targetEscortY * t;
         safeTraj.kickAmp = 0.45;
         safeTraj.kickPhaseRate = 3.0;
-        safeTraj.armRelax = 0.0;
+        safeTraj.armRelax = 0.90; // Active arms forward holding level and rope orientation!
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = -0.15 * (1.0 - t) + 0.22 * t; // Eyes transition up to meet diver
       } else if (cycle < 42.5) {
         // 5. Escorted Ascent Side-by-Side (36.8 - 42.5s):
-        // Positioned slightly below deep diver, face-to-face, airway watching
+        // Positioned slightly below deep diver, face-to-face, hands relaxed & attentive (ready to assist)
         safeTraj.y = deepY - 0.55;
         safeTraj.theta = 0.0;
         safeTraj.pikeAngle = 0.0;
         const wGlide = smoothstep(37.4, 40.5, cycle);
         safeTraj.kickAmp = 0.40 * (1.0 - wGlide) + 0.08 * wGlide;
         safeTraj.kickPhaseRate = 3.2 * (1.0 - wGlide) + 2.0 * wGlide;
-        safeTraj.armRelax = 0.0;
+        safeTraj.armRelax = 0.70; // Attentive escort posture with hands in front ready to assist, NOT overhead arrow!
         safeTraj.gazeYaw = 0.0;
         safeTraj.gazePitch = 0.22; // Direct visual contact on deep diver's eyes and mask
       } else {
