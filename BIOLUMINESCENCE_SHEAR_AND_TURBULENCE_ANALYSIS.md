@@ -2,7 +2,7 @@
 ## Fysisk, Optisk og Teknisk Analyse fra Google Cloud Gemini 4 Argon (A4)
 
 *Dokument udarbejdet i samarbejde mellem Google DeepMind Antigravity og Google Cloud Vertex AI Gemini 4 Argon.*  
-*Projekt: Hammerhajer & Fridykkere (WebGL / Three.js).*
+*Projekt: Ocean Freediver Screensaver (WebGL / Three.js).*
 
 ---
 

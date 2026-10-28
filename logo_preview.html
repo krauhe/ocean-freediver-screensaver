@@ -1,0 +1,738 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Kristian R. Harreby. See LICENSE for terms. -->
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ocean Freediver Screensaver · 10 Monofin Logo-Variationer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-dark: #020c1b;
+      --bg-ocean: #031b35;
+      --card-bg: rgba(6, 28, 53, 0.75);
+      --card-border: rgba(145, 197, 223, 0.22);
+      --cyan: #04c7ff;
+      --cyan-bright: #5ff4ff;
+      --text-main: #e6f3f8;
+      --text-sub: #8bb2c5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(ellipse at 50% 20%, #062b54 0%, #020d1c 80%, #01060e 100%);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding: 40px 24px 80px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin-bottom: 12px;
+    }
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 10px var(--cyan);
+      animation: pulse 2s infinite ease-in-out;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.6; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.3); }
+    }
+    h1 {
+      font-family: Georgia, serif;
+      font-size: clamp(30px, 4vw, 46px);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      margin-bottom: 14px;
+      color: #fff;
+    }
+    h1 span { color: var(--cyan); }
+    .subtitle {
+      color: var(--text-sub);
+      font-size: 15px;
+      max-width: 700px;
+      margin: 0 auto 24px;
+      line-height: 1.6;
+    }
+
+    /* Collection Tabs Navigation */
+    .tabs-nav {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 36px;
+      flex-wrap: wrap;
+    }
+    .tab-btn {
+      background: rgba(8, 36, 64, 0.7);
+      border: 1px solid var(--card-border);
+      color: var(--text-sub);
+      padding: 10px 22px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tab-btn:hover {
+      background: rgba(4, 199, 255, 0.15);
+      color: #fff;
+      border-color: var(--cyan);
+    }
+    .tab-btn.active {
+      background: var(--cyan);
+      color: #020c1b;
+      border-color: var(--cyan);
+      box-shadow: 0 0 18px rgba(4, 199, 255, 0.4);
+    }
+
+    /* Live Simulator Section */
+    .simulator-wrapper {
+      background: rgba(4, 20, 39, 0.85);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 56px;
+      box-shadow: 0 20px 60px rgba(0, 8, 20, 0.6);
+      backdrop-filter: blur(20px);
+    }
+    .sim-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid rgba(145, 197, 223, 0.12);
+    }
+    .sim-title {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sim-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .sim-btn {
+      background: rgba(14, 45, 75, 0.6);
+      border: 1px solid rgba(145, 197, 223, 0.25);
+      color: var(--text-sub);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .sim-btn:hover {
+      background: rgba(4, 199, 255, 0.15);
+      color: #fff;
+      border-color: var(--cyan);
+    }
+    .sim-btn.active {
+      background: var(--cyan);
+      color: #020c1b;
+      border-color: var(--cyan);
+      box-shadow: 0 0 14px rgba(4, 199, 255, 0.45);
+    }
+    .screen-viewport {
+      position: relative;
+      width: 100%;
+      height: 440px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 50% 30%, #05264b 0%, #021124 60%, #000814 100%);
+      border: 1px solid rgba(145, 197, 223, 0.15);
+      box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.7);
+    }
+    .sim-sunbeam {
+      position: absolute;
+      top: -60px;
+      left: 30%;
+      width: 140px;
+      height: 600px;
+      background: linear-gradient(135deg, rgba(200, 240, 255, 0.12) 0%, rgba(4, 199, 255, 0.04) 40%, transparent 80%);
+      transform: rotate(22deg);
+      pointer-events: none;
+      filter: blur(14px);
+    }
+    .sim-sunbeam-2 {
+      position: absolute;
+      top: -80px;
+      left: 55%;
+      width: 90px;
+      height: 650px;
+      background: linear-gradient(140deg, rgba(200, 240, 255, 0.09) 0%, rgba(4, 199, 255, 0.02) 45%, transparent 75%);
+      transform: rotate(26deg);
+      pointer-events: none;
+      filter: blur(12px);
+    }
+    .sim-line {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 2px;
+      background: repeating-linear-gradient(to bottom, #f1faee 0, #f1faee 12px, #1a3246 12px, #1a3246 20px);
+      opacity: 0.6;
+    }
+    .sim-watermark {
+      position: absolute;
+      top: 24px;
+      right: 28px;
+      z-index: 10;
+      transition: all 0.35s ease;
+      filter: drop-shadow(0 6px 20px rgba(0, 10, 25, 0.7));
+    }
+    .sim-hint {
+      position: absolute;
+      bottom: 16px;
+      left: 24px;
+      font-size: 12px;
+      color: rgba(139, 178, 197, 0.6);
+      letter-spacing: 0.05em;
+    }
+
+    /* Grid of Cards */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 28px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      backdrop-filter: blur(16px);
+      transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+      position: relative;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(4, 199, 255, 0.5);
+      box-shadow: 0 14px 35px rgba(0, 15, 35, 0.5);
+    }
+    .card-badge {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: rgba(4, 199, 255, 0.15);
+      border: 1px solid rgba(4, 199, 255, 0.35);
+      color: var(--cyan);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      letter-spacing: 0.05em;
+    }
+    .card-preview {
+      background: radial-gradient(ellipse at 50% 40%, #06274a 0%, #021124 100%);
+      border: 1px solid rgba(145, 197, 223, 0.15);
+      border-radius: 12px;
+      height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 20px;
+      padding: 12px;
+      box-shadow: inset 0 2px 14px rgba(0, 0, 0, 0.4);
+    }
+    .card-preview svg {
+      max-width: 100%;
+      height: auto;
+    }
+    .card-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .card-vibe {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--cyan);
+      margin-top: 3px;
+    }
+    .card-desc {
+      font-size: 13px;
+      color: var(--text-sub);
+      line-height: 1.55;
+    }
+    .card-action {
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid rgba(145, 197, 223, 0.1);
+      display: flex;
+      justify-content: flex-end;
+    }
+    .select-btn {
+      background: transparent;
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .select-btn:hover {
+      background: var(--cyan);
+      color: #020c1b;
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 60px;
+      color: rgba(139, 178, 197, 0.5);
+      font-size: 12px;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <header>
+      <div class="eyebrow">
+        <span class="live-dot"></span>
+        <span>Ocean Freediver Screensaver</span>
+      </div>
+      <h1>10 Variationer af <span>Kulfiber-Monofinnen (#1)</span></h1>
+      <p class="subtitle">Et dybdedyk i dit favorit-koncept (The Carbon Monofin Crest). Herunder finder du 10 forskellige kreative fortolkninger – fra spidshvirvler og stjernestøv til kulfiber-væv og maritime segl.</p>
+
+      <!-- TABS -->
+      <div class="tabs-nav">
+        <button id="tab-monofin" class="tab-btn active" onclick="switchCollection('monofin')">⚡ 10 Monofin Variationer (Fokus på Nr. 1)</button>
+        <button id="tab-original" class="tab-btn" onclick="switchCollection('original')">🌊 De 10 Oprindelige Hovedkoncepter</button>
+      </div>
+    </header>
+
+    <!-- LIVE CORNER SIMULATOR -->
+    <div class="simulator-wrapper">
+      <div class="sim-header">
+        <div class="sim-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <span>Live Hjørne-Simulator (Øverst TH)</span>
+        </div>
+        <div class="sim-buttons" id="sim-btn-container"></div>
+      </div>
+
+      <div class="screen-viewport">
+        <div class="sim-sunbeam"></div>
+        <div class="sim-sunbeam-2"></div>
+        <div class="sim-line"></div>
+        <div class="sim-watermark" id="sim-target"></div>
+        <div class="sim-hint">Simuleret screensaver-visning med dybde og lysstråler. Logoet testes øverst til højre.</div>
+      </div>
+    </div>
+
+    <!-- CARDS GRID -->
+    <div class="grid" id="cards-container"></div>
+
+    <footer>
+      Ocean Freediver Screensaver · Copyright &copy; 2026 Kristian R. Harreby · Co-developed with Gemini AI & Codec
+    </footer>
+  </div>
+
+  <script>
+    // -------------------------------------------------------------------------
+    // COLLECTION A: 10 CREATIVE MONOFIN VARIATIONS (FOCUS ON #1)
+    // -------------------------------------------------------------------------
+    const MONOFIN_VARIATIONS = [
+      {
+        id: "1A",
+        title: "The Neon Tip Vortex",
+        vibe: "Spidshvirvler & Dynamik",
+        desc: "Kulfiberklingen afkaster to lysende, spiralsnoede cyan spidshvirvler (tip vortices) fra de ydre winglets, der visualiserer det kraftige fremdrifts-spark.",
+        svg: `<svg viewBox="0 0 340 70" width="320" height="66">
+          <defs>
+            <linearGradient id="v1_b" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#182c40"/><stop offset="100%" stop-color="#050e18"/></linearGradient>
+            <linearGradient id="v1_c" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#04c7ff"/><stop offset="100%" stop-color="#5ff4ff"/></linearGradient>
+            <filter id="v1_f" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.5" result="b"/><feComposite in="SourceGraphic" in2="b" operator="over"/></filter>
+          </defs>
+          <rect x="2" y="2" width="336" height="66" rx="14" fill="#061c3590" stroke="#91c5df30" stroke-width="1.2"/>
+          <g transform="translate(18, 12)">
+            <!-- Monofin Blade -->
+            <path d="M 12,10 C 16,14 28,14 32,10 C 35,16 42,32 40,38 C 34,36 28,38 22,42 C 16,38 10,36 4,38 C 2,32 9,16 12,10 Z" fill="url(#v1_b)" stroke="#8eb4ce55" stroke-width="1"/>
+            <path d="M 12,10 C 9,16 2,32 4,38" fill="none" stroke="#bad1dc" stroke-width="1.8"/>
+            <path d="M 32,10 C 35,16 42,32 40,38" fill="none" stroke="#bad1dc" stroke-width="1.8"/>
+            <path d="M 4,38 C 10,36 16,38 22,42 C 28,38 34,36 40,38" fill="none" stroke="url(#v1_c)" stroke-width="2.5" filter="url(#v1_f)"/>
+            <!-- Left Tip Vortex Spiral -->
+            <path d="M 4,38 C 0,42 2,47 6,46 C 9,45 8,41 6,40" fill="none" stroke="#04c7ff" stroke-width="1.5" stroke-linecap="round" filter="url(#v1_f)"/>
+            <!-- Right Tip Vortex Spiral -->
+            <path d="M 40,38 C 44,42 42,47 38,46 C 35,45 36,41 38,40" fill="none" stroke="#04c7ff" stroke-width="1.5" stroke-linecap="round" filter="url(#v1_f)"/>
+            <rect x="18" y="7" width="8" height="6" rx="2" fill="#04c7ff" opacity="0.85"/>
+          </g>
+          <text x="75" y="32" font-family="'Segoe UI', sans-serif" font-size="16" font-weight="700" letter-spacing="2.5" fill="#eaf7fc">OCEAN FREEDIVER</text>
+          <text x="76" y="49" font-family="'Segoe UI', sans-serif" font-size="9" font-weight="600" letter-spacing="4" fill="#58c4e4">VORTEX CWT · 36M</text>
+          <circle cx="316" cy="24" r="3" fill="#04c7ff" filter="url(#v1_f)"/>
+        </svg>`
+      },
+      {
+        id: "1B",
+        title: "Geometric Carbon Weave",
+        vibe: "Kulfiber-Gitter & Twill",
+        desc: "Klingen gengives med en autentisk 3K kulfiber-vævning i sort og antracitgrå, indrammet af arktisk hvide sideribber og skarp laser-typografi.",
+        svg: `<svg viewBox="0 0 340 70" width="320" height="66">
+          <defs>
+            <pattern id="v2_pat" width="6" height="6" patternUnits="userSpaceOnUse">
+              <rect width="3" height="3" fill="#1b2a38"/>
+              <rect x="3" width="3" height="3" fill="#111c26"/>
+              <rect y="3" width="3" height="3" fill="#111c26"/>
+              <rect x="3" y="3" width="3" height="3" fill="#243647"/>
+            </pattern>
+          </defs>
+          <rect x="2" y="2" width="336" height="66" rx="14" fill="#04162995" stroke="#91c5df35" stroke-width="1.2"/>
+          <g transform="translate(18, 12)">
+            <path d="M 12,10 C 16,14 28,14 32,10 C 35,16 42,32 40,38 C 34,36 28,38 22,42 C 16,38 10,36 4,38 C 2,32 9,16 12,10 Z" fill="url(#v2_pat)" stroke="#bad1dc" stroke-width="1"/>
+            <path d="M 12,10 C 9,16 2,32 4,38" fill="none" stroke="#ffffff" stroke-width="2"/>
+            <path d="M 32,10 C 35,16 42,32 40,38" fill="none" stroke="#ffffff" stroke-width="2"/>
+            <path d="M 4,38 C 10,36 16,38 22,42 C 28,38 34,36 40,38" fill="none" stroke="#04c7ff" stroke-width="2.5"/>
+            <!-- Center spine line -->
+            <line x1="22" y1="12" x2="22" y2="40" stroke="#04c7ff" stroke-width="1.5" stroke-dasharray="2,2"/>
+          </g>
+          <text x="75" y="32" font-family="'Segoe UI', sans-serif" font-size="16" font-weight="800" letter-spacing="2.5" fill="#ffffff">OCEAN FREEDIVER</text>
+          <text x="76" y="49" font-family="'Segoe UI', sans-serif" font-size="9" font-weight="600" letter-spacing="4.5" fill="#7ba3b8">3K CARBON COMPOSITE</text>
+          <rect x="306" y="22" width="16" height="4" rx="2" fill="#04c7ff"/>
+        </svg>`
+      },
+      {
+        id: "1C",
+        title: "Cetacean Fluke / Whale Tail",
+        vibe: "Biomimetisk Hvalhale",
+        desc: "Klingens bagkant glider naturligt over i konturen af en pukkelhvalhale eller delfinfinne. En hyldest til den marine evolution, der inspirerede monofinnen.",
+        svg: `<svg viewBox="0 0 340 70" width="320" height="66">
+          <defs>
+            <linearGradient id="v3_g" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#14324f"/><stop offset="100%" stop-color="#020b14"/></linearGradient>
+          </defs>
+          <rect x="2" y="2" width="336" height="66" rx="14" fill="#05193090" stroke="#04c7ff30" stroke-width="1.2"/>
+          <g transform="translate(18, 11)">
+            <!-- Whale Fluke Shape -->
+            <path d="M 22,6 C 18,14 14,24 2,28 C 8,36 16,35 22,43 C 28,35 36,36 42,28 C 30,24 26,14 22,6 Z" fill="url(#v3_g)" stroke="#74b9d8" stroke-width="1.2"/>
+            <!-- Fluke Median Notch Glow -->
+            <path d="M 2,28 C 8,36 16,35 22,43 C 28,35 36,36 42,28" fill="none" stroke="#04c7ff" stroke-width="2.5" stroke-linecap="round"/>
+            <circle cx="22" cy="41" r="2" fill="#ffffff"/>
+          </g>
+          <text x="74" y="32" font-family="Georgia, serif" font-size="18" font-style="italic" fill="#ffffff">Ocean Freediver</text>
+          <text x="75" y="49" font-family="'Segoe UI', sans-serif" font-size="9" font-weight="600" letter-spacing="3.5" fill="#48cae4">BIOMIMETIC FLUKE · CWT</text>
+        </svg>`
+      },
+      {
+        id: "1D",
+        title: "Dinoflagellate Stardust Trail",
+        vibe: "Bioluminescerende Gnist-Spor",
+        desc: "Monofinnens bagkant funkler med en intens hvid-cyan kerne, og et sværmende spor af mikroskopiske dinoflagellat-gnister driver bagud i kølvandet.",
+        svg: `<svg viewBox="0 0 340 70" width="320" height="66">
+          <defs>
+            <filter id="v4_glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3" result="b"/><feComposite in="SourceGraphic" in2="b" operator="over"/></filter>
+          </defs>
+          <rect x="2" y="2" width="336" height="66" rx="14" fill="#04152a95" stroke="#04c7ff40" stroke-width="1.2"/>
+          <g transform="translate(18, 12)">
+            <path d="M 12,10 C 16,14 28,14 32,10 C 35,16 42,32 40,38 C 34,36 28,38 22,42 C 16,38 10,36 4,38 C 2,32 9,16 12,10 Z" fill="#0a1d30" stroke="#8eb4ce55" stroke-width="1"/>
+            <path d="M 4,38 C 10,36 16,38 22,42 C 28,38 34,36 40,38" fill="none" stroke="#5ff4ff" stroke-width="3" filter="url(#v4_glow)"/>
+            <!-- Stardust Micro-particles in Wake -->
+            <circle cx="8" cy="45" r="1.5" fill="#ffffff"/>
+            <circle cx="16" cy="49" r="1.2" fill="#04c7ff"/>
+            <circle cx="23" cy="47" r="1.8" fill="#ffffff" filter="url(#v4_glow)"/>
+            <circle cx="31" cy="46" r="1.2" fill="#5ff4ff"/>
+            <circle cx="37" cy="49" r="1.5" fill="#04c7ff"/>
+            <circle cx="28" cy="52" r="1" fill="#ffffff"/>
+          </g>
+          <text x="75" y="32" font-family="'Segoe UI', sans-serif" font-size="16" font-weight="700" letter-spacing="2" fill="#ffffff">OCEAN FREEDIVER</text>
+          <text x="76" y="49" font-family="'Segoe UI', sans-serif" font-size="8.5" font-weight="600" letter-spacing="4" fill="#04c7ff">BIOLUMINESCENT WAKE</text>
+        </svg>`
+      },
+      {
+        id: "1E",
+        title: "Minimalist Negative Space",
+        vibe: "Skandinavisk Purisme",
+        desc: "Kun tre ultra-præcise, tynde streger antyder klingen og kanten. Selve monofinnen fremstår som mørkt, dybt vand. Højeste grad af luksus.",
+        svg: `<svg viewBox="0 0 340 70" width="320" height="66">
+          <rect x="2" y="2" width="336" height="66" rx="14" fill="#04122490" stroke="#91c5df20" stroke-width="1.2"/>
+          <g transform="translate(20, 14)">
+            <!-- Pure razor-sharp strokes -->
+            <path d="M 12,8 L 3,36" stroke="# bad1dc" stroke-width="1.6" stroke-linecap="round"/>
+            <path d="M 32,8 L 41,36" stroke="#bad1dc" stroke-width="1.6" stroke-linecap="round"/>
+            <path d="M 3,36 C 10,34 16,36 22,40 C 28,36 34,34 41,36" fill="none" stroke="#04c7ff" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="22" cy="8" r="2" fill="#04c7ff"/>
+          </g>
+          <text x="76" y="32" font-family="'Segoe UI', sans-serif" font-size="15" font-weight="300" letter-spacing="4.5" fill="#ffffff">OCEAN <tspan font-weight="700">FREEDIVER</tspan></text>
+          <text x="77" y="49" font-family="'Segoe UI', sans-serif" font-size="8.5" font-weight="500" letter-spacing="5" fill="#699ab5">MINIMAL RIG · 36M</text>
+        </svg>`
+      },
+      {
+        id: "1F",
+        title: "Racing Hydrofoil Winglets",
+        vibe: "Molchanovs Race-Stripes",
+        desc: "Inspireret af verdensrekord-klinger med dobbelte cyan racing-striber midt på klingen og markante 3D formede sideribber langs kanterne.",
+        svg: `<svg viewBox="0 0 340 70" width="320" height="66">
+          <rect x="2" y="2" width="336" height="66" rx="14" fill="#051a3395" stroke="#91c5df25" stroke-width="1.2"/>
+          <g transform="translate(18, 12)">
+            <path d="M 12,10 C 16,14 28,14 32,10 C 35,16 42,32 40,38 C 34,36 28,38 22,42 C 16,38 10,36 4,38 C 2,32 9,16 12,10 Z" fill="#0e2238" stroke="#7ba1b8" stroke-width="1"/>
+            <!-- Dual Cyan Racing Stripes -->
+            <line x1="19" y1="12" x2="19" y2="40" stroke="#04c7ff" stroke-width="2"/>
+            <line x1="25" y1="12" x2="25" y2="40" stroke="#04c7ff" stroke-width="2"/>
+            <!-- Molded Arctic Rails -->
+            <path d="M 12,10 C 9,16 2,32 4,38" fill="none" stroke="#f1faee" stroke-width="2.5"/>
+            <path d="M 32,10 C 35,16 42,32 40,38" fill="none" stroke="#f1faee" stroke-width="2.5"/>
+          </g>
+          <text x="75" y="32" font-family="'Segoe UI', sans-serif" font-size="16" font-weight="800" letter-spacing="2" fill="#ffffff">OCEAN FREEDIVER</text>
+          <text x="76" y="49" font-family="'Segoe UI', sans-serif" font-size="9" font-weight="600" letter-spacing="3.5" fill="#04c7ff">RACING WINGLET · 36M</text>
+        </svg>`
+      },
+      {
+        id: "1G",
+        title: "Circular Maritime Seal",
+        vibe: "Maritimt Konkurrence-Segl",
+        desc: "Klingen indrammet i et rundt maritimt segl med kompas-markeringer og dykkelinen, der skærer lodret igennem klingen.",
+        svg: `<svg viewBox="0 0 340 72" width="320" height="68">
+          <defs>
+            <radialGradient id="v7_r" cx="50%" cy="50%" r="50%"><stop offset="70%" stop-color="#04c7ff" stop-opacity="0.1"/><stop offset="100%" stop-color="#04c7ff" stop-opacity="0.4"/></radialGradient>
+          </defs>
+          <rect x="2" y="2" width="336" height="68" rx="14" fill="#051a3290" stroke="#91c5df25" stroke-width="1.2"/>
+          <g transform="translate(36, 36)">
+            <circle cx="0" cy="0" r="23" fill="url(#v7_r)" stroke="#91c5df40" stroke-width="1.2"/>
+            <!-- Rope through center -->
+            <line x1="0" y1="-23" x2="0" y2="23" stroke="#f1faee" stroke-width="1.5" stroke-dasharray="3,3"/>
+            <!-- Monofin Blade -->
+            <path d="M -15,4 C -8,2 -3,6 0,8 C 3,6 8,2 15,4 C 12,14 6,17 0,18 C -6,17 -12,14 -15,4 Z" fill="#04c7ff"/>
+            <circle cx="0" cy="8" r="2.5" fill="#ffffff"/>
+          </g>
+          <g transform="translate(76, 28)">
+            <text x="0" y="4" font-family="'Segoe UI', sans-serif" font-size="16" font-weight="800" letter-spacing="1.5" fill="#f0f9fd">OCEAN FREEDIVER</text>
+            <text x="0" y="21" font-family="'Segoe UI', sans-serif" font-size="9" font-weight="500" letter-spacing="3" fill="#8bb5cc">CWT COMPETITION SEAL · 36M</text>
+          </g>
+        </svg>`
+      },
+      {
+        id: "1H",
+        title: "The 3D Kinetic Flex",
+        vibe: "Elastodynamisk Bøjning",
+        desc: "Viser monofinnen i 3D perspektiv vinkelret bøjet under vandmodstanden i det kraftige nedspark. Afspejler direkte vores elastodynamiske fysikmodel.",
+        svg: `<svg viewBox="0 0 340 70" width="320" height="66">
+          <defs>
+            <linearGradient id="v8_f" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#2a4563"/><stop offset="100%" stop-color="#041220"/></linearGradient>
+          </defs>
+          <rect x="2" y="2" width="336" height="66" rx="14" fill="#04172c90" stroke="#04c7ff30" stroke-width="1.2"/>
+          <g transform="translate(18, 12)">
+            <!-- Monofin in 3D flex perspective -->
+            <path d="M 16,8 C 22,12 28,12 34,8 C 38,18 42,32 36,44 C 28,42 22,43 14,46 C 10,38 12,22 16,8 Z" fill="url(#v8_f)" stroke="#7fa8c0" stroke-width="1.2"/>
+            <path d="M 14,46 C 22,43 28,42 36,44" fill="none" stroke="#04c7ff" stroke-width="2.5"/>
+            <!-- Dynamic flow vectors -->
+            <path d="M 6,24 C 9,28 10,34 9,40" fill="none" stroke="#04c7ff88" stroke-width="1.5" stroke-dasharray="2,2"/>
+          </g>
+          <text x="75" y="32" font-family="'Segoe UI', sans-serif" font-size="16" font-weight="700" letter-spacing="2" fill="#ffffff">OCEAN FREEDIVER</text>
+          <text x="76" y="49" font-family="'Segoe UI', sans-serif" font-size="9" font-weight="600" letter-spacing="3.5" fill="#52b5d6">ELASTODYNAMIC FLEX</text>
+        </svg>`
+      },
+      {
+        id: "1I",
+        title: "Frosted Glass Monofin Pill",
+        vibe: "Subtilt Luksus-Vandmærke",
+        desc: "Designet til at være det mest diskrete, elegante element på skærmen. Halvt gennemsigtig klinge, cyan glød-accent og blød frosted baggrund.",
+        svg: `<svg viewBox="0 0 300 58" width="300" height="58">
+          <rect x="2" y="2" width="296" height="54" rx="27" fill="#041a33a0" stroke="#91c5df35" stroke-width="1.2"/>
+          <g transform="translate(16, 12)">
+            <!-- Compact Monofin Icon -->
+            <path d="M 10,6 C 14,8 20,8 24,6 C 27,12 32,24 30,28 C 25,26 21,27 17,30 C 13,27 9,26 4,28 C 2,24 7,12 10,6 Z" fill="#0d2640" stroke="#bad1dc" stroke-width="1"/>
+            <path d="M 4,28 C 9,26 13,27 17,30 C 21,27 25,26 30,28" fill="none" stroke="#04c7ff" stroke-width="2"/>
+            <text x="40" y="15" font-family="'Segoe UI', sans-serif" font-size="14" font-weight="700" letter-spacing="2" fill="#ffffff">OCEAN FREEDIVER</text>
+            <text x="41" y="27" font-family="'Segoe UI', sans-serif" font-size="8.5" font-weight="500" letter-spacing="3" fill="#75a5bd">THE BLUE DEEP</text>
+          </g>
+        </svg>`
+      },
+      {
+        id: "1J",
+        title: "Vertical Shot Line Axis",
+        vibe: "Arkitektonisk Balance",
+        desc: "Dykkerlinen skærer lodret ned gennem midten af logoet og klingen, og skaber en smuk arkitektonisk balance mellem typografi og klinge.",
+        svg: `<svg viewBox="0 0 340 70" width="320" height="66">
+          <rect x="2" y="2" width="336" height="66" rx="14" fill="#05193090" stroke="#91c5df25" stroke-width="1.2"/>
+          <g transform="translate(18, 10)">
+            <!-- Central Line -->
+            <line x1="22" y1="-2" x2="22" y2="52" stroke="#04c7ff" stroke-width="2"/>
+            <!-- Symmetrical Monofin -->
+            <path d="M 12,12 C 16,15 28,15 32,12 C 36,18 43,33 40,39 C 34,37 28,39 22,43 C 16,39 10,37 4,39 C 1,33 8,18 12,12 Z" fill="#0b1e32" stroke="#bad1dc" stroke-width="1.2"/>
+            <path d="M 4,39 C 10,37 16,39 22,43 C 28,39 34,37 40,39" fill="none" stroke="#5ff4ff" stroke-width="2.5"/>
+          </g>
+          <g transform="translate(74, 28)">
+            <text x="0" y="4" font-family="'Segoe UI', sans-serif" font-size="15" font-weight="300" letter-spacing="3" fill="#a4cde0">OCEAN <tspan font-weight="800" fill="#ffffff">FREEDIVER</tspan></text>
+            <text x="0" y="20" font-family="'Segoe UI', sans-serif" font-size="9" font-weight="600" letter-spacing="4" fill="#04c7ff">COMPETITION LINE // 36M</text>
+          </g>
+        </svg>`
+      }
+    ];
+
+    // -------------------------------------------------------------------------
+    // COLLECTION B: ORIGINAL 10 MAIN CONCEPTS
+    // -------------------------------------------------------------------------
+    const ORIGINAL_CONCEPTS = [
+      {
+        id: "1",
+        title: "The Carbon Monofin Crest",
+        vibe: "Kulfiber & Atletisk",
+        desc: "Den oprindelige favorit: kulfiberklinge med elektrisk cyan neon-glød og lodret dykkelinie.",
+        svg: MONOFIN_VARIATIONS[0].svg
+      },
+      {
+        id: "2",
+        title: "The Freefall Descent",
+        vibe: "Vertikal Dybde",
+        desc: "Dykker i fri fald (-36m) langs den vertikale dykkerline med tydelige dybdemarkører.",
+        svg: `<svg viewBox="0 0 320 72" width="310" height="70"><defs><linearGradient id="o2_r" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#8eb4ce20"/><stop offset="50%" stop-color="#04c7ff"/><stop offset="100%" stop-color="#8eb4ce40"/></linearGradient></defs><rect x="2" y="2" width="316" height="68" rx="14" fill="#04162b90" stroke="#04c7ff30" stroke-width="1.2"/><g transform="translate(22, 6)"><line x1="16" y1="2" x2="16" y2="58" stroke="url(#o2_r)" stroke-width="2"/><line x1="12" y1="12" x2="16" y2="12" stroke="#8eb4ce88" stroke-width="1.5"/><line x1="10" y1="28" x2="16" y2="28" stroke="#8eb4ce88" stroke-width="1.5"/><line x1="8" y1="46" x2="16" y2="46" stroke="#04c7ff" stroke-width="2"/><path d="M 28,14 C 28,12 30,10 32,10 C 34,10 36,12 36,14 C 36,18 34,26 34,34 C 34,38 36,44 38,48 L 26,48 C 28,44 30,38 30,34 C 30,26 28,18 28,14 Z" fill="#bad1dc"/><path d="M 23,48 L 41,48 L 44,55 C 38,53 32,54 20,55 Z" fill="#04c7ff"/></g><g transform="translate(74, 28)"><text x="0" y="0" font-family="'Segoe UI', sans-serif" font-size="11" font-weight="300" letter-spacing="4" fill="#7bb8d4">INTO THE BLUE DEEP</text><text x="0" y="17" font-family="'Segoe UI', sans-serif" font-size="16" font-weight="800" letter-spacing="2" fill="#ffffff">OCEAN FREEDIVER</text><text x="0" y="30" font-family="'Segoe UI', sans-serif" font-size="8.5" font-weight="600" letter-spacing="3" fill="#04c7ff">TARGET DEPTH: -36M</text></g></svg>`
+      },
+      {
+        id: "3",
+        title: "Bioluminescent Wave",
+        vibe: "Organisk & Magisk",
+        desc: "Den dynamiske brydende bølge med elektrisk cyan dinoflagellat-støv omkring dykkeren.",
+        svg: `<svg viewBox="0 0 330 70" width="320" height="68"><defs><linearGradient id="o3_w" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#023e8a"/><stop offset="50%" stop-color="#04c7ff"/><stop offset="100%" stop-color="#e0fcff"/></linearGradient></defs><rect x="2" y="2" width="326" height="66" rx="16" fill="#05193095" stroke="#04c7ff35" stroke-width="1.2"/><g transform="translate(14, 10)"><path d="M 6,42 C 14,42 22,36 28,26 C 34,16 40,8 46,12 C 49,15 48,22 42,24 C 36,25 32,20 34,16" fill="none" stroke="url(#o3_w)" stroke-width="3" stroke-linecap="round"/><path d="M 12,46 C 22,46 30,38 36,28 C 40,22 43,18 48,20" fill="none" stroke="#04c7ff66" stroke-width="1.5" stroke-linecap="round"/><circle cx="43" cy="8" r="1.5" fill="#ffffff"/><circle cx="48" cy="14" r="1.2" fill="#5ff4ff"/><circle cx="39" cy="12" r="1" fill="#04c7ff"/><circle cx="51" cy="9" r="1.8" fill="#e0fcff"/><path d="M 22,25 C 26,27 30,31 34,36" fill="none" stroke="#bad1dc" stroke-width="2.2" stroke-linecap="round"/><polygon points="34,36 38,39 33,40" fill="#04c7ff"/></g><text x="76" y="32" font-family="Georgia, serif" font-size="18" font-style="italic" fill="#ffffff">Ocean Freediver</text><text x="77" y="48" font-family="'Segoe UI', sans-serif" font-size="9" font-weight="600" letter-spacing="3.5" fill="#48cae4">BIOLUMINESCENT SCREENSAVER</text></svg>`
+      },
+      {
+        id: "4",
+        title: "Hammerhead Convergence",
+        vibe: "Symbiose & Balance",
+        desc: "Cirkulært emblem hvor hammerhaj og monofinne forenes i balance.",
+        svg: MONOFIN_VARIATIONS[6].svg
+      },
+      {
+        id: "5",
+        title: "Nordic Glass Pill",
+        vibe: "Skandinavisk Minimalisme",
+        desc: "Frosted glaskapsel med pulserende dot og diskret dybdemarkør.",
+        svg: `<svg viewBox="0 0 280 54" width="280" height="54"><rect x="2" y="2" width="276" height="50" rx="25" fill="#041933aa" stroke="#91c5df40" stroke-width="1.2"/><g transform="translate(18, 14)"><circle cx="12" cy="13" r="5" fill="#04c7ff" opacity="0.9"/><circle cx="12" cy="13" r="9" fill="none" stroke="#04c7ff" stroke-width="1" opacity="0.4"/><text x="32" y="12" font-family="'Segoe UI', sans-serif" font-size="13" font-weight="700" letter-spacing="2" fill="#ffffff">OCEAN FREEDIVER</text><text x="33" y="24" font-family="'Segoe UI', sans-serif" font-size="8.5" font-weight="500" letter-spacing="3" fill="#76a8c0">SCREENSAVER</text><text x="215" y="17" font-family="'Segoe UI', monospace" font-size="10" font-weight="600" fill="#04c7ff">-36m</text></g></svg>`
+      },
+      {
+        id: "6",
+        title: "The Depth Pulse (Sonar)",
+        vibe: "Højteknologisk & Ekkolod",
+        desc: "Koncentriske sonar-buer der udstråler mod dybet.",
+        svg: `<svg viewBox="0 0 330 70" width="320" height="68"><rect x="2" y="2" width="326" height="66" rx="14" fill="#04152a90" stroke="#04c7ff30" stroke-width="1.2"/><g transform="translate(32, 35)"><circle cx="0" cy="0" r="4" fill="#04c7ff"/><path d="M 6,-10 A 12,12 0 0,1 6,10" fill="none" stroke="#04c7ff" stroke-width="1.5" opacity="0.8"/><path d="M 12,-18 A 22,22 0 0,1 12,18" fill="none" stroke="#04c7ff" stroke-width="1.2" opacity="0.5"/><path d="M 18,-24 A 30,30 0 0,1 18,24" fill="none" stroke="#04c7ff" stroke-width="0.8" opacity="0.25"/><polyline points="-8,-6 -14,0 -8,6" fill="none" stroke="#bad1dc" stroke-width="1.8"/></g><g transform="translate(74, 28)"><text x="0" y="4" font-family="'Segoe UI', sans-serif" font-size="16" font-weight="700" letter-spacing="3" fill="#eaf6fc">OCEAN FREEDIVER</text><text x="0" y="20" font-family="'Segoe UI', sans-serif" font-size="9" font-weight="600" letter-spacing="4" fill="#58a7c9">ACOUSTIC DEPTH RIG // 36M</text></g></svg>`
+      },
+      {
+        id: "7",
+        title: "The Shot Line & Plate",
+        vibe: "Konkurrencerig & Rekorder",
+        desc: "AIDA/CMAS konkurrence-æstetik med lanyard og bundplade.",
+        svg: `<svg viewBox="0 0 340 72" width="320" height="68"><rect x="2" y="2" width="336" height="68" rx="14" fill="#051a3390" stroke="#91c5df25" stroke-width="1.2"/><g transform="translate(24, 10)"><line x1="16" y1="2" x2="16" y2="50" stroke="#f1faee" stroke-width="2.5"/><circle cx="16" cy="18" r="6" fill="none" stroke="#04c7ff" stroke-width="2"/><line x1="22" y1="18" x2="30" y2="24" stroke="#04c7ff" stroke-width="1.5"/><ellipse cx="16" cy="46" rx="14" ry="4" fill="#dbe7ee" stroke="#26323a" stroke-width="1"/><rect x="13" y="47" width="6" height="12" rx="1" fill="#ff6600"/></g><g transform="translate(68, 28)"><text x="0" y="4" font-family="'Segoe UI', sans-serif" font-size="15" font-weight="800" letter-spacing="2" fill="#ffffff">OCEAN FREEDIVER</text><text x="0" y="20" font-family="'Segoe UI', sans-serif" font-size="9" font-weight="600" letter-spacing="3" fill="#ff9f43">COMPETITION SHOT LINE · 36M</text></g></svg>`
+      },
+      {
+        id: "8",
+        title: "Split Horizon",
+        vibe: "Overflade mod Dybde",
+        desc: "Todeling mellem overfladens røde bøje og dybdeafgrunden.",
+        svg: `<svg viewBox="0 0 320 68" width="310" height="66"><rect x="2" y="2" width="316" height="64" rx="14" fill="#04172e95" stroke="#8eb4ce30" stroke-width="1.2"/><g transform="translate(22, 14)"><line x1="0" y1="20" x2="36" y2="20" stroke="#04c7ff" stroke-width="1.5" opacity="0.7"/><ellipse cx="18" cy="17" rx="9" ry="5" fill="#ff4d4d"/><ellipse cx="18" cy="15" rx="5" ry="2" fill="#ffffff"/><path d="M 18,22 L 18,44" stroke="#8eb4ce66" stroke-width="1.5" stroke-dasharray="2,2"/><polygon points="14,38 22,38 18,45" fill="#04c7ff"/></g><g transform="translate(72, 26)"><text x="0" y="4" font-family="'Segoe UI', sans-serif" font-size="16" font-weight="300" letter-spacing="3" fill="#a8dadc">OCEAN <tspan font-weight="800" fill="#ffffff">FREEDIVER</tspan></text><text x="0" y="20" font-family="'Segoe UI', sans-serif" font-size="9" font-weight="600" letter-spacing="3.5" fill="#457b9d">THE BLUE DEEP SCREENSAVER</text></g></svg>`
+      },
+      {
+        id: "9",
+        title: "Caustic Monogram 'OF'",
+        vibe: "Lyssøjle & Geometri",
+        desc: "Interlocking 'O' og 'F' monogram i brydende lysstråler.",
+        svg: `<svg viewBox="0 0 310 68" width="300" height="66"><defs><linearGradient id="o9_of" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ffffff"/><stop offset="50%" stop-color="#04c7ff"/><stop offset="100%" stop-color="#0077b6"/></linearGradient></defs><rect x="2" y="2" width="306" height="64" rx="14" fill="#04162e90" stroke="#91c5df30" stroke-width="1.2"/><g transform="translate(20, 15)"><circle cx="16" cy="19" r="14" fill="none" stroke="url(#o9_of)" stroke-width="3"/><line x1="28" y1="5" x2="28" y2="33" stroke="#e0fcff" stroke-width="3" stroke-linecap="round"/><line x1="28" y1="5" x2="42" y2="5" stroke="#e0fcff" stroke-width="3" stroke-linecap="round"/><line x1="28" y1="18" x2="38" y2="18" stroke="#04c7ff" stroke-width="2.5" stroke-linecap="round"/></g><g transform="translate(80, 27)"><text x="0" y="4" font-family="'Segoe UI', sans-serif" font-size="16" font-weight="800" letter-spacing="2.5" fill="#ffffff">OCEAN FREEDIVER</text><text x="0" y="20" font-family="'Segoe UI', sans-serif" font-size="8.5" font-weight="600" letter-spacing="4.5" fill="#64b5f6">STANDALONE 3D SCREENSAVER</text></g></svg>`
+      },
+      {
+        id: "10",
+        title: "Pelagic Apex Shield",
+        vibe: "Maritimt Insignia",
+        desc: "Klassisk maritimt våbenskjold med hammerhaj og monofinne.",
+        svg: `<svg viewBox="0 0 340 76" width="320" height="72"><defs><linearGradient id="o10_s" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#0a223f"/><stop offset="100%" stop-color="#020d1a"/></linearGradient></defs><rect x="2" y="2" width="336" height="72" rx="16" fill="#04162e90" stroke="#91c5df30" stroke-width="1.2"/><g transform="translate(18, 10)"><path d="M 6,4 L 32,4 C 32,24 24,42 19,48 C 14,42 6,24 6,4 Z" fill="url(#o10_s)" stroke="#8eb4ce55" stroke-width="1.5"/><path d="M 10,10 C 13,8 15,12 19,10 C 23,8 25,12 28,10" fill="none" stroke="#04c7ff" stroke-width="1.5" stroke-linecap="round"/><path d="M 14,19 L 24,19 M 19,16 L 19,25" stroke="#bad1dc" stroke-width="1.5" stroke-linecap="round"/><path d="M 13,32 C 16,35 22,35 25,32 L 23,38 C 21,37 17,37 15,38 Z" fill="#04c7ff"/></g><g transform="translate(68, 30)"><text x="0" y="4" font-family="Georgia, serif" font-size="17" font-weight="700" letter-spacing="1" fill="#ffffff">Ocean Freediver</text><text x="0" y="20" font-family="'Segoe UI', sans-serif" font-size="8.5" font-weight="600" letter-spacing="3.5" fill="#7cb8d3">EST. 2026 · MARITIME SCREENSAVER</text></g></svg>`
+      }
+    ];
+
+    let currentCollection = MONOFIN_VARIATIONS;
+    const simBtnContainer = document.getElementById('sim-btn-container');
+    const simTarget = document.getElementById('sim-target');
+    const cardsContainer = document.getElementById('cards-container');
+
+    function switchCollection(type) {
+      document.getElementById('tab-monofin').classList.toggle('active', type === 'monofin');
+      document.getElementById('tab-original').classList.toggle('active', type === 'original');
+      currentCollection = (type === 'monofin') ? MONOFIN_VARIATIONS : ORIGINAL_CONCEPTS;
+      renderAll();
+    }
+
+    function setActiveSimLogo(id) {
+      const selected = currentCollection.find(l => l.id === id) || currentCollection[0];
+      simTarget.innerHTML = selected.svg;
+      document.querySelectorAll('.sim-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.id === String(selected.id));
+      });
+    }
+
+    function renderAll() {
+      // 1. Render buttons
+      simBtnContainer.innerHTML = '';
+      currentCollection.forEach((logo, idx) => {
+        const btn = document.createElement('button');
+        btn.className = 'sim-btn' + (idx === 0 ? ' active' : '');
+        btn.dataset.id = logo.id;
+        btn.textContent = `${logo.id}. ${logo.title.split(' ')[0]}`;
+        btn.addEventListener('click', () => setActiveSimLogo(logo.id));
+        simBtnContainer.appendChild(btn);
+      });
+
+      // 2. Render cards
+      cardsContainer.innerHTML = '';
+      currentCollection.forEach(logo => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <span class="card-badge">#${logo.id}</span>
+          <div class="card-preview">
+            ${logo.svg}
+          </div>
+          <div>
+            <div class="card-title">${logo.title}</div>
+            <div class="card-vibe">${logo.vibe}</div>
+          </div>
+          <p class="card-desc">${logo.desc}</p>
+          <div class="card-action">
+            <button class="select-btn" onclick="setActiveSimLogo('${logo.id}'); window.scrollTo({top: 0, behavior: 'smooth'});">Test i Hjørne-Simulator ↑</button>
+          </div>
+        `;
+        cardsContainer.appendChild(card);
+      });
+
+      // 3. Set initial
+      setActiveSimLogo(currentCollection[0].id);
+    }
+
+    // Init with Monofin variations as default
+    renderAll();
+  </script>
+</body>
+</html>

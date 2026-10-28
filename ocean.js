@@ -3091,6 +3091,19 @@
     }catch(error){notice('Press F11 to enter browser fullscreen.');}
   }
   document.getElementById('fullscreen').addEventListener('click',toggleFullscreen);
+  const aboutBtn = document.getElementById('about-btn');
+  const aboutDialog = document.getElementById('about-dialog');
+  const closeAboutBtn = document.getElementById('close-about');
+  if (aboutBtn && aboutDialog) {
+    aboutBtn.addEventListener('click', () => {
+      aboutDialog.showModal();
+      revealControls();
+    });
+    if (closeAboutBtn) closeAboutBtn.addEventListener('click', () => aboutDialog.close());
+    aboutDialog.addEventListener('click', (e) => {
+      if (e.target === aboutDialog) aboutDialog.close();
+    });
+  }
   canvas.addEventListener('dblclick',()=>{if(performance.now()-lastSharkGrab>650)toggleFullscreen();});
   document.addEventListener('fullscreenchange',async()=>{
     document.querySelector('#fullscreen span').textContent=document.fullscreenElement?'Exit fullscreen':'Fullscreen';

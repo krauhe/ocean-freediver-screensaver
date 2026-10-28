@@ -1,4 +1,4 @@
-# Hammerheads · The Blue Deep
+# Ocean Freediver Screensaver · The Blue Deep
 
 Open **index.html** in Chrome or Edge. No installation, internet connection or server is required. Keep `index.html`, `ocean.css`, `ocean.js`, `jellyfish.js`, `freediver.js` and `three.min.js` in the same folder.
 
@@ -56,4 +56,4 @@ This is a browser screensaver. It does not install itself as a Windows screensav
 
 Models, lighting and motion were created for this scene. The 3D engine is Three.js r160; its MIT licence is included in THREE-LICENSE.
 
-Hammerheads is open source under the GNU General Public License v3.0 (GPLv3), the same licence as T1D Simulator. Copyright © 2026 Kristian R. Harreby. The full terms are in LICENSE. Three.js retains its separate MIT licence in THREE-LICENSE.
+Ocean Freediver Screensaver is open source under the GNU General Public License v3.0 (GPLv3), sharing the same open-source rights and freedoms as the T1D Simulator project. Copyright © 2026 Kristian R. Harreby. Co-developed with Gemini AI & Codec. The full terms are in LICENSE. Three.js retains its separate MIT licence in THREE-LICENSE.

@@ -81,3 +81,18 @@ body.immersed .chrome { opacity: 0; transform: translateY(5px); pointer-events: 
   .species-controls label { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { .chrome { transition: none; } }
+
+/* About & Credits Dialog */
+#about-dialog { border: 1px solid #91c5df33; border-radius: 18px; background: #061c35f2; backdrop-filter: blur(24px); color: #deedf3; padding: 0; max-width: 480px; width: 90%; box-shadow: 0 16px 48px #000c1e80; }
+#about-dialog::backdrop { background: #000b1a80; backdrop-filter: blur(6px); }
+.about-card { padding: 24px 28px; }
+.about-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.about-header h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 22px; font-weight: 400; color: #c7e5ed; }
+#close-about { min-height: 32px; padding: 0 10px; font-size: 16px; border-radius: 8px; color: #90b2c4; }
+#close-about:hover { color: #fff; background: #a5daff22; }
+.about-tagline { margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: #8faebf; }
+.about-credits { border-top: 1px solid #8eb4ce25; padding-top: 14px; }
+.about-credits h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: #7cafbd; }
+.about-credits p { margin: 0 0 8px; font-size: 13px; line-height: 1.6; color: #bad1dc; }
+.about-credits a { color: #72d6ec; text-decoration: underline; }
+.about-credits a:hover { color: #aae9f7; }

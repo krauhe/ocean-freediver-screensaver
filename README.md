@@ -1,8 +1,10 @@
-# Hammerheads · The Blue Deep
+# Ocean Freediver Screensaver
 
-An interactive 3D screensaver with hammerheads, great white sharks and translucent jellyfish in a deep blue ocean. Waves, sunbeams, swimming and animal models are rendered directly in the browser using Three.js. All required files are included, so the scene also works offline.
+![Ocean Freediver Screensaver](grafisk/00_vinder_logo_ocean_freediver_screensaver_master.jpg)
 
-**[Open the screensaver in your browser](https://krauhe.github.io/Hammerheads/)** — no download or installation required.
+An interactive 3D screensaver featuring deep competition freedivers (CWT monofin & bi-fin safety escort), hammerhead sharks, great white sharks, translucent jellyfish and dynamic shear-activated bioluminescence in a deep blue ocean. Waves, sunbeams, elastodynamic fin kinetics and animal models are rendered directly in the browser using Three.js. All required files are included, so the scene also works offline.
+
+**[Open the screensaver in your browser](https://krauhe.github.io/ocean-freediver/)** — no download or installation required.
 
 ![Hammerhead sharks swimming beneath a rippling ocean surface, with sunbeams and interactive controls.](docs/screenshots/ocean.png)
 
@@ -67,10 +69,16 @@ Suspended particles drift together in a gentle current at several depths, includ
 
 The scene is silent and makes no network requests. A hidden browser tab stops rendering. If your system requests reduced motion, the scene starts paused.
 
+## Credits
+
+* **Creator & Lead Developer:** Kristian R. Harreby
+* **AI Architecture & Co-Development:** Gemini AI (Google DeepMind / Google Cloud Vertex AI) & Codec
+* **Open Source & Rights:** Open source under the **GNU General Public License v3.0 (GPLv3)** — sharing the exact same open-source rights, freedoms and principles as the [T1D Simulator](https://github.com/krauhe/T1D-Simulator) project.
+
 ## Licence
 
-Hammerheads is open source under the **GNU General Public License v3.0 (GPLv3)**, the same licence as T1D Simulator. See [LICENSE](LICENSE) for the full terms.
+Ocean Freediver Screensaver is open source under the **GNU General Public License v3.0 (GPLv3)**, the same licence as T1D Simulator. See [LICENSE](LICENSE) for the full terms.
 
-Copyright © 2026 Kristian R. Harreby.
+Copyright © 2026 Kristian R. Harreby. Co-developed with Gemini AI & Codec.
 
 The bundled Three.js library retains its own MIT licence in [THREE-LICENSE](THREE-LICENSE).
