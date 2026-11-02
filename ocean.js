@@ -1708,7 +1708,9 @@
         float radius=length(point);
         float coverage=1.-smoothstep(.04,.5,radius);
         vec3 tint=mix(vec3(.36,.62,.84),sunColor,.45*clamp(illumination,0.,1.));
-        float dustAlpha=coverage*alpha*(daylight*.60+.85*illumination);
+        // A small ambient floor keeps nearby suspended matter readable at night.
+        float nightFill=.22*(1.-smoothstep(.02,.32,daylight));
+        float dustAlpha=coverage*alpha*(nightFill+daylight*.60+.85*illumination);
         if(dustAlpha<=.002)discard;
         gl_FragColor=vec4(tint,dustAlpha);
       }`
@@ -1983,7 +1985,9 @@
     const numeric=Number(value);
     oceanBioluminescence.setAmount(numeric>0?Math.max(1,Math.round(numeric)):numeric);
     const amount = oceanBioluminescence.getAmount();
-    const label = amount === 0 ? 'Off' : Math.round(amount * 100) + '%';
+    // Display normalization only: physical amounts and stored values stay 0–12.
+    const percent=amount<=3?amount/3*100:100+(amount-3)/9*100;
+    const label = amount === 0 ? 'Off' : Math.round(percent) + '%';
     if (bioAmountInput) {
       bioAmountInput.value = String(amount);
       bioAmountInput.setAttribute('aria-valuetext', label);
@@ -2397,6 +2401,29 @@
     const input = document.getElementById(id);
     if (input && feature) input.addEventListener('change', () => { feature.setVisible(input.checked); if(id==='show-dive-site'&&hemmoorTruck)hemmoorTruck.setVisible(input.checked); redrawNeeded = true; });
   }
+  function syncBottomControls(){
+    const enabled=document.getElementById('show-dive-site').checked;
+    for(const id of ['show-bottom-life','show-crab']){
+      const input=document.getElementById(id);input.disabled=!enabled;
+      input.parentElement.classList.toggle('unavailable',!enabled);
+    }
+    benthicLife.setVisible(enabled&&document.getElementById('show-bottom-life').checked);
+    for(const [i,crab] of kingCrabs.entries())crab.group.visible=enabled&&i<animalCrabCount&&document.getElementById('show-crab').checked;
+    redrawNeeded=true;
+  }
+  document.getElementById('show-dive-site').addEventListener('change',syncBottomControls);
+
+  document.getElementById('show-jellies').addEventListener('change',event=>{
+    const enabled=event.target.checked;
+    speciesInputs.find(input=>input.value==='jellyfish').checked=enabled;
+    document.getElementById('show-comb-jellies').checked=enabled;
+    combJellies.setVisible(enabled);
+    setAnimalCount(animalCountInput.value);
+  });
+  document.getElementById('show-sharks').addEventListener('change',event=>{
+    speciesInputs.filter(input=>input.value!=='jellyfish').forEach(input=>input.checked=event.target.checked);
+    setAnimalCount(animalCountInput.value);
+  });
   const showFreediversInput = document.getElementById('show-freedivers');
   if (showFreediversInput && freedivers) {
     freedivers.setVisible(showFreediversInput.checked);
@@ -2416,6 +2443,7 @@
   let animationRequest=0;
   let contextLost=false;
   let redrawNeeded=true;
+  syncBottomControls();
   document.getElementById('scuba-scenario')?.addEventListener('change',()=>{redrawNeeded=true;});
   document.getElementById('scuba-replay')?.addEventListener('click',()=>{redrawNeeded=true;});
   function changeLightingTime(){

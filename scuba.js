@@ -366,15 +366,37 @@
       const dt = paused || !group.visible ? 0 : Math.min(0.10, elapsed);
       lastTime = time;
       if (!group.visible) return;
+      const waitingInOpenWater=diveSite && !diveSite.group.visible;
+      // Capture the last swimming position once; never chase an invisible site.
+      for(let i=0;i<divers.length;i++){
+        const d=divers[i];
+        if(waitingInOpenWater&&!d.openWaterAnchor){
+          d.openWaterAnchor=d.root.position.clone();
+          if(!d.root.visible||d.openWaterAnchor.y>8||d.openWaterAnchor.y< -20)
+            d.openWaterAnchor.set(-7+i*2.4,-7+i*.35,-14);
+          d.openWaterHeading=d.root.rotation.y;
+        }else if(!waitingInOpenWater)d.openWaterAnchor=null;
+      }
       const state=playback.update(time,divers);
       const torchPower = 1 - T.MathUtils.smoothstep(daylight.value, .08, .55);
       for (let index = 0; index < divers.length; index++) {
         const d = divers[index], pose=playback.sample(time,index,d.root.position,routeAim);
+        if(waitingInOpenWater){
+          d.root.position.copy(d.openWaterAnchor);
+          d.root.position.x+=.07*Math.sin(time*.31+index*2);
+          d.root.position.y+=.055*Math.sin(time*.43+index);
+          d.root.position.z+=.06*Math.cos(time*.27+index*2);
+          pose.heading=d.openWaterHeading+.18*Math.sin(time*.09+index*2);
+          pose.pitch=Math.PI/2;pose.upright=1;pose.entryWeight=0;
+          pose.orientation=null;pose.visible=true;pose.effort=.06;
+          routeAim.copy(d.root.position).add(worldPoint.set(
+            Math.cos(pose.heading)*6, .3+Math.sin(time*.13+index),-Math.sin(pose.heading)*6));
+        }
         const heading=pose.heading;
         d.root.visible=pose.visible;
         d.root.rotation.set(0,heading,pose.pitch,'YXZ');
         if(pose.orientation)d.root.quaternion.copy(pose.orientation);
-        d.activity=state.phase;
+        d.activity=waitingInOpenWater?'Open-water watch':state.phase;
         if(!pose.visible){d.torch.intensity=0;d.beam.visible=false;d.hasPrevious=false;continue;}
         if(!pose.entryWeight)d.root.rotation.z+=Math.sin(time*.09+index)*.018;
         // Recovery -> outward sweep -> squeeze -> long glide; buddies are out of phase.
@@ -413,7 +435,7 @@
         const pitch=T.MathUtils.clamp(Math.atan2(localAttention.y,Math.max(.5,Math.hypot(localAttention.x,localAttention.z))),-.55,.5);
         d.head.rotation.set(0,yaw*.7,pitch*.65);
         for(const arm of d.arms){
-          const task=state.phase==='Deploy buoy'&&index===0;
+          const task=!waitingInOpenWater&&state.phase==='Deploy buoy'&&index===0;
           const check=(slot+index)%5===2?Math.sin(Math.PI*T.MathUtils.clamp(f/.7,0,1)):0;
           arm.shoulder.rotation.set(0,yaw*(arm.side>0?.35:.10),pitch*.25+(task?.25:0));
           arm.elbow.rotation.set(0,arm.side>0?yaw*.35:.18*check,(arm.side<0?.5*check:pitch*.65)+(task?.25*Math.sin(time*1.7):0));
@@ -471,6 +493,12 @@
         d.prevPosition.copy(d.root.position); d.hasPrevious = true;
       }
       playback.update(time,divers);
+      if(waitingInOpenWater){
+        playback.boat.visible=playback.buoy.visible=playback.line.visible=playback.spool.visible=false;
+        playback.boatWater.wake.visible=false;
+        const status=document.getElementById('scuba-status');
+        if(status)status.textContent='Open water · Watching for passing wildlife';
+      }
       if (initialPlumePending) {
         divers.forEach((d, index) => {if(d.root.visible&&d.root.position.y<14.5)seedPlume(time, index);});
         initialPlumePending = false;

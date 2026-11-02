@@ -113,3 +113,5 @@ body.immersed .controls { pointer-events: none; }
 .scuba-controls label { display:flex; align-items:center; gap:8px; }
 .scuba-controls select { padding:6px 8px; border:1px solid #91c5df33; border-radius:8px; background:#061c35; color:#deedf3; font:inherit; }
 #scuba-status { flex-basis:100%; min-height:16px; font-variant-numeric:tabular-nums; }
+
+.species-controls label.unavailable { opacity: .4; cursor: not-allowed; }

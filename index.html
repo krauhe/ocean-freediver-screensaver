@@ -48,15 +48,17 @@
         </div>
         <div class="bioluminescence-controls">
           <label for="bioluminescence-amount">Bioluminescence</label>
-          <input id="bioluminescence-amount" type="range" min="0" max="12" step="1" value="3" aria-label="Bioluminescence amount" title="Off, then 100–1200%">
-          <output id="bioluminescence-value" for="bioluminescence-amount">300%</output>
+          <input id="bioluminescence-amount" type="range" min="0" max="12" step="1" value="3" aria-label="Bioluminescence amount" title="Off to 200%; default 100%">
+          <output id="bioluminescence-value" for="bioluminescence-amount">100%</output>
         </div>
         <div class="species-controls" role="group" aria-labelledby="species-label">
           <span id="species-label">Species</span>
-          <label><input type="checkbox" name="species" value="hammerhead" checked> Hammerhead</label>
-          <label><input type="checkbox" name="species" value="greatwhite" checked> Great white</label>
-          <label><input type="checkbox" name="species" value="jellyfish" checked> Jellyfish</label>
-          <label title="Three enlarged Mnemiopsis leidyi with moving iridescent comb rows"><input type="checkbox" id="show-comb-jellies" checked> Comb jellies</label>
+          <label title="Hammerheads and great white sharks"><input type="checkbox" id="show-sharks" checked> Sharks</label>
+          <input type="checkbox" name="species" value="hammerhead" checked hidden>
+          <input type="checkbox" name="species" value="greatwhite" checked hidden>
+          <label title="Moon jellies and rainbow comb jellies"><input type="checkbox" id="show-jellies" checked> Jellyfish</label>
+          <input type="checkbox" name="species" value="jellyfish" checked hidden>
+          <input type="checkbox" id="show-comb-jellies" checked hidden>
           <label title="Deep freediver with monofin, safety diver and dive line"><input type="checkbox" id="show-freedivers" checked> Freedivers</label>
           <label title="A buddy pair exploring the wreck"><input type="checkbox" id="show-scuba" checked> Scuba buddies</label>
           <label title="An articulated red king crab walking on the sand"><input type="checkbox" id="show-crab" checked> King crab</label>
@@ -106,7 +108,7 @@
           <h2 id="about-title">Ocean Freediver Screensaver</h2>
           <button id="close-about" type="button" aria-label="Close dialog">✕</button>
         </header>
-        <p class="about-tagline">An underwater scene with a Gozo-inspired ferry wreck, the Hemmoor truck, freedivers, scuba buddies, sharks, jellyfish and motion-activated bioluminescence. Adjust the glow from 0–1200%; it is most visible at night.</p>
+        <p class="about-tagline">An underwater scene with a Gozo-inspired ferry wreck, the Hemmoor truck, freedivers, scuba buddies, sharks, jellyfish and motion-activated bioluminescence.</p>
         <div class="about-credits">
           <h3>Credits & Open Source</h3>
           <p><strong>Creator & Developer:</strong> Kristian Rauhe Harreby</p>
