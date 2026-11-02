@@ -146,9 +146,25 @@
       });
     }
 
+    function batchRigidParts(parent){
+      const batches=new Map();
+      for(const mesh of [...parent.children]){
+        if(!mesh.isMesh||mesh.material.transparent)continue;
+        mesh.updateMatrix();const g=mesh.geometry.clone().applyMatrix4(mesh.matrix),flat=g.index?g.toNonIndexed():g;
+        if(!batches.has(mesh.material))batches.set(mesh.material,{position:[],normal:[],uv:[]});
+        const batch=batches.get(mesh.material);
+        for(const key of ['position','normal','uv'])batch[key].push(...flat.attributes[key].array);
+        parent.remove(mesh);if(flat!==g)flat.dispose();g.dispose();
+      }
+      for(const [material,attrs] of batches){const g=new T.BufferGeometry();
+        for(const key of ['position','normal','uv'])g.setAttribute(key,new T.Float32BufferAttribute(attrs[key],key==='uv'?2:3));
+        parent.add(new T.Mesh(g,material));
+      }
+    }
     function createDiver(index) {
       const root = new T.Group(); root.name = index ? 'Scuba buddy • ivory' : 'Scuba lead • ochre';
-      root.scale.setScalar(1.28);
+      // Match the freedivers' anatomical body length, excluding fins.
+      root.scale.setScalar(.95);
       group.add(root);
       const accent = index ? white : gold;
       ellipsoid(root, [0, 0, 0], [0.59, 0.235, 0.30], suit);
@@ -228,7 +244,8 @@
         segment(fin, [-0.10, 0, 0.11], [-0.58, -0.04, 0.19], 0.011, accent);
         legs.push({ hip, knee, fin, side, previousTip: new T.Vector3() });
       }
-      return { root, head, legs, arms, torch, torchLens, torchRig, torchTarget, beam, breath: 0, kick: 0, prevPosition: new T.Vector3(), hasPrevious: false };
+      batchRigidParts(root);batchRigidParts(head);
+      return { root, head, legs, arms, torch, torchLens, torchRig, torchTarget, beam, breath: 0, kick: 0, strokePhase: Math.random(), control:{offset:new T.Vector3(),velocity:new T.Vector3(),flow:new T.Vector3(),targetFlow:new T.Vector3(),force:new T.Vector3(),timer:0,pulse:0,effort:0,clock:Math.random()*20,seed:Math.random()*6.28,threshold:.50+Math.random()*.25,trim:0,roll:0,corrections:0}, swimSpeed: 0, swimHeading: null, prevPosition: new T.Vector3(), hasPrevious: false };
     }
     const divers = [createDiver(0), createDiver(1)];
     const playback=window.createScubaScenarios(T,group,stations,durations,sampleRoute,waterUniforms,()=>routePitch/.65);
@@ -249,6 +266,7 @@
     const velocity = new Float32Array(bubbleCount * 3);
     const seeds = new Float32Array(bubbleCount * 2);
     const activeIndices = new Uint16Array(bubbleCount);
+    const stepIndices = new Uint16Array(bubbleCount), liveSlots=new Set();
     const bubbleVelocity = new Float64Array(3);
     for (let i = 0; i < bubbleCount; i++) {
       positions[i * 3 + 1] = -999;
@@ -259,6 +277,14 @@
     bubbleGeo.setAttribute('position', new T.BufferAttribute(positions, 3).setUsage(T.DynamicDrawUsage));
     bubbleGeo.setAttribute('aRadius', new T.BufferAttribute(radii, 1).setUsage(T.DynamicDrawUsage));
     bubbleGeo.setAttribute('aSeed', new T.BufferAttribute(seeds, 2));
+    const drawIndices=new T.BufferAttribute(new Uint16Array(bubbleCount),1).setUsage(T.DynamicDrawUsage);
+    bubbleGeo.setIndex(drawIndices);bubbleGeo.setDrawRange(0,0);
+    let bubbleDetail=1;
+    function updateBubbleDrawRange(){
+      let count=0;for(const i of liveSlots)drawIndices.array[count++]=i;
+      drawIndices.array.subarray(0,count).sort();
+      drawIndices.needsUpdate=true;bubbleGeo.setDrawRange(0,count);
+    }
     const bubbleMat = window.createDiverBubbleMaterial(T, waterUniforms);
     const bubbles = new T.Points(bubbleGeo, bubbleMat); bubbles.name = 'Scuba exhalation bubbles';
     bubbles.frustumCulled = false; group.add(bubbles);
@@ -273,7 +299,7 @@
       const p = i * 3;
       // Mostly tiny regulator bubbles, with only occasional larger gas caps.
       const r = Math.random() < .06 ? .025 + Math.random() * .014 : .007 + Math.random() * .011;
-      radii[i] = r; initialRadii[i] = r; ages[i] = 0;
+      radii[i] = r; initialRadii[i] = r; ages[i] = 0;liveSlots.add(i);
       const side = Math.random() < .5 ? -1 : 1;
       const spread = side * (.10 + Math.random() * .07);
       positions[p] = origin.x - forward.z * spread + (Math.random() - .5) * .07;
@@ -306,12 +332,14 @@
     }
 
     function stepBubbles(time, dt) {
-      let activeCount = 0;
-      for (let i = 0; i < bubbleCount; i++) {
-        if (radii[i] === 0) continue;
+      let activeCount = 0,stepCount=0;
+      for(const i of liveSlots)stepIndices[stepCount++]=i;
+      stepIndices.subarray(0,stepCount).sort();
+      for (let slot = 0; slot < stepCount; slot++) {
+        const i=stepIndices[slot];
         const p = i * 3; ages[i] += dt;
         if (positions[p + 1] >= 14.96) {
-          radii[i] = 0; positions[p + 1] = -999; continue;
+          radii[i] = 0;liveSlots.delete(i); positions[p + 1] = -999; continue;
         }
         // The exact shared Boyle / Davies–Taylor / cap-wobble model.
         radii[i] = window.diverBubbleExpansion(initialRadii[i], spawnPressure[i], positions[p + 1]);
@@ -354,7 +382,7 @@
             spawnPressure[i] = 1.0 + Math.max(0, 15.0 - positions[p + 1]) * 0.10;
             initialRadii[i] = Math.cbrt(gas / spawnPressure[i]);
             radii[i] = Math.cbrt(merged); velocity[p + 1] += 0.14;
-            radii[j] = 0; positions[q + 1] = -999;
+            radii[j] = 0;liveSlots.delete(j); positions[q + 1] = -999;
           }
         }
       }
@@ -364,6 +392,10 @@
       // time is the scene's already speed-adjusted clock: never multiply it twice.
       const elapsed = lastTime === undefined ? 0 : Math.max(0, time - lastTime);
       const dt = paused || !group.visible ? 0 : Math.min(0.10, elapsed);
+      // A scrub/restart has no meaningful displacement history.
+      if(elapsed>.25||(lastTime!==undefined&&time<lastTime)){
+        for(const d of divers){d.hasPrevious=false;d.swimHeading=null;d.travelPitch=undefined;d.postureUpright=undefined;d.verticalSpeed=0;d.control.offset.set(0,0,0);d.control.velocity.set(0,0,0);d.control.pulse=0;d.control.effort=0;}
+      }
       lastTime = time;
       if (!group.visible) return;
       const waitingInOpenWater=diveSite && !diveSite.group.visible;
@@ -371,9 +403,8 @@
       for(let i=0;i<divers.length;i++){
         const d=divers[i];
         if(waitingInOpenWater&&!d.openWaterAnchor){
-          d.openWaterAnchor=d.root.position.clone();
-          if(!d.root.visible||d.openWaterAnchor.y>8||d.openWaterAnchor.y< -20)
-            d.openWaterAnchor.set(-7+i*2.4,-7+i*.35,-14);
+          // A separate watch station on the right, clear of the freediving line.
+          d.openWaterAnchor=new T.Vector3(6+i*2.4,-5+i*.35,-13-i*.8);
           d.openWaterHeading=d.root.rotation.y;
         }else if(!waitingInOpenWater)d.openWaterAnchor=null;
       }
@@ -383,37 +414,118 @@
         const d = divers[index], pose=playback.sample(time,index,d.root.position,routeAim);
         if(waitingInOpenWater){
           d.root.position.copy(d.openWaterAnchor);
-          d.root.position.x+=.07*Math.sin(time*.31+index*2);
-          d.root.position.y+=.055*Math.sin(time*.43+index);
-          d.root.position.z+=.06*Math.cos(time*.27+index*2);
+
           pose.heading=d.openWaterHeading+.18*Math.sin(time*.09+index*2);
           pose.pitch=Math.PI/2;pose.upright=1;pose.entryWeight=0;
           pose.orientation=null;pose.visible=true;pose.effort=.06;
           routeAim.copy(d.root.position).add(worldPoint.set(
             Math.cos(pose.heading)*6, .3+Math.sin(time*.13+index),-Math.sin(pose.heading)*6));
         }
+        // Individual station-keeping: drift first, then brief corrections with
+        // inertia and a dead band. No fresh random jitter is applied per frame.
+        const c=d.control,stationKeeping=pose.visible&&!pose.entryWeight&&
+          (waitingInOpenWater||['Descend','Explore','Ascend to stop','Safety stop'].includes(state.phase));
+        if(dt>0){
+          c.clock+=dt;c.timer-=dt;c.pulse=Math.max(0,c.pulse-dt);
+          if(c.timer<=0){c.timer=3+Math.random()*5;c.targetFlow.set((Math.random()-.5)*.08,(Math.random()-.5)*.035,(Math.random()-.5)*.08);}
+          c.flow.lerp(c.targetFlow,1-Math.exp(-dt*.7));
+          if(stationKeeping&&c.offset.length()>c.threshold&&c.pulse===0){c.pulse=1.5+Math.random()*1.1;c.corrections++;}
+          c.force.copy(c.offset).multiplyScalar(c.pulse>0?-.65:-.015).addScaledVector(c.velocity,c.pulse>0?-1.1:-.12);
+          if(!stationKeeping)c.force.copy(c.offset).multiplyScalar(-3).addScaledVector(c.velocity,-3);
+          c.velocity.addScaledVector(c.force,dt);
+          if(stationKeeping){c.velocity.addScaledVector(c.flow,dt);c.velocity.y+=dt*.017*Math.sin(c.clock*(1.05+index*.13)+c.seed);}
+          if(stationKeeping&&window.marineEnvironment){
+            window.marineEnvironment.current(d.root.position,time,worldPoint);
+            c.velocity.addScaledVector(worldPoint,.55*dt);
+            c.velocity.addScaledVector(c.velocity,-.55*dt);
+          }
+          // A soft outer restoring force, not a positional snap at one metre.
+          const excursion=c.offset.length();
+          if(stationKeeping&&excursion>.85)c.velocity.addScaledVector(c.offset,-(excursion-.85)*3*dt/excursion);
+          c.velocity.clampLength(0,.25);c.offset.addScaledVector(c.velocity,dt);
+          const response=stationKeeping&&c.pulse>0?Math.min(1,c.force.length()*3):0;
+          c.effort+=(response-c.effort)*(1-Math.exp(-dt*5));
+          c.trim+=((c.velocity.y*.6+c.force.y*.12)-c.trim)*(1-Math.exp(-dt*2));
+          c.roll+=((c.force.z*.18+c.velocity.z*.35)-c.roll)*(1-Math.exp(-dt*2));
+        }
+        // Blend out before entry/boarding without moving attachment points.
+        if(stationKeeping){
+          d.root.position.add(c.offset);
+          if(window.marineEnvironment){
+            const before=worldPoint.copy(d.root.position);
+            window.marineEnvironment.constrain(d.root.position,.8,c.velocity,Infinity);
+            c.offset.add(delta.subVectors(d.root.position,before));
+          }
+        }
+        // Route dwell and locomotion used to run on unrelated clocks. Measure
+        // actual travel so lane corrections and the approach also require kicks.
+        const navigating=!waitingInOpenWater&&(state.phase==='Explore'||state.phase==='Descend');
+        let travelSpeed=0;
+        if(dt>0&&d.hasPrevious){
+          delta.subVectors(d.root.position,d.prevPosition).divideScalar(dt);
+          travelSpeed=Math.min(1.5,Math.hypot(delta.x,delta.z));
+          d.swimSpeed+=(travelSpeed-d.swimSpeed)*(1-Math.exp(-dt*3));
+          d.verticalSpeed=(d.verticalSpeed||0)+(delta.y-(d.verticalSpeed||0))*(1-Math.exp(-dt*3));
+          if(navigating&&travelSpeed>.045){
+            const wanted=Math.atan2(-delta.z,delta.x);
+            if(d.swimHeading===null)d.swimHeading=pose.heading;
+            const difference=Math.atan2(Math.sin(wanted-d.swimHeading),Math.cos(wanted-d.swimHeading));
+            d.swimHeading+=T.MathUtils.clamp(difference,-dt*.85,dt*.85);
+            pose.heading=d.swimHeading;
+
+          }else if(!navigating)d.swimHeading=pose.heading;
+        }
+        if(!d.hasPrevious){d.swimSpeed=0;d.swimHeading=pose.heading;}
+        if(navigating&&d.hasPrevious){
+          pose.heading=d.swimHeading;
+
+        }
+        // Posture follows actual travel, not the scenario's upright flag.
+        // Small hover corrections should not tip an otherwise stationary diver.
+        const motionPosture=!waitingInOpenWater&&!pose.entryWeight&&
+          ['Explore','Descend','Ascend to stop','Safety stop','Surface'].includes(state.phase);
+        if(motionPosture){
+          let upright=pose.upright||0,targetPitch=pose.pitch;
+          if(d.swimSpeed>.08){
+            const ratio=Math.abs(d.verticalSpeed||0)/Math.max(.08,d.swimSpeed);
+            upright=T.MathUtils.smoothstep(ratio,1.6,3.2);
+            const travelPitch=T.MathUtils.clamp(Math.atan2(d.verticalSpeed||0,d.swimSpeed),-.40,.40);
+            targetPitch=T.MathUtils.lerp(travelPitch,Math.PI/2,upright);
+          }
+          if(d.travelPitch===undefined){d.travelPitch=targetPitch;d.postureUpright=upright;}
+          if(dt>0){
+            d.travelPitch+=T.MathUtils.clamp(targetPitch-d.travelPitch,-dt*.8,dt*.8);
+            d.postureUpright+=T.MathUtils.clamp(upright-d.postureUpright,-dt*.7,dt*.7);
+          }
+          pose.pitch=d.travelPitch;pose.upright=d.postureUpright;
+        }else {d.travelPitch=undefined;d.postureUpright=undefined;}
         const heading=pose.heading;
         d.root.visible=pose.visible;
         d.root.rotation.set(0,heading,pose.pitch,'YXZ');
         if(pose.orientation)d.root.quaternion.copy(pose.orientation);
         d.activity=waitingInOpenWater?'Open-water watch':state.phase;
         if(!pose.visible){d.torch.intensity=0;d.beam.visible=false;d.hasPrevious=false;continue;}
-        if(!pose.entryWeight)d.root.rotation.z+=Math.sin(time*.09+index)*.018;
+        if(!pose.entryWeight){d.root.rotation.z+=Math.sin(time*.09+index)*.018+c.trim;d.root.rotation.x+=c.roll;}
         // Recovery -> outward sweep -> squeeze -> long glide; buddies are out of phase.
-        const phase = (time / (5.4+index*.9) + index * 0.24) % 1;
+        const propulsion=navigating?T.MathUtils.smoothstep(d.swimSpeed,.025,.32):0;
+        const period=T.MathUtils.lerp(4.2+index*.35,2.6+index*.25,propulsion)*(1+.09*Math.sin(c.clock*.19+c.seed));
+        if(dt>0)d.strokePhase=(d.strokePhase+dt/period)%1;
+        const phase = (d.strokePhase + index * 0.24) % 1;
         let kick;
         if (phase < 0.23) kick = Math.sin(phase / 0.23 * Math.PI / 2);
         else if (phase < 0.47) kick = Math.cos((phase - 0.23) / 0.24 * Math.PI / 2);
         else kick = 0;
-        kick*=pose.effort;
+        const effort=navigating?Math.max(pose.effort,.24+.64*propulsion):pose.effort;
+        kick=Math.max(kick*effort,c.effort*.30);
         d.kick = kick;
         for (const leg of d.legs) {
-          leg.hip.rotation.y = leg.side * (0.045 + kick * 0.28);
+          const correction=c.effort*(.6+.4*Math.sin(c.clock*2.1+leg.side+c.seed));
+          leg.hip.rotation.y = leg.side * (0.045 + kick * 0.28+correction*.09);
           leg.knee.rotation.y = leg.side * kick * 0.31;
           // Video reference: heels rise toward the seat during loading, then
           // extend aft into the glide. Keep blade pitch nearly level throughout.
           leg.knee.rotation.z = T.MathUtils.lerp(0.58-kick*.62,1.15+.04*Math.sin(time*.7+index+leg.side),pose.upright||0);
-          leg.fin.rotation.x = leg.side * kick * 0.62;
+          leg.fin.rotation.x = leg.side * (kick * 0.62+correction*.16);
           leg.fin.rotation.y = leg.side * kick * 0.22;
           leg.fin.rotation.z = -leg.knee.rotation.z + 0.02 - kick * 0.08;
           if(pose.entryWeight){
@@ -428,7 +540,7 @@
         const blend=T.MathUtils.smoothstep(f,.70,1);
         attentionPoint(routeAim,slot,index,attentionA);attentionPoint(routeAim,slot+1,index,attentionB);
         attentionA.lerp(attentionB,blend);
-        if(dt>0)d.torchTarget.position.lerp(attentionA,1-Math.exp(-dt*4));else d.torchTarget.position.copy(attentionA);
+        if(dt>0)d.torchTarget.position.lerp(attentionA,1-Math.exp(-dt*4));else if(!d.hasPrevious)d.torchTarget.position.copy(attentionA);
         d.root.updateMatrixWorld(true);
         localAttention.copy(d.torchTarget.position);d.root.worldToLocal(localAttention);
         const yaw=T.MathUtils.clamp(-Math.atan2(localAttention.z,Math.max(.2,localAttention.x)),-.8,.8);
@@ -437,8 +549,16 @@
         for(const arm of d.arms){
           const task=!waitingInOpenWater&&state.phase==='Deploy buoy'&&index===0;
           const check=(slot+index)%5===2?Math.sin(Math.PI*T.MathUtils.clamp(f/.7,0,1)):0;
+          arm.hand.rotation.z=0;
           arm.shoulder.rotation.set(0,yaw*(arm.side>0?.35:.10),pitch*.25+(task?.25:0));
           arm.elbow.rotation.set(0,arm.side>0?yaw*.35:.18*check,(arm.side<0?.5*check:pitch*.65)+(task?.25*Math.sin(time*1.7):0));
+        }
+        if(stationKeeping)for(const arm of d.arms){
+          const scull=c.effort*Math.sin(c.clock*3.2+arm.side*.8+c.seed),amplitude=arm.side<0?1:.35;
+          arm.shoulder.rotation.x+=scull*.16*amplitude;
+          arm.shoulder.rotation.z+=c.effort*.12*amplitude;
+          arm.elbow.rotation.y+=scull*.23*amplitude;
+          arm.hand.rotation.z+=scull*.18*amplitude;
         }
         if(pose.entryWeight){
           // Tuck chin; right hand holds mask/regulator, left holds the harness.
@@ -463,7 +583,7 @@
         // Exhale during roughly half a 5.2-second breathing cycle, then a quiet inhale.
         const breathPhase = (time / (5.2+index*.6) + index * 0.39) % 1;
         if (dt > 0 && d.root.position.y<14.5 && breathPhase < 0.45) {
-          d.breath += dt * (36 + 44 * Math.sin(breathPhase / 0.45 * Math.PI));
+          d.breath += dt * bubbleDetail * (36 + 44 * Math.sin(breathPhase / 0.45 * Math.PI));
           mouth.set(.295, -.115, 0); d.head.localToWorld(mouth);
           while (d.breath >= 1) { emitBubble(mouth, swimForward); d.breath--; }
         } else if (breathPhase >= 0.45) d.breath = 0;
@@ -492,7 +612,7 @@
         }
         d.prevPosition.copy(d.root.position); d.hasPrevious = true;
       }
-      playback.update(time,divers);
+      playback.updateAttachments(time,divers);
       if(waitingInOpenWater){
         playback.boat.visible=playback.buoy.visible=playback.line.visible=playback.spool.visible=false;
         playback.boatWater.wake.visible=false;
@@ -518,6 +638,7 @@
         bubbleGeo.attributes.position.needsUpdate = true;
         bubbleGeo.attributes.aRadius.needsUpdate = true;
       }
+      updateBubbleDrawRange();
     }
 
     function setVisible(visible) {
@@ -525,7 +646,7 @@
       group.visible = !!visible;
       if (visible && !wasVisible) initialPlumePending = true;
       if (!visible) {
-        radii.fill(0); bubbleAccumulator = 0;
+        radii.fill(0);liveSlots.clear();bubbleGeo.setDrawRange(0,0); bubbleAccumulator = 0;
         for (let i = 0; i < bubbleCount; i++) positions[i * 3 + 1] = -999;
         bubbleGeo.attributes.position.needsUpdate = true; bubbleGeo.attributes.aRadius.needsUpdate = true;
         for (const d of divers) { d.breath = 0; d.hasPrevious = false; }
@@ -536,6 +657,6 @@
       group.traverse(obj => { if (obj.geometry) geometries.add(obj.geometry); if (obj.material) materials.add(obj.material); });
       geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); scene.remove(group);
     }
-    return { group, divers, bubbles, update, setVisible, dispose, routeDuration, stations, playback };
+    return { group, divers, bubbles, update, setVisible, setDetail(value){bubbleDetail=.5+.5*T.MathUtils.clamp(value,0,1);}, dispose, routeDuration, stations, playback };
   };
 })();

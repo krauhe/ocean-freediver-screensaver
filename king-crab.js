@@ -39,9 +39,9 @@
     // Separate sand patches: foreground, middle distance, and beyond the stern.
     // Jitter within each patch preserves clearance from the wreck and truck.
     const sites=[[-9,-10],[9,-15],[-31,-33]],site=sites[index%sites.length];
-    const homeX=site[0]+(Math.random()-.5)*1.6,homeZ=site[1]+(Math.random()-.5)*1.6;
-    const initialHeading=index*2.1+.3+(Math.random()-.5)*.6;
-    const behavior={position:new T.Vector3(homeX,0,homeZ),velocity:new T.Vector3(),target:new T.Vector3(),mode:'walk',timer:40,seed:(Math.random()*4294967296)>>>0,walk:index*.31,heading:initialHeading,lastTime:undefined,alarmCooldown:0};
+    const homeX=site[0]+(Math.random()-.5)*4,homeZ=site[1]+(Math.random()-.5)*4;
+    const initialHeading=Math.random()*Math.PI*2;
+    const behavior={position:new T.Vector3(homeX,0,homeZ),velocity:new T.Vector3(),target:new T.Vector3(),mode:'walk',timer:15+Math.random()*35,seed:(Math.random()*4294967296)>>>0,walk:Math.random(),heading:initialHeading,lastTime:undefined,alarmCooldown:0};
     const random=()=>{behavior.seed=(1664525*behavior.seed+1013904223)>>>0;return behavior.seed/4294967296;};
     function chooseTarget(){
       let angle=behavior.heading+(random()-.5)*2.4;

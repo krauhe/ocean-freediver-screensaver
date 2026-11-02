@@ -262,7 +262,7 @@ window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
     // Build only when needed, then reuse hidden animals. All share five models.
     for(let i=animals.length;i<count;i++){
       const body=new T.Group();body.name='Jellyfish '+(i+1);group.add(body);
-      const phase=i*2.39996;
+      const phase=Math.random()*Math.PI*2;
       const uniforms={
         time:{value:0},phase:{value:phase},pulse:{value:0},dragBend:{value:new T.Vector2()},
         bioExcite:{value:0},
@@ -299,7 +299,7 @@ window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
       body.children.forEach(child=>{child.frustumCulled=false;});
       body.scale.setScalar(.85+(i%3)*.19);
       animals.push({orientation:window.createJellyOrientation(T),threads,body,mesh:body,pickMesh:bellMesh,isJellyfish:true,scale:body.scale.x,uniforms,phase,
-        bioExcite:0,lastTime:undefined,
+        bioExcite:0,lastTime:undefined,swimSpeed:0,swimVelocity:new T.Vector3(),
         offset:new T.Vector3(),velocity:new T.Vector3(),rotationOffset:new T.Quaternion(),angularVelocity:new T.Vector3(),
         ...paths[i%paths.length]});
     }
@@ -322,8 +322,19 @@ window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
       animal.orientation.update(time,animal.drift,environment,pulse);
       if(environment){
         environment.current(animal.drift,time,animal.driftVelocity);
-        // A bounded vertical balance models ascent pulses and passive sinking.
-        animal.driftVelocity.addScaledVector(animal.orientation.axis,pulse*.10);
+        // Contraction creates a short thrust pulse, followed by decaying glide.
+        // Use the same cycle as the visible bell, not an unrelated swim timer.
+        // Integrate the pulse, not a target speed. Momentum keeps its direction
+        // while the bell slowly turns; only the next thrust changes that path.
+        const steps=Math.max(1,Math.ceil(driftDt*60)),h=driftDt/steps;
+        for(let n=0;n<steps;n++){
+          const subTime=time-driftDt+(n+.5)*h;
+          const stroke=(subTime*(.22+.012*Math.sin(phase))+phase)%1;
+          const contraction=stroke<.22?Math.sin(Math.PI*stroke/.22)**2:0;
+          window.stepJellyMomentum(animal.swimVelocity,animal.orientation.axis,animal===held?0:1.05*contraction,.8,h);
+        }
+        animal.swimSpeed=animal.swimVelocity.length();
+        animal.driftVelocity.add(animal.swimVelocity);
         animal.driftVelocity.y+=(-.035)-Math.max(0,animal.drift.y-9)*.03+Math.max(0,-18-animal.drift.y)*.02;
 
         animal.driftVelocity.z-=Math.max(0,animal.drift.z-10)*.02;

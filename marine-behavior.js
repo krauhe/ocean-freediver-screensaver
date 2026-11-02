@@ -26,7 +26,7 @@
         if(d<range&&d>.001){out.x+=dx/d*(1-d/range)*2;out.z+=dz/d*(1-d/range)*2;}
       }
       if(site&&site.group.visible){
-        if(scratch.y<-1+r && scratch.x>15-r && scratch.z>-81 && scratch.z<38)out.x-=Math.min(3,(scratch.x-15+r)*.4);
+        if(scratch.y<(-3.4+.55*Math.sin(scratch.z*.23)+.25*Math.sin(scratch.z*.81))+r && scratch.x>15-r && scratch.z>-81 && scratch.z<38)out.x-=Math.min(3,(scratch.x-15+r)*.4);
         if(scratch.y<-23+r)out.y+=(-23+r-scratch.y)*.6;
         for(let i=0;i<bounds.length;i++){
           if(i===1&&(!truck||!truck.group.visible))continue;
@@ -38,21 +38,22 @@
       }
       return out;
     }
-    function constrain(p,r,velocity){
+    function constrain(p,r,velocity,surfaceLimit=13-r){
       offset.set(0,0,0);
       if(site)site.constrain(p,r,offset,velocity);
       offset.set(0,0,0);if(truck)truck.constrain(p,r,offset,velocity);
-      p.y=Math.min(13-r,Math.max(-24+r,p.y));
+      p.y=Math.min(surfaceLimit,Math.max(-24+r,p.y));
     }
-    return {floor,current:window.OceanCurrent.sample,steer,constrain,setRig(value){rig=value;}};
+    return {floor,grazingPatches:site?site.grazingPatches:[],hasHabitat:()=>!!(site&&site.group.visible),current:window.OceanCurrent.sample,steer,constrain,setRig(value){rig=value;}};
   };
   window.createMarineAgents=function(T,environment,fishSeeds,sharks,camera=null){
     const random=a=>{a.seed=(1664525*a.seed+1013904223)>>>0;return a.seed/4294967296;};
-    const schools=[[-11,1,10],[-12,-5,-28],[35,7,-23]].map((p,i)=>({center:new T.Vector3(...p),home:new T.Vector3(...p),goal:new T.Vector3(...p),velocity:new T.Vector3(),members:0,seed:1777+i*391,timer:0,radius:3.5}));
+    const habitats=[[-8,-13,-14],[30,4,-23],[4,-19,-5]],openWater=[[-11,1,10],[-12,-5,-28],[12,3,-23]];
+    const schools=habitats.map((p,i)=>({center:new T.Vector3(...p),home:new T.Vector3(...p),goal:new T.Vector3(...p),velocity:new T.Vector3(),members:0,seed:(Math.random()*4294967296)>>>0,timer:Math.random()*12,radius:3.5}));
     const fish=fishSeeds.map((s,i)=>{
-      const school=i%5===4?2:i%2,home=schools[school].home;
+      const school=i%3,home=schools[school].home;
       const p=home.clone().add(new T.Vector3((s[0]-.5)*7,(s[1]-.5)*3,(s[2]-.5)*6));
-      return {p,v:new T.Vector3(.5,0,.15),force:new T.Vector3(),target:p.clone(),home:home.clone(),school,seed:7919*(i+1),timer:i*.13,alert:0,mode:'school',stroke:s[3],bank:0,size:.48+s[1]*.20,pace:.55+s[0]*.14};
+      return {p,v:new T.Vector3(.5,0,.15),force:new T.Vector3(),target:p.clone(),home:home.clone(),school,seed:(Math.random()*4294967296)>>>0,timer:Math.random()*4,alert:0,mode:'school',stroke:s[3],bank:0,size:.48+s[1]*.20,pace:.55+s[0]*.14};
     });
     const cells=new Map(),cellSize=1.1,neighbours=[],nearDistances=[],stats={checks:0};
     const key=(x,y,z)=>x+','+y+','+z;
@@ -66,10 +67,11 @@
       }
       schools.forEach((s,i)=>{
         if(s.members){s.center.multiplyScalar(1/s.members);s.velocity.multiplyScalar(1/s.members);}
+        s.home.lerp(delta.set(...(environment.hasHabitat()?habitats[i]:openWater[i])),1-Math.exp(-dt*.2));
         s.timer-=dt;
         if(s.timer<=0||s.center.distanceTo(s.goal)<2){
-          const reef=i===2;
-          s.goal.copy(s.home).add(new T.Vector3((random(s)-.5)*(reef?20:32),(random(s)-.5)*(reef?2:9),(random(s)-.5)*(reef?13:22)));
+          const reef=i===1;
+          s.goal.copy(s.home).add(new T.Vector3((random(s)-.5)*(reef?9:7),(random(s)-.5)*(reef?2:3),(random(s)-.5)*(reef?8:6)));
           s.goal.z=Math.min(16,s.goal.z);
           s.timer=25+random(s)*25;
         }
@@ -82,11 +84,12 @@
       // Stratify angular position as well as depth. Distant animals need a
       // wider world-space habitat to occupy the sides of a perspective view.
       const lane=i%3,depth=Math.floor(i/3)%3;
-      const z=[-9,-32,-59][depth]+Math.sin(s.phase)*4;
+      const z=[-9,-32,-59][depth]+(Math.random()-.5)*14;
       const angular=[-.68,.02,.66][lane]+Math.sin(s.phase*1.7)*.09;
       const home=new T.Vector3(angular*(27-z),lane===2?7.2+1.2*Math.sin(s.phase):s.y,z);
-      s.navigation={p:home.clone(),home,v:new T.Vector3(s.direction,0,0),target:new T.Vector3(),seed:9389*(i+1),timer:0,mode:'cruise',turn:0,yaw:s.direction>0?0:Math.PI,pitch:0,speed:.85,returnAt:0,journey:0,wasHeld:false};
+      s.navigation={p:home.clone(),home,v:new T.Vector3(s.direction,0,0),target:new T.Vector3(),seed:(Math.random()*4294967296)>>>0,timer:0,mode:'cruise',turn:0,yaw:s.direction>0?0:Math.PI,pitch:0,speed:.85,returnAt:0,journey:0,wasHeld:false,enteredAt:time,travel:s.direction};
       const n=s.navigation;environment.constrain(n.p,s.scale*4.9,n.v);n.target.copy(n.p);
+      if(i%8!==0){n.returnAt=time+20+i*11+random(n)*90;s.mesh.visible=false;n.mode='away';}
     }
     const viewPoint=new T.Vector3(),collisionVelocity=new T.Vector3();
     function outsideView(p,radius){
@@ -97,10 +100,8 @@
       viewPoint.copy(p).project(camera);return Math.abs(viewPoint.x)>1+margin;
     }
     function planPatrol(n,s,i){
-      const cross=i%3!==0||n.journey%3===2;
-      if(cross){const sign=n.p.x>0?-1:1;n.target.set(sign*(27-n.p.z)*2.8,7+Math.sin(i)*.7,n.p.z+(random(n)-.5)*18);n.mode='passage';}
-      else {const far=n.journey%2===0;n.target.set(7+random(n)*3,-4+random(n)*7,far?-72:-8);n.mode='reef patrol';}
-      n.timer=130+random(n)*100;n.journey++;
+      n.target.set(n.travel*(27-n.p.z)*2.8,7+Math.sin(i)*.7,n.p.z+(random(n)-.5)*12);
+      n.mode='passage';n.timer=130+random(n)*100;n.journey++;
     }
     function step(dt,time,threats,count,held){
       prepareSchools(count,dt);
@@ -111,7 +112,10 @@
         if(n.returnAt){
           if(s.populationEnabled===false)continue;
           if(time<n.returnAt){s.mesh.visible=false;continue;}
-          const z=-8-random(n)*65,side=random(n)<.5?-1:1;
+          const visitorLimit=Math.max(1,Math.ceil(sharks.filter(a=>a.populationEnabled!==false).length/8));
+          if(sharks.filter(a=>a.mesh.visible).length>=visitorLimit){n.returnAt=time+20+random(n)*45;continue;}
+          const z=-8-random(n)*45,side=random(n)<.5?-1:1;
+          n.travel=-side;n.enteredAt=time;
           n.p.set(side*(27-z)*3.2,6+random(n)*2,z);
           n.home.copy(n.p);n.yaw=side>0?Math.PI:0;n.pitch=0;n.turn=0;n.timer=0;n.returnAt=0;
           n.v.set(Math.cos(n.yaw)*n.speed,0,Math.sin(n.yaw)*n.speed);
@@ -129,10 +133,10 @@
           planPatrol(n,s,i);
         }
         delta.subVectors(n.target,n.p).normalize().multiplyScalar(profile.pace*(.85+.25*s.scale));
-        n.mode=i%3===0?'reef patrol':'passage';n.inspecting=false;
+        n.mode='passage';n.inspecting=false;
         // Only a subset of nearby sharks investigate; terrain and personal space
         // retain priority. This is an artistic hunting cue, not an ecological claim.
-        if(observers.some(o=>o.i===i)&&count>=30&&Math.sin(time*.025+i)>.05){
+        if(time-n.enteredAt<35&&observers.some(o=>o.i===i)&&count>=30&&Math.sin(time*.025+i)>.05){
           let nearest=null,best=40;
           for(const school of schools){const d=n.p.distanceTo(school.center);if(school.members>15&&d<best){nearest=school;best=d;}}
           if(nearest){
@@ -156,7 +160,6 @@
         // Persistent heading and positive forward speed: never derive yaw from
         // a velocity vector that can cancel to zero or reverse under repulsion.
         if(n.p.z<-100)delta.z+=(-100-n.p.z)*.15;if(n.p.z>7)delta.z-=(n.p.z-7)*.25;
-        if(n.p.x>-3&&n.p.y<7){delta.x-=Math.max(0,n.p.x+3)*.65;delta.z+=n.v.z>=0?.7:-.7;}
         if(n.p.x>8&&n.p.y<9)delta.y+=Math.max(0,9-n.p.y)*1.5;
         const desiredYaw=Math.atan2(delta.z,delta.x);
         const error=Math.atan2(Math.sin(desiredYaw-n.yaw),Math.cos(desiredYaw-n.yaw));
@@ -174,7 +177,7 @@
         collisionVelocity.copy(n.v);environment.constrain(n.p,s.scale*4.9,collisionVelocity);
         // Departures and replacements happen only beyond the full camera frustum.
         if(outsideView(n.p,s.scale*6)&&n.p.x*n.v.x>0&&Math.abs(n.p.x)>30){
-          n.returnAt=time+12+random(n)*25;s.mesh.visible=false;n.mode='away';
+          n.returnAt=time+60+random(n)*180;s.mesh.visible=false;n.mode='away';
         }
         n.wasHeld=false;
       }
@@ -207,10 +210,12 @@
           const d=a.p.distanceTo(threat.p);
           if(d<range&&d>.001){f.addScaledVector(delta.subVectors(a.p,threat.p),(1-d/range)*3/d);a.alert=2.5;}
         }
-        a.mode=a.alert>0?'escape':neighbours.length<2?'regroup':'school';
+        const homeDistance=a.p.distanceTo(school.home);
+        if(homeDistance>5&&a.alert<=0)f.addScaledVector(delta.subVectors(school.home,a.p).normalize(),Math.min(1.4,(homeDistance-5)*.18));
+        a.mode=a.alert>0?'escape':homeDistance>8?'return to shelter':neighbours.length<2?'regroup':'resident school';
         environment.steer(a.p,a.v,.25,avoid);f.addScaledVector(avoid,1.5);
-        if(a.school===2&&a.p.y<-1.2)f.y+=(-1.2-a.p.y)*1.5;
-        if(a.p.y<-11)f.y+=(-11-a.p.y)*.4;
+        if(a.school===1&&environment.hasHabitat()&&a.p.y<-1.2)f.y+=(-1.2-a.p.y)*1.5;
+        const lower=environment.hasHabitat()?-22:-11;if(a.p.y<lower)f.y+=(lower-a.p.y)*.4;
         if(a.p.y>11)f.y-=(a.p.y-11)*.4;
         // Keep the foreground school in the water, clear of the camera at z=27.
         if(a.p.z>18)f.z-=(a.p.z-18)*.6;

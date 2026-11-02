@@ -669,7 +669,20 @@
   // ---------------------------------------------------------------------------
   // Diver Wetsuit Shader Material (With uPikeAngle & uHeadYaw Biomechanics)
   // ---------------------------------------------------------------------------
-  function createDiverMaterial(T, uniforms) {
+  function slimFootPockets(geometry,monofin=false){
+    const positions=geometry.attributes.position,root=monofin?-1.05:-1.04;
+    const center=monofin?-.010:evalStation(-.88).cX;
+    for(let i=0;i<positions.count;i++){
+      const y=positions.getY(i);
+      if(y<-.88&&y>root+.0001){
+        const t=Math.min(1,(-y-.88)/.035),blend=t*t*(3-2*t);
+        positions.setX(i,center+(positions.getX(i)-center)*(1-.4*blend));
+      }
+    }
+    geometry.computeVertexNormals();
+  }
+
+  function createDiverMaterial(T, uniforms, recreational = false) {
     const mat = new T.MeshStandardMaterial({
       color: 0x11161e,
       roughness: 0.68,
@@ -699,6 +712,21 @@
         uniform float uMonoBladeFlex;
         uniform float uBiBladeFlexL;
         uniform float uBiBladeFlexR;
+        ${recreational ? `
+        uniform float uBiBladeMidL, uBiBladeMidR, uBiBladeTipL, uBiBladeTipR;
+        vec3 recreationalBlade(float s, float side) {
+          vec3 bends=side>0.0?vec3(uBiBladeFlexR,uBiBladeMidR,uBiBladeTipR):vec3(uBiBladeFlexL,uBiBladeMidL,uBiBladeTipL);
+          vec2 offset=vec2(0.0);float angle=0.0;
+          for(int i=0;i<3;i++){
+            float part=clamp(s*3.0-float(i),0.0,1.0),turn=bends[i]*.55;
+            float end=angle+turn*part;
+            if(abs(turn)>.0001)offset+=.2522*vec2((cos(angle)-cos(end))/turn,-(sin(end)-sin(angle))/turn);
+            else offset+=.2522*part*vec2(sin(angle),-cos(angle));
+            angle=end;
+          }
+          return vec3(offset+vec2(0.0,.7566*s),angle);
+        }
+        ` : ''}
         uniform float uTime;
         varying vec3 vDiverWorldPos;
         varying float vBladeFlex;
@@ -721,7 +749,10 @@
           } else {
             flexSlope = -uMonoBladeFlex * 2.0 * pow(max(0.0, bladeFlex), 1.0) * 0.58 / 0.73;
           }
-          objectNormal = normalize(vec3(objectNormal.x - flexSlope * objectNormal.y, objectNormal.y + flexSlope * objectNormal.x, objectNormal.z));
+          ${recreational ? `
+          float bend = recreationalBlade(bladeFlex,legSide).z;
+          objectNormal.xy = mat2(cos(bend),sin(bend),-sin(bend),cos(bend)) * objectNormal.xy;
+          ` : `objectNormal = normalize(vec3(objectNormal.x - flexSlope * objectNormal.y, objectNormal.y + flexSlope * objectNormal.x, objectNormal.z));`}
         }
         `
       );
@@ -756,7 +787,12 @@
           float dynBladeFlex = (legSide > 0.0) ? uBiBladeFlexR : uBiBladeFlexL;
           float bladeFlexDisp = dynBladeFlex * pow(bladeFlex, 1.85) * 0.52;
 
-          transformed.x += hipStroke + kneeCompliant + bladeFlexDisp;
+          transformed.x += ${recreational ? '0.0' : 'hipStroke + kneeCompliant + bladeFlexDisp'};
+          ${recreational ? `
+          // Independent elastic sections preserve length and carry the bend
+          // from the foot towards the tip, including an S-curve on reversal.
+          transformed.xy += recreationalBlade(bladeFlex,legSide).xy;
+          ` : ''}
 
           // Subtle torso roll/sway counter-torque in bi-fins (prevents wooden upper body)
           if (position.y > -0.15 && position.y < 0.58) {
@@ -905,6 +941,21 @@
             * (1.0 - smoothstep(-0.815, -0.80, vDiverLocalY));
           vec3 skin = vec3(0.68, 0.47, 0.33);
           suitCol = mix(suitCol, skin, max(bareHand, bareAnkle));
+          ${recreational ? `
+          // Opaque sports bikini in bind coordinates, carried by the skeleton.
+          float top = smoothstep(.29,.31,vDiverLocalY)*(1.-smoothstep(.43,.45,vDiverLocalY))*torsoOnly;
+          float strap = (1.-smoothstep(.012,.022,abs(abs(vSuitLocal.z)-.105)))
+            *smoothstep(.42,.44,vDiverLocalY)*(1.-smoothstep(.56,.58,vDiverLocalY))*torsoOnly;
+          float briefEdge = -.20 + .11*smoothstep(.04,.15,abs(vSuitLocal.z));
+          float bottom = smoothstep(briefEdge-.015,briefEdge,vDiverLocalY)*(1.-smoothstep(-.025,-.012,vDiverLocalY))*torsoOnly;
+          suitCol = mix(vec3(.72,.48,.32),vec3(.035,.52,.53),max(max(top,strap),bottom));
+          float mask = smoothstep(.695,.71,vDiverLocalY)*(1.-smoothstep(.755,.77,vDiverLocalY))*smoothstep(.065,.085,vSuitLocal.x)*torsoOnly;
+          suitCol=mix(suitCol,vec3(.045,.09,.11),mask);
+          // The foot is inside a rubber pocket, not an exposed skin-coloured
+          // extension of the calf. Leave only the ankle above its opening bare.
+          float pocket=1.-smoothstep(-.89,-.87,vDiverLocalY);
+          suitCol=mix(suitCol,vec3(.025,.032,.038),pocket);
+          ` : ''}
           diffuseColor.rgb = suitCol;
         }
         `
@@ -966,6 +1017,7 @@
         `
       );
     };
+    mat.customProgramCacheKey=()=>recreational?'recreational-bikini-v1':'freediver-wetsuit-v1';
     return mat;
   }
 
@@ -1096,35 +1148,6 @@
           float beam = waterExtinction * core * softFade * (0.35 + 0.65 * viewAlignment);
           vec3 lightCol = vec3(0.55, 0.88, 1.0);
           gl_FragColor = vec4(lightCol, beam * uLampPower * 0.22);
-        }
-      `
-    });
-  }
-
-  function createLampGlowMaterial(T, uniforms) {
-    return new T.ShaderMaterial({
-      uniforms: uniforms,
-      transparent: true,
-      depthWrite: false,
-      blending: T.AdditiveBlending,
-      side: T.BackSide,
-      toneMapped: false,
-      vertexShader: `
-        varying vec3 vLocalPos;
-        void main() {
-          vLocalPos = position;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform float uLampPower;
-        varying vec3 vLocalPos;
-        void main() {
-          if (uLampPower <= 0.001) discard;
-          float dist = length(vLocalPos);
-          float glow = exp(-dist * 2.8) * smoothstep(1.2, 0.1, dist) * uLampPower * 0.35;
-          vec3 glowCol = vec3(0.58, 0.90, 1.0);
-          gl_FragColor = vec4(glowCol, glow);
         }
       `
     });
@@ -1404,10 +1427,8 @@
     const lampConeMesh = new T.Mesh(lampConeGeom, lampConeMat);
     plateLampGroup.add(lampConeMesh);
 
-    const lampGlowGeom = new T.SphereGeometry(0.4, 16, 14);
-    const lampGlowMat = createLampGlowMaterial(T, bottomLampUniforms);
-    const lampGlowMesh = new T.Mesh(lampGlowGeom, lampGlowMat);
-    plateLampGroup.add(lampGlowMesh);
+    // The small emitter and directional beam provide the light. A spherical
+    // glow shell looked like a translucent ball larger than the bottom plate.
 
     group.add(plateLampGroup);
 
@@ -1437,7 +1458,8 @@
     };
     const mainMaterial = createDiverMaterial(T, mainUniforms);
     const mainGeometry = buildMainDiverGeometry(T);
-    const mainRig = window.createFreediverRig(T,mainGeometry,mainMaterial);
+    slimFootPockets(mainGeometry,true);
+    const mainRig = window.createFreediverRig(T,mainGeometry,mainMaterial,{articulatedFeet:true,monofin:true});
     const mainDiverMesh = mainRig.mesh;
     mainDiverMesh.scale.set(DIVER_SCALE, DIVER_SCALE, DIVER_SCALE);
 
@@ -1548,7 +1570,8 @@
     };
     const safeMaterial = createDiverMaterial(T, safeUniforms);
     const safeGeometry = buildSafetyDiverGeometry(T);
-    const safeRig = window.createFreediverRig(T,safeGeometry,safeMaterial);
+    slimFootPockets(safeGeometry);
+    const safeRig = window.createFreediverRig(T,safeGeometry,safeMaterial,{articulatedFeet:true});
     const safetyDiverMesh = safeRig.mesh;
     safetyDiverMesh.scale.set(DIVER_SCALE, DIVER_SCALE, DIVER_SCALE);
 
@@ -1771,6 +1794,8 @@
       }
     }
     let lastUpdateTime = undefined;
+    const ropeOrbit={angle:0,target:Math.random()*Math.PI*2,rate:0,timer:45+Math.random()*35};
+    const orbitRotation=new T.Quaternion();
     let monoKickPhase = 0.0;
     let biKickPhase = 0.0;
 
@@ -1950,14 +1975,14 @@
       evalRopePoint(PLATE_Y+1.15,time,tug,gripPoint);
       const tagAngle=(deep&&rig===mainRig?2*Math.PI/3:0)+.35;
       tagPoint.set(Math.cos(tagAngle)*.105,-.056,Math.sin(tagAngle)*.105)
-        .applyQuaternion(plateGroup.quaternion).add(plateGroup.position);
+        .applyQuaternion(plateGroup.quaternion).applyQuaternion(orbitRotation).add(plateGroup.position);
       const equalize=deep?smoothstep(5,7,cycle)*(1-smoothstep(21.5,23,cycle)):0;
       const surface=rig.surfaceMotion?rig.surfaceMotion.weight:0;
       rig.pose(u,time,{grip,gripTarget:gripPoint,tag,tagTarget:tagPoint,turn,equalize,surface,surfaceMotion:rig.surfaceMotion});
     }
 
     function posedFinPoint(rig,point,side){
-      const bone=rig.joints[side<0?'kneeL':'kneeR'];
+      const bone=rig.joints[side<0?'finL':'finR']||rig.joints[side<0?'kneeL':'kneeR'];
       const index=rig.mesh.skeleton.bones.indexOf(bone);
       point.applyMatrix4(rig.mesh.skeleton.boneInverses[index]).applyMatrix4(bone.matrixWorld);
       return point;
@@ -2454,6 +2479,36 @@
       if (paused) dt = 0.0;
       const dtPhase = dt;
 
+      // Slow, shared azimuth around the local rope. Rotation and orbit agree,
+      // so the chest still faces the line rather than twisting away from the hands.
+      if(dtPhase>0){
+        ropeOrbit.timer-=dtPhase;
+        if(ropeOrbit.timer<=0){ropeOrbit.target=ropeOrbit.angle+(Math.random()-.5)*Math.PI*2;ropeOrbit.timer=40+Math.random()*40;}
+        const error=Math.atan2(Math.sin(ropeOrbit.target-ropeOrbit.angle),Math.cos(ropeOrbit.target-ropeOrbit.angle));
+        const contact=smoothstep(22,23.5,cycle)*(1-smoothstep(27,29,cycle));
+        const rate=T.MathUtils.clamp(error*.08,-.055,.055)*(1-contact);
+        ropeOrbit.rate+=T.MathUtils.clamp(rate-ropeOrbit.rate,-.025*dtPhase,.025*dtPhase);
+        ropeOrbit.angle+=ropeOrbit.rate*dtPhase;
+      }
+      const orbitCos=Math.cos(ropeOrbit.angle),orbitSin=Math.sin(ropeOrbit.angle);
+      const mx=monoTargetX-diverRopePosMono.x,mz=monoTargetZ-diverRopePosMono.z;
+      const bx=biTargetX-diverRopePosSafe.x,bz=biTargetZ-diverRopePosSafe.z;
+      monoTargetX=diverRopePosMono.x+mx*orbitCos+mz*orbitSin;
+      monoTargetZ=diverRopePosMono.z-mx*orbitSin+mz*orbitCos;
+      biTargetX=diverRopePosSafe.x+bx*orbitCos+bz*orbitSin;
+      biTargetZ=diverRopePosSafe.z-bx*orbitSin+bz*orbitCos;
+      // At rendezvous the safety diver seeks the active diver's FRONT,
+      // regardless of which equipment is taking the deep turn this cycle.
+      const escort=smoothstep(34.5,37,cycle)*(1-smoothstep(42,44,cycle));
+      if(isMonofinDeep){
+        biTargetX=T.MathUtils.lerp(biTargetX,mainInertial.x.pos+1.55*orbitCos,escort);
+        biTargetZ=T.MathUtils.lerp(biTargetZ,mainInertial.z.pos-1.55*orbitSin,escort);
+      }else{
+        monoTargetX=T.MathUtils.lerp(monoTargetX,safeInertial.x.pos-1.55*orbitCos,escort);
+        monoTargetZ=T.MathUtils.lerp(monoTargetZ,safeInertial.z.pos+1.55*orbitSin,escort);
+      }
+      orbitRotation.setFromAxisAngle(unitY,ropeOrbit.angle);
+
       // 2nd-Order Inertial Tracking for Monofin Diver
       stepInertial(mainInertial.theta, monoTraj.theta, 9.0, 1.1, dtPhase);
       stepInertial(mainInertial.y, monoTraj.y, 14.0, 1.05, dtPhase);
@@ -2491,7 +2546,8 @@
       // Position & Orient Monofin Diver (Left side, facing +X/3/4 toward rope and camera)
       mainDiverMesh.position.set(mainInertial.x.pos, mainInertial.y.pos, mainInertial.z.pos);
       const mainSway = Math.sin(monoKickPhase * 0.5 + time * 0.4) * 0.045;
-      orientDiver3D(mainDiverMesh, mainInertial.theta.pos, mainInertial.roll.pos, mainInertial.turnYaw.pos, 1.0, MAIN_DIVER_BASE_YAW, mainSway);
+      orientDiver3D(mainDiverMesh, mainInertial.theta.pos, mainInertial.roll.pos, mainInertial.turnYaw.pos, 1.0, MAIN_DIVER_BASE_YAW*(1-escort), mainSway);
+      mainDiverMesh.quaternion.premultiply(orbitRotation);
 
       // Bioluminescent fin shear shimmer at night
       const nightBioFactor = smoothstep(0.35, 0.02, daylightVal);
@@ -2541,7 +2597,8 @@
       // Position & Orient Bi-fin Diver (Right side, facing -X/3/4 toward rope and camera)
       safetyDiverMesh.position.set(safeInertial.x.pos, safeInertial.y.pos, safeInertial.z.pos);
       const safeSway = Math.sin(biKickPhase * 0.5 + time * 0.4 + 1.5) * 0.045;
-      orientDiver3D(safetyDiverMesh, safeInertial.theta.pos, safeInertial.roll.pos, safeInertial.turnYaw.pos, -1.0, SAFE_DIVER_BASE_YAW, safeSway);
+      orientDiver3D(safetyDiverMesh, safeInertial.theta.pos, safeInertial.roll.pos, safeInertial.turnYaw.pos, -1.0, SAFE_DIVER_BASE_YAW*(1-escort), safeSway);
+      safetyDiverMesh.quaternion.premultiply(orbitRotation);
 
       safeUniforms.uKickPhase.value = biKickPhase;
       safeUniforms.uKickAmp.value = biTraj.kickAmp;
@@ -3162,6 +3219,44 @@
     return {
       group: group,
       rigs: [mainRig,safeRig],
+      ropeOrbit,
+      createRecreationalRig(){
+        const uniforms=T.UniformsUtils.clone(safeUniforms);
+        uniforms.uSuitAccent.value.set(0x64d9cd);
+        for(const name of ['uBiBladeMidL','uBiBladeMidR','uBiBladeTipL','uBiBladeTipR'])uniforms[name]={value:0};
+        const geometry=buildSafetyDiverGeometry(T),p=geometry.attributes.position,arm=geometry.attributes.armWeight;
+        slimFootPockets(geometry);
+        for(let i=0;i<p.count;i++){
+          const y=p.getY(i),x=p.getX(i),z=p.getZ(i);
+          if(y<=-1.04){
+            // Thin flexible long-fin laminate, retaining the existing rails.
+            // The shared competition blade was visually several cm thick.
+            const t=T.MathUtils.clamp((-y-1.04)/.78,0,1),center=evalStation(-.88).cX+.008*t;
+            p.setX(i,center+(x-center)*.32);
+          }
+          if(arm.getX(i)>0){
+            const t=T.MathUtils.clamp((y-.52)/.76,0,1),side=z<0?-1:1;
+            const cx=.015+t*.020+Math.sin(t*Math.PI)*.012,cz=side*(.175*(1-t)+.022*t);
+            p.setXYZ(i,cx+(x-cx)*.84,y,cz+(z-cz)*.84);continue;
+          }
+          if(y<-.25||y>.60)continue;
+          const waist=Math.exp(-(((y-.14)/.13)**2)),hip=Math.exp(-(((y+.015)/.14)**2));
+          const bust=Math.exp(-(((y-.36)/.075)**2))*Math.exp(-(((Math.abs(z)-.075)/.075)**2));
+          p.setXYZ(i,x*(1-.13*waist)+(x>0?.035*bust:0),y,z*(1-.12*waist+.12*hip));
+        }
+        geometry.computeVertexNormals();
+        const rig=window.createFreediverRig(T,geometry,createDiverMaterial(T,uniforms,true),{articulatedFeet:true});
+        const beltMaterial=new T.MeshStandardMaterial({color:0x202425,roughness:.85});
+        const belt=new T.Mesh(new T.TorusGeometry(.132,.018,8,32),beltMaterial);
+        belt.rotation.x=Math.PI/2;belt.scale.set(.78,1.22,1);belt.position.y=.045;rig.joints.pelvis.add(belt);
+        const lead=new T.MeshStandardMaterial({color:0x62666a,roughness:.7});
+        for(const side of [-1,1]){const weight=new T.Mesh(new T.BoxGeometry(.065,.045,.075),lead);weight.position.set(-.055,.045,side*.119);rig.joints.pelvis.add(weight);}
+        const hair=new T.MeshStandardMaterial({color:0x35251b,roughness:.8});
+        const cap=new T.Mesh(new T.SphereGeometry(1,16,12),hair);cap.scale.set(.084,.11,.088);cap.position.set(-.038,.105,0);rig.joints.neck.add(cap);
+        const bun=new T.Mesh(new T.SphereGeometry(.05,12,8),hair);bun.position.set(-.12,.10,0);rig.joints.neck.add(bun);
+        rig.mesh.scale.setScalar(DIVER_SCALE);
+        return {rig,uniforms};
+      },
       rigX: RIG_X,
       rigZ: RIG_Z,
       ropeTopY: ROPE_TOP_Y,

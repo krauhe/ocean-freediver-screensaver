@@ -247,6 +247,7 @@
       }
       for(let j=0;j<segments;j++){const a=first+j*2;leafIndices.push(a,a+1,a+2,a+1,a+3,a+2);}
     }
+    const grazingPatches=[];
     for(let patch=0;patch<95;patch++){
       const px=-33+random()*51,pz=-58+random()*46;
       if(px>-18&&px<14&&pz>-30&&pz<-17)continue;
@@ -271,6 +272,7 @@
         const lip=shelfVertices[a+1]*(1-f)+shelfVertices[b+1]*f;
         const y=lip-.2*(x-edgeX)/(65-edgeX);
         leaf(x,y-.025,z,.35+random()*1.05,random()*6.28,shade);
+        if(n===0&&x>edgeX+2.5)grazingPatches.push(new T.Vector3(x,y,z));
       }
     }
     for(let patch=0;patch<44;patch++){
@@ -336,7 +338,7 @@
       before.subVectors(position,before);
       if(before.lengthSq()>1e-10){offset.add(before);before.normalize();const inward=velocity.dot(before);if(inward<0)velocity.addScaledVector(before,-inward);}
     }
-    return {group,setDetail(amount){leaves.setDrawRange(0,Math.max(1,Math.round(leafCount*amount))*42);},floorY:FLOOR,wreckMatrix:vessel.matrix.clone(),constrain,setVisible(value){group.visible=!!value;}};
+    return {group,grazingPatches,setDetail(amount){leaves.setDrawRange(0,Math.max(1,Math.round(leafCount*amount))*42);},floorY:FLOOR,wreckMatrix:vessel.matrix.clone(),constrain,setVisible(value){group.visible=!!value;}};
   };
 })();
 

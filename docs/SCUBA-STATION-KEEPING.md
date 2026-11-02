@@ -1,0 +1,13 @@
+# Scuba station keeping
+
+Each buddy has independent drift, velocity, correction threshold, fin-cycle phase and slowly changing disturbance. The secondary motion integrates drift and damped corrective forces around the scenario position. A brief correction starts after the positional error exceeds the individual's dead band; correction effort drives asymmetric fins, free-hand sculling and small changes in trim/roll. The torch hand uses less sculling than the free hand.
+
+This is a bounded animation controller, not a calibrated buoyancy/BCD or fluid simulation. The scenario still provides the primary journey. Entry and boarding poses retain their attachment positions. Habitat constraints guard the secondary offset. Restart/seek clears motion history; paused and hidden updates do not advance the correction controller.
+
+Implemented in `scuba.js`, `control` and `update`. No new biological claim is used; the source is the user's observation that buddies looked too synchronized and did not visibly correct their positions.
+
+Validation: `validation/scuba-corrections.cjs` (local ignored script) exercises three minutes of open-water station keeping, checks independent correction activity, bounded displacement, moving hands and pause. `validation/scuba-propulsion-check.cjs` checks all three sightseeing scenarios, active fin propulsion and pauses.
+
+Horizontal trim revision: underwater posture now uses filtered horizontal and vertical travel speeds. Sustained horizontal swimming overrides the scenario's upright hint; head-up trim is reserved for predominantly vertical travel and stationary holds. Body pitch and leg posture blend at bounded rates. Small open-water hover corrections preserve upright watch posture. Local integration test: `validation/scuba-horizontal-check.cjs` checks sustained horizontal segments in all three stories, propulsion and pause.
+
+User refinement: station keeping now permits approximately a metre of excursion. Individuals trigger corrections at 0.50-0.75 m rather than 0.10-0.18 m, respond over longer intervals, and experience the shared ocean current. A soft restoring force beyond 0.85 m discourages excessive drift without snapping to a boundary. These are animation-control tolerances, not measured diver performance.

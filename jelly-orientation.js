@@ -3,6 +3,15 @@
  * Behavioural approximation; angles/rates are visual tuning parameters.
  */
 (() => {
+  // Water-relative momentum. With thrust off this is the exact solution of
+  // dv/dt = -drag * |v| * v: fast motion brakes strongly, slow glides persist.
+  // Coefficients absorb effective mass/area; these are animation parameters.
+  window.stepJellyMomentum=function(velocity,axis,acceleration,drag,dt){
+    if(dt<=0)return;
+    velocity.addScaledVector(axis,acceleration*dt*.5);
+    velocity.multiplyScalar(1/(1+drag*velocity.length()*dt));
+    velocity.addScaledVector(axis,acceleration*dt*.5);
+  };
   window.createJellyOrientation=function(T,kind='moon'){
     const up=new T.Vector3(0,1,0);
     const axis=new T.Vector3(),goal=new T.Vector3(),desired=new T.Vector3();

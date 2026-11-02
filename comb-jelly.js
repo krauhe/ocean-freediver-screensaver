@@ -57,7 +57,7 @@
   }
   for(let i=0;i<3;i++){
    const root=new T.Group();root.name='Comb jelly '+(i+1);randomPosition(root.position,startBands[i]);root.scale.setScalar(1.5-i*.20);group.add(root);
-   const uniforms={clock:{value:0},phase:{value:i*2.39996},illumination:{value:1},day:water.daylight,flash:{value:0},flashAge:{value:99},bioAmount:water.bioAmount};
+   const uniforms={clock:{value:0},phase:{value:Math.random()*Math.PI*2},illumination:{value:1},day:water.daylight,flash:{value:0},flashAge:{value:99},bioAmount:water.bioAmount};
    const skin=new T.ShaderMaterial({uniforms,vertexShader:vertex,fragmentShader:skinFragment,transparent:true,depthWrite:false,side:T.DoubleSide,forceSinglePass:true});
    const body=new T.Mesh(skinGeometry,skin);body.scale.set(.28,.47,.19);root.add(body);
    const lobes=[];
@@ -89,7 +89,12 @@
      }
      environment.current(a.position,time,flow);
      // Advect with the water, without a spring back to a fixed home.
-     a.velocity.copy(flow).addScaledVector(a.orientation.axis,.025);a.velocity.y+=.012*Math.sin(time*.13+a.phase);
+     // Comb rows provide sustained propulsion rather than bell-like jets.
+     if(!a.swimVelocity)a.swimVelocity=new T.Vector3();
+     const thrust=.012+.003*Math.sin(time*.45+a.phase);
+     window.stepJellyMomentum(a.swimVelocity,a.orientation.axis,thrust,.9,dt);
+     a.swimSpeed=a.swimVelocity.length();
+     a.velocity.copy(flow).add(a.swimVelocity);a.velocity.y+=.012*Math.sin(time*.13+a.phase);
      a.velocity.y+=Math.max(0,-12-a.position.y)*.02-Math.max(0,a.position.y-10)*.02;
      a.position.addScaledVector(a.velocity,dt);
      if(a.position.x>Math.max(24,(27-a.position.z)*1.7)){a.root.visible=false;a.nextArrival=time+4+Math.random()*16;continue;}

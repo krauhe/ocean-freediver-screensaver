@@ -84,7 +84,7 @@
   // A gentle visual day cycle follows the computer's local clock. Sunrise
   // is at 06:00 and sunset at 18:00, with a peak elevation of 65 degrees at noon.
   // This is a fixed artistic cycle, not a location- or season-based calculation.
-  // The clock is independent of the swimming speed slider.
+  // The clock is independent of the simulation pace.
   const sunriseColor = new T.Color(0xff633b);
   const middayColor = new T.Color(0xfff1d8);
   const dayFogColor = new T.Color(0x073653);
@@ -346,12 +346,12 @@
   const causticGeometries=[80,112,144,168].map(seg=>new T.PlaneGeometry(causticSpan,causticSpan,seg,seg));
   // Every tier is capped at 30 fps. Tier zero is Auto's emergency reserve.
   const qualityPresets = [
-    {label:'Eco reduced',maxDpr:.65,causticSize:256,causticGridIndex:0,causticGrid:80,causticEvery:3,multiTap:0,shafts:36,fish:70,maxOptical:6,lodDist:24,detail:0,grass:.16,population:.45,particles:.2},
-    {label:'Eco',maxDpr:1,causticSize:256,causticGridIndex:0,causticGrid:80,causticEvery:2,multiTap:0,shafts:60,fish:140,maxOptical:8,lodDist:34,detail:0,grass:.3,population:.65,particles:.4},
+    {label:'Low quality (reduced)',maxDpr:.65,causticSize:256,causticGridIndex:0,causticGrid:80,causticEvery:3,multiTap:0,shafts:36,fish:70,maxOptical:6,lodDist:24,detail:0,grass:.16,population:.45,particles:.2},
+    {label:'Low quality',maxDpr:1,causticSize:256,causticGridIndex:0,causticGrid:80,causticEvery:2,multiTap:0,shafts:60,fish:140,maxOptical:8,lodDist:34,detail:0,grass:.3,population:.65,particles:.4},
     {label:'Balanced',maxDpr:1.35,causticSize:512,causticGridIndex:1,causticGrid:112,causticEvery:1,multiTap:1,shafts:108,fish:300,maxOptical:16,lodDist:48,detail:1,grass:.55,population:.85,particles:.7},
     {label:'High',maxDpr:1.6,causticSize:512,causticGridIndex:2,causticGrid:144,causticEvery:1,multiTap:1,shafts:132,fish:480,maxOptical:24,lodDist:64,detail:2,grass:.8,population:1,particles:1},
     {label:'Ultra',maxDpr:2,causticSize:1024,causticGridIndex:3,causticGrid:168,causticEvery:1,multiTap:1,shafts:132,fish:600,maxOptical:24,lodDist:999,detail:3,grass:1,population:1,particles:1}
-  ].map(p=>({...p,fps:30,aria:p.label+', maximum 30 fps'}));
+  ].map(p=>({...p,fps:30,aria:p.label}));
   let currentQuality = qualityPresets[2];
 
   // Shared 24-animal optical field across sharks, jellyfish, light shafts and particles.
@@ -1573,6 +1573,8 @@
     fish.count=schoolPopulation();
     animalCrabCount=1+Math.round(animalDensity*2*currentQuality.population);
     combJellies.setCount(1+Math.round(animalDensity*2*currentQuality.population));
+    mantaRays.setDensity(animalDensity,currentQuality.population);
+    seaTurtles.setDensity(animalDensity,currentQuality.population);
     benthicLife.setDensity((.25+.75*animalDensity)*currentQuality.population);
     redrawNeeded=true;
   }
@@ -1585,7 +1587,7 @@
   const particleSizes=new Float32Array(particleCount);
   const particleSeeds=new Float32Array(particleCount*2);
   const particleNearWater=new Float32Array(particleCount);
-  let randomSeed=391;
+  let randomSeed=1+Math.floor(Math.random()*2147483645);
   function random(){randomSeed=(randomSeed*16807)%2147483647;return (randomSeed-1)/2147483646;}
   for(let i=0;i<particleCount;i++) {
     // Interleave depths so reducing the draw count keeps both near and far dust.
@@ -1718,14 +1720,12 @@
   const particles=new T.Points(particleGeometry,particleMaterial);
   particles.name='Circulating marine particles';particles.renderOrder=2;
   particles.frustumCulled=false;scene.add(particles);
-  const particleCountInput=document.getElementById('particle-count');
+  const defaultParticleCount=1700;
   function setParticleCount(value){
     const count=T.MathUtils.clamp(Math.round(Number(value)/100)*100,0,particleCount);
     // Reuse the fixed buffer: changing density allocates no geometry or material.
     particleGeometry.setDrawRange(0,Math.round(count*currentQuality.particles));
     particles.visible=count>0;
-    particleCountInput.value=String(count);
-    document.getElementById('particle-count-value').value=String(count);
     redrawNeeded=true;
   }
 
@@ -1757,6 +1757,8 @@
     geometry.setAttribute('position', posAttr);
     geometry.setAttribute('aVelocity', velAttr);
     geometry.setAttribute('aBioData', bioAttr);
+    const liveBio=new T.BufferAttribute(new Uint16Array(N),1).setUsage(T.DynamicDrawUsage);
+    geometry.setIndex(liveBio);geometry.setDrawRange(0,0);
 
     const uniforms = {
       uTime: { value: 0 },
@@ -1954,6 +1956,9 @@
 
     function update(time) {
       uniforms.uTime.value = time;
+      let count=0;
+      for(let i=0;i<N;i++)if(bioArray[i*4+1]>.001&&time-bioArray[i*4]<=.86)liveBio.array[count++]=i;
+      liveBio.needsUpdate=true;geometry.setDrawRange(0,count);
       if (needsUpdate) {
         posAttr.needsUpdate = true;
         velAttr.needsUpdate = true;
@@ -2396,8 +2401,12 @@
   const marineAgents=window.createMarineAgents(T,marineEnvironment,fishSeeds,sharks,camera);
   const benthicLife=window.createBenthicLife(T,scene,waterUniforms,marineEnvironment);
   const combJellies=window.createCombJellies(T,scene,waterUniforms,marineEnvironment);
+  const seaTurtles=window.createSeaTurtles(T,scene,waterUniforms,marineEnvironment);
+  const mantaRays=window.createMantaRays(T,scene,waterUniforms,marineEnvironment,camera);
+  const recreationalDiver=window.createRecreationalFreediver(T,scene,freedivers,diveSite,{environment:marineEnvironment,truck:hemmoorTruck,turtles:seaTurtles,crabs:kingCrabs,schools:marineAgents.schools});
+  const marineWakes=window.createMarineWakes(T,oceanBioluminescence,waterUniforms,marineEnvironment,recreationalDiver,seaTurtles,marineAgents,mantaRays);
   const behaviorThreats=[];
-  for (const [id, feature] of [['show-scuba', scubaDivers], ['show-crab', kingCrab], ['show-bottom-life',benthicLife], ['show-comb-jellies',combJellies], ['show-dive-site', diveSite]]) {
+  for (const [id, feature] of [['show-turtles',seaTurtles], ['show-recreational',recreationalDiver], ['show-mantas',mantaRays], ['show-scuba', scubaDivers], ['show-crab', kingCrab], ['show-bottom-life',benthicLife], ['show-comb-jellies',combJellies], ['show-dive-site', diveSite]]) {
     const input = document.getElementById(id);
     if (input && feature) input.addEventListener('change', () => { feature.setVisible(input.checked); if(id==='show-dive-site'&&hemmoorTruck)hemmoorTruck.setVisible(input.checked); redrawNeeded = true; });
   }
@@ -2434,7 +2443,7 @@
   }
 
   let paused=matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let speed=Number(document.getElementById('speed').value);
+  const speed=.7; // Fixed, original default simulation pace.
   // Randomized start offset so every visit starts at a different, organic point in time
   let animationTime = Math.random() * 600.0;
   let lastFrame=performance.now();
@@ -2444,8 +2453,6 @@
   let contextLost=false;
   let redrawNeeded=true;
   syncBottomControls();
-  document.getElementById('scuba-scenario')?.addEventListener('change',()=>{redrawNeeded=true;});
-  document.getElementById('scuba-replay')?.addEventListener('click',()=>{redrawNeeded=true;});
   function changeLightingTime(){
     updateDaylight(new Date());
     redrawNeeded=true;
@@ -2461,8 +2468,7 @@
   });
   setAnimalCount(animalCountInput.value);
   animalCountInput.addEventListener('input',event=>setAnimalCount(event.target.value));
-  setParticleCount(particleCountInput.value);
-  particleCountInput.addEventListener('input',event=>setParticleCount(event.target.value));
+  setParticleCount(defaultParticleCount);
 
   speciesInputs.forEach(input=>{
     input.addEventListener('change',()=>{
@@ -2604,10 +2610,10 @@
     mobile:/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||
       (matchMedia('(pointer: coarse)').matches&&Math.min(screen.width,screen.height)<900),renderer:gpuName});
   const qualityGovernor=OceanAdaptiveQuality.create(initialQuality);
-  let measuredFps=null;
+  let measuredFps=null,fpsWindowStart=null,fpsFrames=0;
   function qualityLabel(){
     qualityValue.value=(qualityAuto.checked?'Auto · ':'')+currentQuality.label+
-      (measuredFps===null?' · max 30 fps':' · '+Math.round(measuredFps)+' fps');
+      (paused?' · paused':measuredFps===null?' · measuring…':' · '+Math.round(measuredFps)+' fps');
   }
   function setQuality(index) {
     const idx = T.MathUtils.clamp(Math.round(Number(index)), 0, 4);
@@ -2622,10 +2628,11 @@
     oceanOptics.causticMultiTap.value = currentQuality.multiTap;
     shaftGeometry.instanceCount = currentQuality.shafts;
     setAnimalCount(animalCountInput.value);
-    setParticleCount(particleCountInput.value);
+    setParticleCount(defaultParticleCount);
     diveSite.setDetail(currentQuality.grass);
     jellyfish.setDetail(currentQuality.detail);
     scubaDivers.playback.boatWater.setDetail(currentQuality.particles);
+    scubaDivers.setDetail(currentQuality.particles);
     previousCausticTime = NaN;
     redrawNeeded = true;
     if (qualityInput) {
@@ -2823,6 +2830,7 @@
     oceanBioluminescence.beginFrame(animationTime, elapsed);
     jellyfish.update(animationTime,heldShark);
     if (freedivers) freedivers.update(animationTime, paused, speed);
+    recreationalDiver.update(animationTime);
     if (scubaDivers) scubaDivers.update(animationTime, paused, speed);
     waterUniforms.time.value=animationTime;
     particleUniforms.time.value=animationTime;
@@ -2842,8 +2850,12 @@
     for(const animal of sharks)if(animal.mesh.visible)behaviorThreats.push({p:animal.mesh.position,kind:'shark',radius:animal.scale*3});
     if(freedivers&&freedivers.group.visible)for(const d of freedivers.activeDivers)if(d.visible)behaviorThreats.push({p:d.position,kind:'diver',radius:1});
     if(scubaDivers&&scubaDivers.group.visible)for(const d of scubaDivers.divers)if(d.root.visible)behaviorThreats.push({p:d.root.position,kind:'diver',radius:1});
+    if(recreationalDiver.group.visible)behaviorThreats.push({p:recreationalDiver.body.position,kind:"diver",radius:1});
     marineAgents.update(animationTime,behaviorThreats,fish.count,heldShark);
     combJellies.update(animationTime,behaviorThreats,scubaDivers);
+    mantaRays.update(animationTime,behaviorThreats);
+    seaTurtles.update(animationTime,behaviorThreats);
+    marineWakes.update(animationTime,paused,fish.count);
     const bottomVisible=document.getElementById('show-bottom-life').checked && diveSite.group.visible;
     if(benthicLife.group.visible!==bottomVisible)benthicLife.setVisible(bottomVisible);
     for(const [index,kingCrab] of kingCrabs.entries()){kingCrab.group.visible=index<animalCrabCount&&document.getElementById('show-crab').checked&&diveSite.group.visible;kingCrab.update(animationTime,{threats:behaviorThreats,sediment:benthicLife});}
@@ -3150,11 +3162,18 @@
     const interacting=heldShark || sharks.some(isInteracting) || (jellyfish.group.visible && jellyfish.animals.some(isInteracting));
     if(!paused || redrawNeeded || interacting){
       renderScene(elapsed);redrawNeeded=false;
+      if(!paused&&!document.hidden){
+        if(fpsWindowStart===null){fpsWindowStart=now;fpsFrames=0;}
+        else {fpsFrames++;if(now-fpsWindowStart>=1000){
+          measuredFps=fpsFrames*1000/(now-fpsWindowStart);fpsWindowStart=now;fpsFrames=0;qualityLabel();
+        }}
+      }
       if(!paused && qualityAuto.checked && !document.hidden){
         const result=qualityGovernor.sample(now);
-        if(result){measuredFps=result.fps;if(result.changed)setQuality(result.level);qualityLabel();}
+        if(result&&result.changed)setQuality(result.level);
       }
     }
+    if(paused||document.hidden){fpsWindowStart=null;fpsFrames=0;measuredFps=null;qualityLabel();}
     if(paused)qualityGovernor.reset(now);
   }
   updateDaylight(new Date());
@@ -3166,6 +3185,7 @@
   // Hidden tabs do not need rendering. The scene resumes without jumps
   // when the tab becomes visible again; a visible scene has no time limit.
   document.addEventListener('visibilitychange',()=>{
+    fpsWindowStart=null;fpsFrames=0;measuredFps=null;
     qualityGovernor.reset(performance.now());
     if(document.hidden)releaseShark();
     cancelAnimationFrame(animationRequest);
@@ -3187,7 +3207,6 @@
   function togglePause(){paused=!paused;lastLightingUpdate=-Infinity;redrawNeeded=true;updatePauseButton();revealControls();}
   pauseButton.addEventListener('click',togglePause);
   updatePauseButton();
-  document.getElementById('speed').addEventListener('input',event=>{speed=Number(event.target.value);});
 
   // Fullscreen requires a click or keypress. The screen wake lock is
   // active only in fullscreen and is released when fullscreen ends.
@@ -3232,6 +3251,7 @@
     revealControls();
   });
   document.addEventListener('visibilitychange',()=>{
+    fpsWindowStart=null;fpsFrames=0;measuredFps=null;
     qualityGovernor.reset(performance.now());if(!document.hidden) requestWakeLock();});
 
   const controlsFooter=document.querySelector('footer');

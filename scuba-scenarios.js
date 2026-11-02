@@ -8,7 +8,9 @@
     const stories=[{name:'Wreck',first:0,last:1},{name:'Truck',first:2,last:6},{name:'Reef',first:11,last:14}];
     for(const s of stories){
       s.begin=sum(s.first);s.end=sum(s.last);s.explore=(s.end-s.begin)*1.4;
-      s.start=new T.Vector3(...stations[s.first].p);s.entry=s.start.clone();if(s.name==='Reef')s.entry.x-=3;s.finish=new T.Vector3(...stations[s.last].p);
+      s.start=new T.Vector3(...stations[s.first].p);s.entry=s.start.clone();
+      // Separate the entry column laterally from the freedivers in the main view.
+      s.entry.x=s.name==='Reef'?8:-27;s.entry.z=-12;s.finish=new T.Vector3(...stations[s.last].p);
       s.descent=(13.5-s.start.y)/.30;s.ascent=(10-s.finish.y)/.15;
       s.duration=30+10+s.descent+s.explore+18+s.ascent+30+42+18+35+10;
     }
@@ -31,6 +33,22 @@
     // A seated skipper gives the boat a visible scale and purpose.
     box(boat,[-.2,.8,0],[.4,.7,.45],orange);
     const skipper=new T.Mesh(new T.SphereGeometry(.18,12,8),white);skipper.position.set(-.15,1.3,0);boat.add(skipper);
+    // Static parts share material and local transform; retain UVs and normals.
+    const boatBatches=new Map();
+    for(const mesh of [...boat.children]){
+      if(!mesh.isMesh)continue;
+      mesh.updateMatrix();const transformed=mesh.geometry.clone().applyMatrix4(mesh.matrix);
+      const flat=transformed.index?transformed.toNonIndexed():transformed;
+      if(!boatBatches.has(mesh.material))boatBatches.set(mesh.material,{position:[],normal:[],uv:[]});
+      const batch=boatBatches.get(mesh.material);
+      for(const key of ['position','normal','uv'])batch[key].push(...flat.attributes[key].array);
+      boat.remove(mesh);mesh.geometry.dispose();if(flat!==transformed)flat.dispose();transformed.dispose();
+    }
+    for(const [material,attributes] of boatBatches){
+      const geometry=new T.BufferGeometry();
+      for(const key of ['position','normal','uv'])geometry.setAttribute(key,new T.Float32BufferAttribute(attributes[key],key==='uv'?2:3));
+      boat.add(new T.Mesh(geometry,material));
+    }
     const boatWater=window.createBoatWater(T,group,boat,waterUniforms);
     const buoy=new T.Group();buoy.name='Delayed surface marker buoy';group.add(buoy);
     const bag=new T.Mesh(new T.CapsuleGeometry(.12,1.25,4,10),orange);bag.position.y=.72;buoy.add(bag);
@@ -57,8 +75,8 @@
       const routeTime=phase==='Explore'?s.begin+(t+delay*easeInOut)/1.4:['Boat arrival','Water entry','Descend'].includes(phase)?s.begin:s.end;
       let heading=routeSample(routeTime,index,out);
       let entryWeight=0,orientation=null,upright=0;
-      if(['Boat arrival','Water entry'].includes(phase))out.x+=s.entry.x-s.start.x;
-      if(phase==='Descend')out.x+=(s.entry.x-s.start.x)*(1-smooth(f));
+      if(['Boat arrival','Water entry'].includes(phase)){out.x+=s.entry.x-s.start.x;out.z+=s.entry.z-s.start.z;}
+      if(phase==='Descend'){const approach=smooth((f-.7)/.3);out.x+=(s.entry.x-s.start.x)*(1-approach);out.z+=(s.entry.z-s.start.z)*(1-approach);}
       let pitch=0,effort=.55,visible=true;
       if(phase!=='Explore')aim.set(...stations[s.last].aim);
       if(phase==='Explore'){
@@ -94,6 +112,12 @@
         if(phase==='Board boat'){const climb=T.MathUtils.clamp((t-4-index*5)/6,0,1);out.x=T.MathUtils.lerp(out.x,s.finish.x-2,smooth(t/4));out.z=T.MathUtils.lerp(out.z,s.finish.z+1.65,smooth(t/4));out.y=14.3+1.8*climb;upright=1;pitch=Math.PI/2;visible=t<10+index*5;effort=.12;}
         if(phase!=='Deploy buoy')aim.copy(out).add(new T.Vector3(3,1,index?2:-2));
       }
+      // Reserve a wide cylinder for the moving freediving rope and athletes.
+      // Applies to both buddies throughout the submerged circuit, not just entry.
+      if(!['Boat arrival','Water entry','Board boat','Boat departure','Next team'].includes(phase)){
+        const dx=out.x+13.5,dz=out.z+20,d=Math.hypot(dx,dz),clearance=4.5;
+        if(d<clearance){const ux=d>.001?dx/d:0,uz=d>.001?dz/d:1;out.x=-13.5+ux*clearance;out.z=-20+uz*clearance;}
+      }
       return {heading,pitch,effort,visible,entryWeight,orientation,upright};
     }
     function update(time,divers){
@@ -106,6 +130,11 @@
       if(phase==='Surface')boat.position.x-=100*(1-smooth(f));
       if(phase==='Boat departure')boat.position.x+=100*smooth(f);
       boatWater.update(time);
+      return state;
+    }
+    // Called after diver posing: only attachments and contact-dependent splash.
+    function updateAttachments(time,divers){
+      const phase=state.phase;
       if(phase!=='Water entry')splashed.fill(false);
       else for(let index=0;index<2;index++){
         const rollTime=state.elapsed-1-index*3.8;
@@ -128,13 +157,9 @@
         if(divers[0].arms){divers[0].root.updateMatrixWorld(true);divers[0].arms[0].hand.getWorldPosition(spool.position);}
         const a=line.geometry.attributes.position;a.setXYZ(0,spool.position.x,spool.position.y,spool.position.z);a.setXYZ(1,buoy.position.x,buoy.position.y,buoy.position.z);a.needsUpdate=true;
       }
-      const status=document.getElementById('scuba-status');
-      if(status)status.textContent=s.name+' · '+phase+(state.stopSeconds?' · '+Math.floor(state.stopSeconds/60)+':'+String(state.stopSeconds%60).padStart(2,'0')+' (6×)':'');
       return state;
     }
     function restart(value=selected,start=lastTime){selected=value;epoch=start;}
-    document.getElementById('scuba-scenario')?.addEventListener('change',e=>restart(e.target.value));
-    document.getElementById('scuba-replay')?.addEventListener('click',()=>restart());
-    return {update,sample,state,stories,boat,boatWater,buoy,line,spool,restart,total};
+    return {update,updateAttachments,sample,state,stories,boat,boatWater,buoy,line,spool,restart,total};
   };
 })();
