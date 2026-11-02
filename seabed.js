@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Kristian R. Harreby. See LICENSE for terms.
+ * Copyright (C) 2026 Kristian Rauhe Harreby. See LICENSE for terms.
  * Procedural Gozo-inspired limestone shelf and upright passenger-ferry wreck.
  * Stylised scene dimensions, not a navigational reconstruction of Karwela.
  */
@@ -278,6 +278,13 @@
       leafRoot.set(x,3.73,z).applyMatrix4(vessel.matrix);
       for(let n=0;n<7;n++)leaf(leafRoot.x+(random()-.5)*.22,leafRoot.y,leafRoot.z+(random()-.5)*.18,.12+random()*.33,random()*6.28,.2+random()*.4,true);
     }
+    // Shuffle complete leaves once so every density retains all habitats.
+    const leafCount=leafIndices.length/42,order=Array.from({length:leafCount},(_,i)=>i);
+    let detailSeed=719;
+    for(let i=order.length-1;i>0;i--){detailSeed=(detailSeed*16807)%2147483647;
+      const j=detailSeed%(i+1);[order[i],order[j]]=[order[j],order[i]];}
+    const originalIndices=leafIndices.slice();
+    order.forEach((source,i)=>{for(let n=0;n<42;n++)leafIndices[i*42+n]=originalIndices[source*42+n];});
     const leaves=new T.BufferGeometry();leaves.setAttribute('position',new T.Float32BufferAttribute(leafPositions,3));leaves.setAttribute('color',new T.Float32BufferAttribute(leafColors,3));leaves.setAttribute('growthWeight',new T.Float32BufferAttribute(leafWeights,1));leaves.setIndex(leafIndices);leaves.computeVertexNormals();leaves.computeBoundingSphere();leaves.boundingSphere.radius+=.4;
     const plantMaterial=new T.MeshStandardMaterial({vertexColors:true,side:T.DoubleSide,roughness:.82,metalness:0});
     plantMaterial.onBeforeCompile=shader=>{
@@ -309,7 +316,17 @@
       if(!group.visible)return;
       before.copy(position);
       position.y=Math.max(position.y,FLOOR+.35+radius);
-      pushBox(position,[17.2,-25,-78],[65,-2,34],radius);
+      // Match the submerged wall profile instead of an oversized box that
+      // kept swimmers several metres away from the visible limestone.
+      if(position.z>-78-radius&&position.z<34+radius){
+        const z=position.z,lip=-3.4+.55*Math.sin(z*.23)+.25*Math.sin(z*.81);
+        const f=T.MathUtils.clamp((position.y-FLOOR)/(lip-FLOOR),0,1);
+        const wallX=20.8+Math.sin(z*.19)*1.8+Math.sin(z*.67)*.55+(1-f)*4+Math.sin(f*24+z*.14)*.6;
+        if(position.y<lip+radius&&position.x>wallX-radius-.25){
+          if(position.y>lip)position.y=lip+radius;
+          else position.x=wallX-radius-.25;
+        }
+      }
       collisionPoint.copy(position).applyMatrix4(inverseVessel);
       pushBox(collisionPoint,[-14,0,-2.6],[14,4.1,2.6],radius);
       pushBox(collisionPoint,[-7.3,3.7,-2.5],[5.3,6.6,2.5],radius);
@@ -319,7 +336,7 @@
       before.subVectors(position,before);
       if(before.lengthSq()>1e-10){offset.add(before);before.normalize();const inward=velocity.dot(before);if(inward<0)velocity.addScaledVector(before,-inward);}
     }
-    return {group,floorY:FLOOR,wreckMatrix:vessel.matrix.clone(),constrain,setVisible(value){group.visible=!!value;}};
+    return {group,setDetail(amount){leaves.setDrawRange(0,Math.max(1,Math.round(leafCount*amount))*42);},floorY:FLOOR,wreckMatrix:vessel.matrix.clone(),constrain,setVisible(value){group.visible=!!value;}};
   };
 })();
 

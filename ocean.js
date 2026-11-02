@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Kristian R. Harreby. See LICENSE for terms.
+ * Copyright (C) 2026 Kristian Rauhe Harreby. See LICENSE for terms.
  *
  * The Blue Deep: a standalone, continuous WebGL scene with modelled hammerheads.
  * Scene assets are local; the screensaver works entirely offline.
@@ -344,13 +344,15 @@
   causticTarget.texture.name='Wave-focused sunlight at three depths';
 
   const causticGeometries=[80,112,144,168].map(seg=>new T.PlaneGeometry(causticSpan,causticSpan,seg,seg));
+  // Every tier is capped at 30 fps. Tier zero is Auto's emergency reserve.
   const qualityPresets = [
-    { label: 'Eco · 24 fps', aria: 'Eco, 24 fps', fps: 24, maxDpr: 1.0, causticSize: 512, causticGridIndex: 0, causticGrid: 80, causticEvery: 2, multiTap: 0, shafts: 72, fish: 60, maxOptical: 10, lodDist: 34 },
-    { label: 'Balanced · 30 fps', aria: 'Balanced, 30 fps', fps: 30, maxDpr: 1.35, causticSize: 512, causticGridIndex: 1, causticGrid: 112, causticEvery: 1, multiTap: 1, shafts: 108, fish: 95, maxOptical: 16, lodDist: 48 },
-    { label: 'High · 40 fps', aria: 'High, 40 fps', fps: 40, maxDpr: 1.6, causticSize: 512, causticGridIndex: 2, causticGrid: 144, causticEvery: 1, multiTap: 1, shafts: 132, fish: 110, maxOptical: 24, lodDist: 64 },
-    { label: 'Ultra · 60 fps', aria: 'Ultra, 60 fps', fps: 60, maxDpr: 2.0, causticSize: 1024, causticGridIndex: 3, causticGrid: 168, causticEvery: 1, multiTap: 1, shafts: 132, fish: 110, maxOptical: 24, lodDist: 999 }
-  ];
-  let currentQuality = qualityPresets[1]; // Default: Balanced · 30 fps
+    {label:'Eco reduced',maxDpr:.65,causticSize:256,causticGridIndex:0,causticGrid:80,causticEvery:3,multiTap:0,shafts:36,fish:70,maxOptical:6,lodDist:24,detail:0,grass:.16,population:.45,particles:.2},
+    {label:'Eco',maxDpr:1,causticSize:256,causticGridIndex:0,causticGrid:80,causticEvery:2,multiTap:0,shafts:60,fish:140,maxOptical:8,lodDist:34,detail:0,grass:.3,population:.65,particles:.4},
+    {label:'Balanced',maxDpr:1.35,causticSize:512,causticGridIndex:1,causticGrid:112,causticEvery:1,multiTap:1,shafts:108,fish:300,maxOptical:16,lodDist:48,detail:1,grass:.55,population:.85,particles:.7},
+    {label:'High',maxDpr:1.6,causticSize:512,causticGridIndex:2,causticGrid:144,causticEvery:1,multiTap:1,shafts:132,fish:480,maxOptical:24,lodDist:64,detail:2,grass:.8,population:1,particles:1},
+    {label:'Ultra',maxDpr:2,causticSize:1024,causticGridIndex:3,causticGrid:168,causticEvery:1,multiTap:1,shafts:132,fish:600,maxOptical:24,lodDist:999,detail:3,grass:1,population:1,particles:1}
+  ].map(p=>({...p,fps:30,aria:p.label+', maximum 30 fps'}));
+  let currentQuality = qualityPresets[2];
 
   // Shared 24-animal optical field across sharks, jellyfish, light shafts and particles.
   const animalFieldCount=24;
@@ -1529,6 +1531,8 @@
   // and are hidden/reused as the slider moves back and forth.
   // This creates at most 40 sharks, regardless of how long the page runs.
   const animalCountInput=document.getElementById('animal-count');
+  let animalDensity=.65,animalCrabCount=2;
+  const schoolPopulation=()=>Math.round(currentQuality.fish*(.25+.75*animalDensity));
   function setSharkCount(value){
     const count=T.MathUtils.clamp(Math.round(Number(value)),0,40);
     while(sharks.length<count){
@@ -1539,7 +1543,8 @@
     }
     const selected=selectedSharkSpecies();
     sharks.forEach((shark,index)=>{
-      shark.mesh.visible=index<count && selected.length>0;
+      shark.populationEnabled=index<count && selected.length>0;
+      shark.mesh.visible=shark.populationEnabled&&!shark.navigation?.returnAt;
       const species=selected[index%selected.length];
       if(species && shark.species!==species){
         shark.species=species;
@@ -1551,7 +1556,8 @@
     });
   }
   function setAnimalCount(value){
-    const count=T.MathUtils.clamp(Math.round(Number(value)),0,40);
+    const level=T.MathUtils.clamp(Number(value),0,100);animalDensity=level/100;
+    const count=Math.round((8+32*animalDensity)*currentQuality.population);
     const selected=speciesInputs.filter(input=>input.checked).map(input=>input.value);
     const jellyIndex=selected.indexOf('jellyfish');
     // Round-robin allocation keeps the exact total, even when it cannot be
@@ -1560,8 +1566,14 @@
       +(jellyIndex<count%selected.length?1:0);
     setSharkCount(selected.length?count-jellyCount:0);
     jellyfish.setCount(jellyCount);
-    animalCountInput.value=String(count);
-    document.getElementById('animal-count-value').value=String(count);
+    animalCountInput.value=String(level);
+    const label=level<34?'Low':level<67?'Medium':'High';
+    document.getElementById('animal-count-value').value=label;
+    animalCountInput.setAttribute('aria-valuetext',label);
+    fish.count=schoolPopulation();
+    animalCrabCount=1+Math.round(animalDensity*2*currentQuality.population);
+    combJellies.setCount(1+Math.round(animalDensity*2*currentQuality.population));
+    benthicLife.setDensity((.25+.75*animalDensity)*currentQuality.population);
     redrawNeeded=true;
   }
 
@@ -1708,7 +1720,7 @@
   function setParticleCount(value){
     const count=T.MathUtils.clamp(Math.round(Number(value)/100)*100,0,particleCount);
     // Reuse the fixed buffer: changing density allocates no geometry or material.
-    particleGeometry.setDrawRange(0,count);
+    particleGeometry.setDrawRange(0,Math.round(count*currentQuality.particles));
     particles.visible=count>0;
     particleCountInput.value=String(count);
     document.getElementById('particle-count-value').value=String(count);
@@ -1779,9 +1791,9 @@
           }
 
           // Individual brief plankton flashes, spatially scattered around motion.
-          float tauRise = 0.025;
-          float tauDecay = 0.18;
-          float localAge = max(0.0, age - aBioData.z * 0.06);
+          float tauRise = mix(0.015, 0.045, aBioData.z);
+          float tauDecay = mix(0.11, 0.28, fract(aBioData.z * 7.31));
+          float localAge = max(0.0, age - aBioData.z * 0.12);
           float flash = (tauDecay / (tauDecay - tauRise)) * (exp(-localAge / tauDecay) - exp(-localAge / tauRise));
 
           vAlpha = clamp(flash * aBioData.y * sqrt(uAmount), 0.0, 1.1);
@@ -1857,7 +1869,7 @@
       remainingBudget = Math.min(120, Math.ceil(60 * frameScale));
     }
 
-    function emitBurst(x, y, z, vx, vy, vz, shearIntensity, count, spread = 0.025) {
+    function emitBurst(x, y, z, vx, vy, vz, shearIntensity, count, spread = 0.025, edgeEnd = null, edgeVelocity = null) {
       const amount = uniforms.uAmount.value;
       const sourceSpeed = Math.hypot(vx, vy, vz);
       if (amount <= 0 || shearIntensity <= 0.01 || count <= 0 || remainingBudget <= 0 || sourceSpeed < 0.08 || sourceSpeed > 20) return;
@@ -1871,13 +1883,24 @@
       const clampedIntensity = Math.min(1.2, shearIntensity);
 
       for (let c = 0; c < count; c++) {
-        // Activate a narrow swept strip in the water actually crossed since
-        // the last frame. No surrounding sphere, orbit or attached light swarm.
-        const along = Math.random() * frameSeconds;
-        const thickness = Math.min(0.045, Math.max(0.008, spread));
-        const px = x - vx * along + (Math.random() - .5) * thickness;
-        const py = y - vy * along + (Math.random() - .5) * thickness;
-        const pz = z - vz * along + (Math.random() - .5) * thickness;
+        // Sample continuously along the disturbed edge, never fixed lamp points.
+        const u=Math.random();
+        const ex=edgeEnd?x+(edgeEnd.x-x)*u:x;
+        const ey=edgeEnd?y+(edgeEnd.y-y)*u:y;
+        const ez=edgeEnd?z+(edgeEnd.z-z)*u:z;
+        const dx=edgeVelocity?vx+(edgeVelocity.x-vx)*u:vx;
+        const dy=edgeVelocity?vy+(edgeVelocity.y-vy)*u:vy;
+        const dz=edgeVelocity?vz+(edgeVelocity.z-vz)*u:vz;
+        const along = Math.random() * (frameSeconds + .09*Math.random());
+        const thickness = Math.min(0.18, Math.max(0.012, spread))*(.35+Math.random());
+        const px = ex - dx * along + (Math.random() - .5) * thickness;
+        const py = ey - dy * along + (Math.random() - .5) * thickness;
+        const pz = ez - dz * along + (Math.random() - .5) * thickness;
+        // Patchiness belongs to the water; successive strokes encounter varying
+        // organism densities rather than an identical pulse on every fin beat.
+        const patch=Math.imul(Math.floor(px/1.7),1597334677)^Math.imul(Math.floor(py/1.7),3812015801)^Math.imul(Math.floor(pz/1.7),95868913);
+        const density=.3+.7*((patch>>>0)/4294967295);
+        if(Math.random()>density)continue;
         const cx = Math.floor(px / .025), cy = Math.floor(py / .025), cz = Math.floor(pz / .025);
         const key = Math.imul(cx, 73856093) ^ Math.imul(cy, 19349663) ^ Math.imul(cz, 83492791);
         const slot = key & 8191;
@@ -1890,9 +1913,9 @@
         const seed = Math.random();
 
         const pIdx = idx * 3;
-        posArray[pIdx + 0] = (cx + .5) * .025;
-        posArray[pIdx + 1] = (cy + .5) * .025;
-        posArray[pIdx + 2] = (cz + .5) * .025;
+        posArray[pIdx + 0] = px;
+        posArray[pIdx + 1] = py;
+        posArray[pIdx + 2] = pz;
 
         // The organism remains in the water after contact, with only a slight
         // shared current. The swimmer's velocity is never assigned to the light.
@@ -1940,6 +1963,9 @@
     return {
       emitBurst,
       emitDisturbance,
+      emitEdge(a,b,va,vb,intensity,count,width=.09){
+        emitBurst(a.x,a.y,a.z,va.x,va.y,va.z,intensity,count,width,b,vb);
+      },
       beginFrame,
       setAmount,
       getAmount: () => uniforms.uAmount.value,
@@ -1982,7 +2008,7 @@
     const colors = [];
     const indices = [];
 
-    const colBack = new T.Color(0x2b5066);
+    const colBack = new T.Color(0x254f4a);
     const colFlank = new T.Color(0xaad0dc);
     const colBelly = new T.Color(0xdce9ed);
 
@@ -2054,7 +2080,7 @@
   }
 
   const fishGeometry = buildSmallFishGeometry();
-  const fishCount = 110;
+  const fishCount = 600;
   const fishPhases = new Float32Array(fishCount);
   for (let i = 0; i < fishCount; i++) fishPhases[i] = random() * Math.PI * 2;
   fishGeometry.setAttribute('fishPhase', new T.InstancedBufferAttribute(fishPhases, 1));
@@ -2068,9 +2094,11 @@
   fishMaterial.onBeforeCompile = shader => {
     shader.uniforms.time = waterUniforms.time;
     shader.uniforms.daylight = waterUniforms.daylight;
+    shader.uniforms.fishSun = waterUniforms.lightDirection;
+    shader.uniforms.fishSunPower = waterUniforms.sunPower;
     shader.vertexShader = `uniform float time;
       attribute float fishPhase;
-      varying vec3 vFishWorld;
+      varying vec3 vFishWorld;varying vec3 vFishNormal;varying vec3 vFishLocal;
       ${shader.vertexShader}`;
     shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>',
       `#include <beginnormal_vertex>
@@ -2083,11 +2111,23 @@
       float tailW2 = clamp((.10 - position.x) / .45, 0., 1.);
       float wave2 = sin(fishPhase + position.x * 11.5) * tailW2 * tailW2 * .058;
       transformed.z += wave2;
-      vFishWorld = (modelMatrix * instanceMatrix * vec4(transformed, 1.)).xyz;`);
-    shader.fragmentShader = `varying vec3 vFishWorld;
+      vFishWorld = (modelMatrix * instanceMatrix * vec4(transformed, 1.)).xyz;
+      vFishNormal=normalize(mat3(modelMatrix)*mat3(instanceMatrix)*objectNormal);vFishLocal=position;`);
+    shader.fragmentShader = `varying vec3 vFishWorld;varying vec3 vFishNormal;varying vec3 vFishLocal;uniform vec3 fishSun;uniform float fishSunPower;
       ${shader.fragmentShader}`;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
+      float eye=1.-smoothstep(.006,.012,length(vFishLocal.xy-vec2(.185,.018)));
+      float spots=(1.-smoothstep(.10,.23,abs(fract((vFishLocal.x+.12)*24.)-.5)))*(1.-smoothstep(.005,.014,abs(vFishLocal.y-.025)));
+      spots*=step(-.16,vFishLocal.x)*step(vFishLocal.x,.10);
+      diffuseColor.rgb*=1.-max(eye*.94,spots*.43);`);
     shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>',
-      `float waterDepth = max(0., 15. - vFishWorld.y);
+      `vec3 sideNormal=normalize(vFishNormal);
+      vec3 toEye=normalize(cameraPosition-vFishWorld),toSun=normalize(fishSun);
+      vec3 halfAngle=normalize(toSun+toEye);
+      float flank=1.-smoothstep(.035,.070,abs(vFishLocal.y));
+      float glint=pow(max(0.,dot(sideNormal,halfAngle)),72.)*max(0.,dot(sideNormal,toSun))*flank;
+      outgoingLight+=vec3(.72,.91,1.)*glint*fishSunPower*3.5;
+      float waterDepth = max(0., 15. - vFishWorld.y);
       float viewDist = length(vViewPosition);
       vec3 verticalAbsorption = exp(-vec3(.020, .007, .0015) * max(0., waterDepth - 11.));
       vec3 pathAbsorption = exp(-vec3(.014, .004, .0008) * viewDist);
@@ -2095,7 +2135,7 @@
       #include <opaque_fragment>`);
   };
   const fish = new T.InstancedMesh(fishGeometry, fishMaterial, fishCount);
-  fish.count = currentQuality.fish;
+  fish.count = schoolPopulation();
   fish.instanceMatrix.setUsage(T.DynamicDrawUsage);
   fish.frustumCulled = false;
   scene.add(fish);
@@ -2349,13 +2389,13 @@
   const marineEnvironment=window.createMarineEnvironment(T,diveSite,hemmoorTruck);
   marineEnvironment.setRig(freedivers);
   window.marineEnvironment=marineEnvironment;
-  const marineAgents=window.createMarineAgents(T,marineEnvironment,fishSeeds,sharks);
+  const marineAgents=window.createMarineAgents(T,marineEnvironment,fishSeeds,sharks,camera);
   const benthicLife=window.createBenthicLife(T,scene,waterUniforms,marineEnvironment);
   const combJellies=window.createCombJellies(T,scene,waterUniforms,marineEnvironment);
   const behaviorThreats=[];
-  for (const [id, feature] of [['show-scuba', scubaDivers], ['show-crab', kingCrab], ['show-bottom-life',benthicLife], ['show-comb-jellies',combJellies], ['show-dive-site', diveSite], ['show-hemmoor', hemmoorTruck]]) {
+  for (const [id, feature] of [['show-scuba', scubaDivers], ['show-crab', kingCrab], ['show-bottom-life',benthicLife], ['show-comb-jellies',combJellies], ['show-dive-site', diveSite]]) {
     const input = document.getElementById(id);
-    if (input && feature) input.addEventListener('change', () => { feature.setVisible(input.checked); redrawNeeded = true; });
+    if (input && feature) input.addEventListener('change', () => { feature.setVisible(input.checked); if(id==='show-dive-site'&&hemmoorTruck)hemmoorTruck.setVisible(input.checked); redrawNeeded = true; });
   }
   const showFreediversInput = document.getElementById('show-freedivers');
   if (showFreediversInput && freedivers) {
@@ -2376,6 +2416,8 @@
   let animationRequest=0;
   let contextLost=false;
   let redrawNeeded=true;
+  document.getElementById('scuba-scenario')?.addEventListener('change',()=>{redrawNeeded=true;});
+  document.getElementById('scuba-replay')?.addEventListener('click',()=>{redrawNeeded=true;});
   function changeLightingTime(){
     updateDaylight(new Date());
     redrawNeeded=true;
@@ -2526,8 +2568,21 @@
 
   const qualityInput = document.getElementById('quality');
   const qualityValue = document.getElementById('quality-value');
+  const qualityAuto=document.getElementById('quality-auto');
+  let gpuName='';
+  try{const gl=renderer.getContext(),ext=gl.getExtension('WEBGL_debug_renderer_info');
+    if(ext)gpuName=gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)||'';}catch(_){}
+  const initialQuality=OceanAdaptiveQuality.startingLevel({
+    mobile:/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||
+      (matchMedia('(pointer: coarse)').matches&&Math.min(screen.width,screen.height)<900),renderer:gpuName});
+  const qualityGovernor=OceanAdaptiveQuality.create(initialQuality);
+  let measuredFps=null;
+  function qualityLabel(){
+    qualityValue.value=(qualityAuto.checked?'Auto · ':'')+currentQuality.label+
+      (measuredFps===null?' · max 30 fps':' · '+Math.round(measuredFps)+' fps');
+  }
   function setQuality(index) {
-    const idx = T.MathUtils.clamp(Math.round(Number(index)), 0, 3);
+    const idx = T.MathUtils.clamp(Math.round(Number(index)), 0, 4);
     currentQuality = qualityPresets[idx];
     renderer.setPixelRatio(Math.min(devicePixelRatio, currentQuality.maxDpr));
     resize();
@@ -2538,19 +2593,33 @@
     causticUniforms.waveFootprint.value = causticSpan / currentQuality.causticGrid;
     oceanOptics.causticMultiTap.value = currentQuality.multiTap;
     shaftGeometry.instanceCount = currentQuality.shafts;
-    if (fish) fish.count = currentQuality.fish;
+    setAnimalCount(animalCountInput.value);
+    setParticleCount(particleCountInput.value);
+    diveSite.setDetail(currentQuality.grass);
+    jellyfish.setDetail(currentQuality.detail);
+    scubaDivers.playback.boatWater.setDetail(currentQuality.particles);
     previousCausticTime = NaN;
     redrawNeeded = true;
     if (qualityInput) {
-      qualityInput.value = String(idx);
+      qualityInput.value = String(Math.max(0,idx-1));
       qualityInput.setAttribute('aria-valuetext', currentQuality.aria);
     }
     if (qualityValue) {
-      qualityValue.value = currentQuality.label;
+      qualityLabel();
     }
   }
-  if (qualityInput) qualityInput.addEventListener('input', e => setQuality(e.target.value));
-  setQuality(qualityInput ? qualityInput.value : 1);
+  qualityInput.addEventListener('input',e=>{
+    qualityAuto.checked=false;measuredFps=null;setQuality(Number(e.target.value)+1);
+    qualityGovernor.setLevel(Number(e.target.value)+1,performance.now());
+  });
+  qualityAuto.addEventListener('change',()=>{
+    measuredFps=null;
+    const level=qualityAuto.checked?initialQuality:Number(qualityInput.value)+1;
+    qualityGovernor.setLevel(level,performance.now());setQuality(level);
+  });
+  setQuality(initialQuality);
+  qualityGovernor.reset(performance.now());
+  window.addEventListener('resize',()=>qualityGovernor.reset(performance.now()));
 
   // Scratch objects reused by renderScene.
   const maxCandidateAnimals=100;
@@ -2563,6 +2632,7 @@
   // Scratch objects and kinematic fin tracker for bioluminescent shear wake
   const bioSharkTipScratch=new T.Vector3();
   const bioSharkTipWorld=new T.Vector3();
+  const bioSharkEdgeWorld=new T.Vector3();
   const bioFinVel=new T.Vector3();
   const bioSharkForward=new T.Vector3();
   const bioJellyRimScratch=new T.Vector3();
@@ -2601,7 +2671,7 @@
       const n=shark.navigation;
       x=n.p.x;y=n.p.y;z=n.p.z;
       const v=n.v,pace=v.length();
-      shark.mesh.rotation.set(0,Math.atan2(-v.z,v.x),Math.asin(T.MathUtils.clamp(v.y/Math.max(.01,pace),-.35,.35)),'YXZ');
+      shark.mesh.rotation.set(0,-n.yaw,n.pitch,'YXZ');
       shark.mesh.rotateX(T.MathUtils.clamp(-n.turn*.45,-.18,.18));
       shark.uniforms.sharkSpeed.value=(paused?0:pace*speed)+shark.velocity.length();
     }
@@ -2743,14 +2813,14 @@
     behaviorThreats.length=0;
     for(const animal of sharks)if(animal.mesh.visible)behaviorThreats.push({p:animal.mesh.position,kind:'shark',radius:animal.scale*3});
     if(freedivers&&freedivers.group.visible)for(const d of freedivers.activeDivers)if(d.visible)behaviorThreats.push({p:d.position,kind:'diver',radius:1});
-    if(scubaDivers&&scubaDivers.group.visible)for(const d of scubaDivers.divers)behaviorThreats.push({p:d.root.position,kind:'diver',radius:1});
-    marineAgents.update(animationTime,behaviorThreats,currentQuality.fish,heldShark);
+    if(scubaDivers&&scubaDivers.group.visible)for(const d of scubaDivers.divers)if(d.root.visible)behaviorThreats.push({p:d.root.position,kind:'diver',radius:1});
+    marineAgents.update(animationTime,behaviorThreats,fish.count,heldShark);
     combJellies.update(animationTime,behaviorThreats,scubaDivers);
     const bottomVisible=document.getElementById('show-bottom-life').checked && diveSite.group.visible;
     if(benthicLife.group.visible!==bottomVisible)benthicLife.setVisible(bottomVisible);
-    for(const kingCrab of kingCrabs){kingCrab.group.visible=document.getElementById('show-crab').checked&&diveSite.group.visible;kingCrab.update(animationTime,{threats:behaviorThreats,sediment:benthicLife});}
+    for(const [index,kingCrab] of kingCrabs.entries()){kingCrab.group.visible=index<animalCrabCount&&document.getElementById('show-crab').checked&&diveSite.group.visible;kingCrab.update(animationTime,{threats:behaviorThreats,sediment:benthicLife});}
     benthicLife.update(animationTime,behaviorThreats);
-    if(!paused&&bottomVisible&&scubaDivers.group.visible)for(const diver of scubaDivers.divers)for(const leg of diver.legs)benthicLife.contact(leg,leg.previousTip,animationTime);
+    if(!paused&&bottomVisible&&scubaDivers.group.visible)for(const diver of scubaDivers.divers)if(diver.root.visible)for(const leg of diver.legs)benthicLife.contact(leg,leg.previousTip,animationTime);
     if(!paused&&bottomVisible&&freedivers.group.visible)for(const diver of freedivers.activeDivers)for(const tip of diver.finTips)benthicLife.contact(tip,tip,animationTime);
 
     // Both kinds of animal share grabbing, inertia and release recovery.
@@ -2775,7 +2845,7 @@
           if (bodySpeed > 0.025 && bodySpeed < 20) {
             for (const side of [-1, 1]) {
               // Thin separation strips immediately behind the gill/shoulder edges.
-              bioBodyPoint.set(0.9, -0.08, side * 0.56)
+              bioBodyPoint.set(.45+Math.random()*.9, -.08+(Math.random()-.5)*.18, side * (.48+Math.random()*.12))
                 .multiplyScalar(s.scale).applyQuaternion(s.mesh.quaternion).add(s.mesh.position);
               oceanBioluminescence.emitDisturbance(
                 bioBodyPoint.x, bioBodyPoint.y, bioBodyPoint.z,
@@ -2793,14 +2863,9 @@
           if (finSpeed > 0.45) {
             const shear = Math.min(2.0, (finSpeed - 0.45) / 0.85);
             const count = Math.min(6, Math.floor(1 + shear * 4));
-            oceanBioluminescence.emitBurst(
-              bioSharkTipWorld.x, bioSharkTipWorld.y, bioSharkTipWorld.z,
-              bioFinVel.x,
-              bioFinVel.y,
-              bioFinVel.z,
-              shear * nightBioFactor,
-              count
-            );
+            getSharkFinWorldPos(s,-3.7,-0.55,0,0.35,false,bioSharkEdgeWorld);
+            oceanBioluminescence.emitEdge(bioSharkEdgeWorld,bioSharkTipWorld,bioFinVel,bioFinVel,
+              shear * nightBioFactor,count,.12*s.scale);
           }
         }
         s.prevCaudalTip.copy(bioSharkTipWorld);
@@ -2812,14 +2877,9 @@
           const finSpeed = bioFinVel.length();
           if (finSpeed > 0.45) {
             const shear = Math.min(1.8, (finSpeed - 0.45) / 0.85);
-            oceanBioluminescence.emitBurst(
-              bioSharkTipWorld.x, bioSharkTipWorld.y, bioSharkTipWorld.z,
-              bioFinVel.x,
-              bioFinVel.y,
-              bioFinVel.z,
-              shear * nightBioFactor * 0.75,
-              Math.min(3, Math.floor(1 + shear * 2))
-            );
+            getSharkFinWorldPos(s,-0.55,-0.13,-0.6,1,true,bioSharkEdgeWorld);
+            oceanBioluminescence.emitEdge(bioSharkEdgeWorld,bioSharkTipWorld,bioFinVel,bioFinVel,
+              shear * nightBioFactor * 0.75,Math.min(3, Math.floor(1 + shear * 2)),.12*s.scale);
           }
         }
         s.prevPectoralL.copy(bioSharkTipWorld);
@@ -2830,14 +2890,9 @@
           const finSpeed = bioFinVel.length();
           if (finSpeed > 0.45) {
             const shear = Math.min(1.8, (finSpeed - 0.45) / 0.85);
-            oceanBioluminescence.emitBurst(
-              bioSharkTipWorld.x, bioSharkTipWorld.y, bioSharkTipWorld.z,
-              bioFinVel.x,
-              bioFinVel.y,
-              bioFinVel.z,
-              shear * nightBioFactor * 0.75,
-              Math.min(3, Math.floor(1 + shear * 2))
-            );
+            getSharkFinWorldPos(s,-0.55,-0.13,0.6,1,true,bioSharkEdgeWorld);
+            oceanBioluminescence.emitEdge(bioSharkEdgeWorld,bioSharkTipWorld,bioFinVel,bioFinVel,
+              shear * nightBioFactor * 0.75,Math.min(3, Math.floor(1 + shear * 2)),.12*s.scale);
           }
         }
         s.prevPectoralR.copy(bioSharkTipWorld);
@@ -3030,10 +3085,11 @@
     for (let i = candidateCount; i < maxCandidateAnimals && candidateAnimals[i] !== null; i++) {
       candidateAnimals[i] = null;
     }
-    for(let i=0;i<currentQuality.fish;i++) {
+    for(let i=0;i<fish.count;i++) {
       const a=marineAgents.fish[i],v=a.v;
       fishTransform.position.copy(a.p);
       fishTransform.rotation.set(0,Math.atan2(-v.z,v.x),Math.asin(T.MathUtils.clamp(v.y/Math.max(.01,v.length()),-.6,.6)),'YXZ');
+      fishTransform.rotateX(a.bank);
       fishTransform.scale.setScalar(a.size);fishTransform.updateMatrix();fish.setMatrixAt(i,fishTransform.matrix);
       fishPhases[i]=a.stroke;
     }
@@ -3048,10 +3104,10 @@
   }
   function frame(now){
     animationRequest=requestAnimationFrame(frame);
-    const minFrameMs = 1000 / currentQuality.fps - 1.8;
+    const minFrameMs = 1000 / currentQuality.fps;
     if(now-lastRendered<minFrameMs || contextLost) return;
     const elapsed=Math.min((now-lastFrame)/1000,.12);
-    lastFrame=now; lastRendered=now;
+    lastFrame=now; lastRendered=now-((now-lastRendered)%minFrameMs);
     if(!paused){
       animationTime+=elapsed*speed;
       // A one-second update interval is sufficient for the smooth day cycle. Pause freezes
@@ -3064,7 +3120,14 @@
         || (s.burstPower>0)
         || s.rotationOffset.x!==0 || s.rotationOffset.y!==0 || s.rotationOffset.z!==0);
     const interacting=heldShark || sharks.some(isInteracting) || (jellyfish.group.visible && jellyfish.animals.some(isInteracting));
-    if(!paused || redrawNeeded || interacting){renderScene(elapsed);redrawNeeded=false;}
+    if(!paused || redrawNeeded || interacting){
+      renderScene(elapsed);redrawNeeded=false;
+      if(!paused && qualityAuto.checked && !document.hidden){
+        const result=qualityGovernor.sample(now);
+        if(result){measuredFps=result.fps;if(result.changed)setQuality(result.level);qualityLabel();}
+      }
+    }
+    if(paused)qualityGovernor.reset(now);
   }
   updateDaylight(new Date());
   renderScene();
@@ -3075,6 +3138,7 @@
   // Hidden tabs do not need rendering. The scene resumes without jumps
   // when the tab becomes visible again; a visible scene has no time limit.
   document.addEventListener('visibilitychange',()=>{
+    qualityGovernor.reset(performance.now());
     if(document.hidden)releaseShark();
     cancelAnimationFrame(animationRequest);
     if(!document.hidden){lastFrame=performance.now();lastLightingUpdate=-Infinity;animationRequest=requestAnimationFrame(frame);}
@@ -3083,7 +3147,7 @@
     event.preventDefault();releaseShark();contextLost=true;
     showError('The 3D display was interrupted. It will resume when the browser graphics are ready.');
   });
-  canvas.addEventListener('webglcontextrestored',()=>{contextLost=false;previousCausticTime=NaN;errorBox.hidden=true;redrawNeeded=true;lastFrame=performance.now();});
+  canvas.addEventListener('webglcontextrestored',()=>{qualityGovernor.reset(performance.now());contextLost=false;previousCausticTime=NaN;errorBox.hidden=true;redrawNeeded=true;lastFrame=performance.now();});
 
   const pauseButton=document.getElementById('pause');
   function updatePauseButton(){
@@ -3139,7 +3203,8 @@
     else if(wakeLock){await wakeLock.release();wakeLock=null;}
     revealControls();
   });
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden) requestWakeLock();});
+  document.addEventListener('visibilitychange',()=>{
+    qualityGovernor.reset(performance.now());if(!document.hidden) requestWakeLock();});
 
   const controlsFooter=document.querySelector('footer');
   const showMenuButton=document.getElementById('show-menu');

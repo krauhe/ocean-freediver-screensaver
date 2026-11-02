@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Kristian R. Harreby. See LICENSE for terms.
+ * Copyright (C) 2026 Kristian Rauhe Harreby. See LICENSE for terms.
  * A neutral-buoyancy buddy team: articulated frog kicks, a long glide phase,
  * independent breathing cycles and a bounded pool of rising gas bubbles.
  */
@@ -27,24 +27,30 @@
     const wreckMatrix = diveSite ? diveSite.wreckMatrix : new T.Matrix4().makeTranslation(-2, -23, -24);
     // A continuous sightseeing circuit, with clearance for fins and the buddy.
     // Each station pairs a swimming position with the feature being inspected.
+    const wreckStop=(name,p,aim)=>({name,p:new T.Vector3(...p).applyMatrix4(wreckMatrix).toArray(),aim:new T.Vector3(...aim).applyMatrix4(wreckMatrix).toArray()});
     const stations = [
-      {name:'Wreck deck',p:[-6,-16,-15],aim:[-5,-19,-24]},
-      {name:'Stern',p:[-20,-17,-20],aim:[-14,-20,-25]},
-      {name:'Truck cab',p:[-26,-18,-26],aim:[-22,-22,-30]},
-      {name:'Truck bed',p:[-30,-17,-36],aim:[-23,-21,-35]},
-      {name:'Behind wreck',p:[-16,-14,-35],aim:[-10,-19,-25]},
-      {name:'Wheelhouse',p:[3,-13,-34],aim:[1,-15,-24]},
-      {name:'Bow',p:[13,-13,-28],aim:[10,-19,-23]},
-      {name:'Cliff ledge',p:[13,-10,-17],aim:[21,-8,-17]},
-      {name:'Cliff rocks',p:[13,-15,-5],aim:[21,-22,-5]},
-      {name:'Bottom stones',p:[5,-20,-6],aim:[5,-23.7,-9]},
-      {name:'Sand and bottom life',p:[-8,-20,-8],aim:[-7,-23.7,-13]}
+      wreckStop('Wreck deck',[-10,5.5,4.7],[-10,4.65,2.5]),
+      wreckStop('Stern',[-16.2,5.5,1],[-14,3.7,1]),
+      {name:'Truck cab',p:[-22,-20.8,-25.9],aim:[-21.5,-21.8,-28.4]},
+      {name:'Truck front corner',p:[-28,-21,-25.7],aim:[-25.5,-21.8,-28.3],transit:true},
+      {name:'Truck side',p:[-28.2,-21.1,-30.3],aim:[-25.6,-21.5,-30.5]},
+      {name:'Truck bed',p:[-28.4,-21,-36.4],aim:[-25.6,-21.5,-36.4]},
+      {name:'Truck rear transit',p:[-28.8,-18.5,-41],aim:[-25,-22,-37],transit:true},
+      {name:'Return to wreck',p:[-18,-17.5,-37],aim:[-15,-19.3,-27],transit:true},
+      wreckStop('Behind wreck',[-10,5.5,-4.6],[-10,4.65,-2.5]),
+      wreckStop('Wheelhouse',[2.8,8,-4.2],[2.8,8,-1.7]),
+      wreckStop('Bow',[16.5,5.4,-1],[14,4.1,0]),
+      {name:'Cliff wall',p:[19.8,-14,-17],aim:[22.3,-14,-17]},
+      {name:'Cliff rocks',p:[14.5,-21,-6],aim:[17,-22,-6]},
+      {name:'Bottom stones',p:[5,-21.5,-7],aim:[5,-23.8,-7]},
+      {name:'Sand and bottom life',p:[-8,-21.5,-10],aim:[-8,-23.8,-10]}
     ];
     const route = new T.CatmullRomCurve3(stations.map(s=>new T.Vector3(...s.p)),true,'centripetal');
     const durations=stations.map((s,i)=>route.getPoint(i/stations.length).distanceTo(route.getPoint((i+1)/stations.length))/.32);
     const routeDuration=durations.reduce((a,b)=>a+b,0), routeAim=new T.Vector3();
     let routePitch=0;
     function sampleRoute(time, index, position) {
+      time+=1.4*Math.sin(time*.11+index*2.7);
       let clock=((time%routeDuration)+routeDuration)%routeDuration,segment=0;
       while(segment<durations.length-1&&clock>=durations[segment])clock-=durations[segment++];
       const f=clock/durations[segment];
@@ -54,7 +60,7 @@
       route.getPoint(u,position);route.getTangent(u,routeTangent);
       const horizontal=Math.hypot(routeTangent.x,routeTangent.z);
       // Parallel lanes keep the pair together even while inspecting a feature.
-      const lane=(index-.5)*2.15;
+      const lane=(index-.5)*(1.65+.22*Math.sin(time*.13+index));
       position.x-=routeTangent.z/horizontal*lane;position.z+=routeTangent.x/horizontal*lane;
       position.y+=index*.30+.06*Math.sin(time*.11+index);
       routePitch=Math.atan2(routeTangent.y,horizontal)*.65;
@@ -180,20 +186,23 @@
       hose(root, [[0.46, 0.43, -0.10], [0.25, 0.32, -0.36], [0.18, -0.15, -0.38], [0.44, -0.23, -0.26]], rubber, 0.032);
       hose(root, [[0.49, 0.42, 0], [-0.18, -0.16, 0.37], [0.06, -0.28, 0.28]], accent, 0.018);
       ellipsoid(root, [0.06, -0.28, 0.28], [0.08, 0.065, 0.075], accent);
-      // Relaxed arms, folded in front; bare hands remain visible against the suit.
-      for (const side of [-1, 1]) {
-        const shoulder = [0.35, -0.02, side * 0.26], elbow = [0.09, -0.39, side * 0.36], wrist = [0.64, -0.35, side * 0.21];
-        ellipsoid(root, shoulder, [0.19, 0.15, 0.155], suit);
-        segment(root, shoulder, elbow, 0.102, suit);
-        ellipsoid(root, elbow, [0.11, 0.11, 0.11], rubber);
-        segment(root, elbow, wrist, 0.080, suit);
-        segment(root, [0.22, -0.36, side * 0.32], [0.34, -0.35, side * 0.29], 0.083, accent);
-        ellipsoid(root, [0.69, -0.35, side * 0.20], [0.14, 0.06, 0.075], skin);
+      // Jointed arms: shoulders and elbows carry the hand, computer and torch.
+      const arms=[];
+      for(const side of [-1,1]){
+        const shoulder=new T.Group();shoulder.position.set(.35,-.02,side*.26);root.add(shoulder);
+        ellipsoid(shoulder,[0,0,0],[.19,.15,.155],suit);
+        segment(shoulder,[0,0,0],[-.26,-.37,side*.10],.102,suit);
+        const elbow=new T.Group();elbow.position.set(-.26,-.37,side*.10);shoulder.add(elbow);
+        ellipsoid(elbow,[0,0,0],[.11,.11,.11],rubber);
+        segment(elbow,[0,0,0],[.55,.04,-side*.15],.08,suit);
+        segment(elbow,[.13,.03,-side*.04],[.25,.04,-side*.07],.083,accent);
+        const hand=new T.Group();hand.position.set(.60,.04,-side*.16);elbow.add(hand);
+        ellipsoid(hand,[0,0,0],[.14,.06,.075],skin);
+        if(side<0){box(hand,[-.1,-.06,0],[.12,.04,.13],rubber);box(hand,[-.1,-.085,0],[.085,.009,.09],glass);}
+        arms.push({shoulder,elbow,hand,side});
       }
-      box(root, [0.54, -0.41, 0.24], [0.12, 0.04, 0.13], rubber);
-      box(root, [0.54, -0.435, 0.24], [0.085, 0.009, 0.09], glass);
       // The hand-held torch pivots at the grip independently of the swim heading.
-      const torchRig = new T.Group(); torchRig.position.set(.69, -.35, .20); root.add(torchRig);
+      const torchRig = new T.Group(); torchRig.position.set(0,0,0); arms[1].hand.add(torchRig);
       segment(torchRig, [0, 0, -.08], [0, 0, .22], .055, metal);
       segment(torchRig, [0, 0, .18], [0, 0, .28], .075, rubber);
       const lensMaterial = material(0xd4e9ed, { emissive: 0xb9eaff, emissiveIntensity: 0 });
@@ -219,13 +228,19 @@
         segment(fin, [-0.10, 0, 0.11], [-0.58, -0.04, 0.19], 0.011, accent);
         legs.push({ hip, knee, fin, side, previousTip: new T.Vector3() });
       }
-      return { root, head, legs, torch, torchLens, torchRig, torchTarget, beam, breath: 0, kick: 0, prevPosition: new T.Vector3(), hasPrevious: false };
+      return { root, head, legs, arms, torch, torchLens, torchRig, torchTarget, beam, breath: 0, kick: 0, prevPosition: new T.Vector3(), hasPrevious: false };
     }
     const divers = [createDiver(0), createDiver(1)];
+    const playback=window.createScubaScenarios(T,group,stations,durations,sampleRoute,waterUniforms,()=>routePitch/.65);
+    const attentionA=new T.Vector3(),attentionB=new T.Vector3(),localAttention=new T.Vector3();
+    function attentionPoint(base,slot,index,out){
+      const hash=n=>{const v=Math.sin(n*127.1+index*311.7)*43758.5453;return v-Math.floor(v);};
+      return out.copy(base).add(new T.Vector3((hash(slot)-.5)*3.2,(hash(slot+31)-.5)*1.7,(hash(slot+67)-.5)*2.4));
+    }
 
     // Identical optics and ascent law to the freedivers, with a regulator source.
     // Fixed pool, one draw call, fixed-step integration and bounded pair checks.
-    const bubbleCount = 640;
+    const bubbleCount = 8192;
     const positions = new Float32Array(bubbleCount * 3);
     const radii = new Float32Array(bubbleCount);
     const initialRadii = new Float32Array(bubbleCount);
@@ -250,6 +265,10 @@
     let bubbleHead = 0, lastTime, bubbleAccumulator = 0, initialPlumePending = true;
 
     function emitBubble(origin, forward) {
+      // Never recycle gas still travelling through the water column.
+      let searched=0;
+      while(radii[bubbleHead]>0&&searched++<bubbleCount)bubbleHead=(bubbleHead+1)%bubbleCount;
+      if(searched>=bubbleCount)return -1;
       const i = bubbleHead; bubbleHead = (bubbleHead + 1) % bubbleCount;
       const p = i * 3;
       // Mostly tiny regulator bubbles, with only occasional larger gas caps.
@@ -272,10 +291,10 @@
       // including the regulator's earlier positions along the swimming route.
       for (let n = 0; n < 38; n++) {
         const age = n / 38 * 1.35;
-        const heading = sampleRoute(time - age, index, routePoint);
+        const pose=playback.sample(time-age,index,routePoint,worldPoint);if(!pose.visible||routePoint.y>=14.5)continue;const heading=pose.heading;
         swimForward.set(Math.cos(heading), 0, -Math.sin(heading));
         mouth.copy(routePoint).addScaledVector(swimForward, 1.04 * 1.28); mouth.y -= .10 * 1.28;
-        const i = emitBubble(mouth, swimForward), p = i * 3;
+        const i = emitBubble(mouth, swimForward); if(i<0)continue; const p = i * 3;
         for (let elapsed = 0; elapsed < age; elapsed += 1 / 60) {
           const dt = Math.min(1 / 60, age - elapsed);
           radii[i] = window.diverBubbleExpansion(initialRadii[i], spawnPressure[i], positions[p + 1]);
@@ -291,7 +310,7 @@
       for (let i = 0; i < bubbleCount; i++) {
         if (radii[i] === 0) continue;
         const p = i * 3; ages[i] += dt;
-        if (ages[i] > 42 || positions[p + 1] >= 14.96) {
+        if (positions[p + 1] >= 14.96) {
           radii[i] = 0; positions[p + 1] = -999; continue;
         }
         // The exact shared Boyle / Davies–Taylor / cap-wobble model.
@@ -347,33 +366,67 @@
       const dt = paused || !group.visible ? 0 : Math.min(0.10, elapsed);
       lastTime = time;
       if (!group.visible) return;
+      const state=playback.update(time,divers);
       const torchPower = 1 - T.MathUtils.smoothstep(daylight.value, .08, .55);
       for (let index = 0; index < divers.length; index++) {
-        const d = divers[index], heading = sampleRoute(time, index, d.root.position);
-        d.root.rotation.set(0, heading, routePitch + Math.sin(time * 0.09 + index) * 0.018);
+        const d = divers[index], pose=playback.sample(time,index,d.root.position,routeAim);
+        const heading=pose.heading;
+        d.root.visible=pose.visible;
+        d.root.rotation.set(0,heading,pose.pitch,'YXZ');
+        if(pose.orientation)d.root.quaternion.copy(pose.orientation);
+        d.activity=state.phase;
+        if(!pose.visible){d.torch.intensity=0;d.beam.visible=false;d.hasPrevious=false;continue;}
+        if(!pose.entryWeight)d.root.rotation.z+=Math.sin(time*.09+index)*.018;
         // Recovery -> outward sweep -> squeeze -> long glide; buddies are out of phase.
-        const phase = (time / 5.8 + index * 0.24) % 1;
+        const phase = (time / (5.4+index*.9) + index * 0.24) % 1;
         let kick;
         if (phase < 0.23) kick = Math.sin(phase / 0.23 * Math.PI / 2);
         else if (phase < 0.47) kick = Math.cos((phase - 0.23) / 0.24 * Math.PI / 2);
         else kick = 0;
+        kick*=pose.effort;
         d.kick = kick;
         for (const leg of d.legs) {
           leg.hip.rotation.y = leg.side * (0.045 + kick * 0.28);
           leg.knee.rotation.y = leg.side * kick * 0.31;
           // Video reference: heels rise toward the seat during loading, then
           // extend aft into the glide. Keep blade pitch nearly level throughout.
-          leg.knee.rotation.z = 0.58 - kick * 0.62;
+          leg.knee.rotation.z = T.MathUtils.lerp(0.58-kick*.62,1.15+.04*Math.sin(time*.7+index+leg.side),pose.upright||0);
           leg.fin.rotation.x = leg.side * kick * 0.62;
           leg.fin.rotation.y = leg.side * kick * 0.22;
           leg.fin.rotation.z = -leg.knee.rotation.z + 0.02 - kick * 0.08;
+          if(pose.entryWeight){
+            const e=pose.entryWeight;
+            leg.hip.rotation.z=1.35*e;
+            leg.knee.rotation.z=T.MathUtils.lerp(leg.knee.rotation.z,-1.3,e);
+            leg.fin.rotation.z=T.MathUtils.lerp(leg.fin.rotation.z,.15,e);
+          }else leg.hip.rotation.z=0;
         }
-        d.head.rotation.y = (index ? -1 : 1) * (0.07 + 0.06 * Math.sin(time * 0.16));
+        // Hold attention on a detail, then move to another with a smooth saccade.
+        const lookClock=time/(5.3+index*.9)+index*.43,slot=Math.floor(lookClock),f=lookClock-slot;
+        const blend=T.MathUtils.smoothstep(f,.70,1);
+        attentionPoint(routeAim,slot,index,attentionA);attentionPoint(routeAim,slot+1,index,attentionB);
+        attentionA.lerp(attentionB,blend);
+        if(dt>0)d.torchTarget.position.lerp(attentionA,1-Math.exp(-dt*4));else d.torchTarget.position.copy(attentionA);
         d.root.updateMatrixWorld(true);
-        // The light follows the actual subject at this part of the circuit.
-        d.torchTarget.position.copy(routeAim);
-        d.torchTarget.position.x+=.65*Math.sin(time*.19+index*2.1);
-        d.torchTarget.position.y+=.35*Math.sin(time*.13+index);
+        localAttention.copy(d.torchTarget.position);d.root.worldToLocal(localAttention);
+        const yaw=T.MathUtils.clamp(-Math.atan2(localAttention.z,Math.max(.2,localAttention.x)),-.8,.8);
+        const pitch=T.MathUtils.clamp(Math.atan2(localAttention.y,Math.max(.5,Math.hypot(localAttention.x,localAttention.z))),-.55,.5);
+        d.head.rotation.set(0,yaw*.7,pitch*.65);
+        for(const arm of d.arms){
+          const task=state.phase==='Deploy buoy'&&index===0;
+          const check=(slot+index)%5===2?Math.sin(Math.PI*T.MathUtils.clamp(f/.7,0,1)):0;
+          arm.shoulder.rotation.set(0,yaw*(arm.side>0?.35:.10),pitch*.25+(task?.25:0));
+          arm.elbow.rotation.set(0,arm.side>0?yaw*.35:.18*check,(arm.side<0?.5*check:pitch*.65)+(task?.25*Math.sin(time*1.7):0));
+        }
+        if(pose.entryWeight){
+          // Tuck chin; right hand holds mask/regulator, left holds the harness.
+          const e=pose.entryWeight;d.head.rotation.z=T.MathUtils.lerp(d.head.rotation.z,-.18,e);
+          for(const arm of d.arms){
+            arm.shoulder.rotation.set(0,-arm.side*.22*e,-.75*e);
+            arm.elbow.rotation.set(0,arm.side*.38*e,(arm.side>0?1.55:.95)*e);
+          }
+        }
+        d.root.updateMatrixWorld(true);
         d.torchRig.lookAt(d.torchTarget.position);
         d.torchRig.updateMatrixWorld(true);
         d.torch.getWorldPosition(beamOrigin);
@@ -386,10 +439,10 @@
         d.torchLens.material.emissiveIntensity = 2.5 * torchPower;
         swimForward.copy(localForward).applyQuaternion(d.root.quaternion);
         // Exhale during roughly half a 5.2-second breathing cycle, then a quiet inhale.
-        const breathPhase = (time / 5.2 + index * 0.39) % 1;
-        if (dt > 0 && breathPhase < 0.45) {
+        const breathPhase = (time / (5.2+index*.6) + index * 0.39) % 1;
+        if (dt > 0 && d.root.position.y<14.5 && breathPhase < 0.45) {
           d.breath += dt * (36 + 44 * Math.sin(breathPhase / 0.45 * Math.PI));
-          mouth.set(1.04, -0.10, 0); d.root.localToWorld(mouth);
+          mouth.set(.295, -.115, 0); d.head.localToWorld(mouth);
           while (d.breath >= 1) { emitBubble(mouth, swimForward); d.breath--; }
         } else if (breathPhase >= 0.45) d.breath = 0;
         const night = Math.max(0, Math.min(1, (.32 - daylight.value) / .30));
@@ -417,8 +470,9 @@
         }
         d.prevPosition.copy(d.root.position); d.hasPrevious = true;
       }
+      playback.update(time,divers);
       if (initialPlumePending) {
-        divers.forEach((d, index) => seedPlume(time, index));
+        divers.forEach((d, index) => {if(d.root.visible&&d.root.position.y<14.5)seedPlume(time, index);});
         initialPlumePending = false;
         bubbleGeo.attributes.position.needsUpdate = true;
         bubbleGeo.attributes.aRadius.needsUpdate = true;
@@ -454,6 +508,6 @@
       group.traverse(obj => { if (obj.geometry) geometries.add(obj.geometry); if (obj.material) materials.add(obj.material); });
       geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); scene.remove(group);
     }
-    return { group, divers, bubbles, update, setVisible, dispose, routeDuration, stations };
+    return { group, divers, bubbles, update, setVisible, dispose, routeDuration, stations, playback };
   };
 })();

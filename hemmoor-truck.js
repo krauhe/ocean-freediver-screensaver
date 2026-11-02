@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Kristian R. Harreby. See LICENSE for terms.
+ * Copyright (C) 2026 Kristian Rauhe Harreby. See LICENSE for terms.
  * Photo-inspired Kreidesee truck; artistic dimensions, not a survey model.
  * References: P. Coors, tauchernest.de, Hemmoor/Ruettler photographs (2018).
  */

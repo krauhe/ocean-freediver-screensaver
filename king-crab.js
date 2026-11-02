@@ -36,39 +36,59 @@
     shadow.rotation.x=-Math.PI/2;shadow.scale.set(.48,.39,1);group.add(shadow);
     const pose=new T.Object3D(),up=new T.Vector3(0,1,0),a=new T.Vector3(),b=new T.Vector3(),mid=new T.Vector3();
     const ground=(x,z)=>-24+.18*Math.sin(x*.23)*Math.sin(z*.17)+.09*Math.sin(x*.49+z*.28);
-    // Route stays on open sand in front of the wreck, away from rock colliders.
-    const homeX=[-7,1,9][index],homeZ=[-13,-10,-14][index];
-    const behavior={position:new T.Vector3(homeX,0,homeZ),velocity:new T.Vector3(),target:new T.Vector3(homeX+2,0,homeZ+.5),mode:'walk',timer:18+index*7,seed:9137+index*7919,walk:0,lastTime:undefined};
+    // Separate sand patches: foreground, middle distance, and beyond the stern.
+    // Jitter within each patch preserves clearance from the wreck and truck.
+    const sites=[[-9,-10],[9,-15],[-31,-33]],site=sites[index%sites.length];
+    const homeX=site[0]+(Math.random()-.5)*1.6,homeZ=site[1]+(Math.random()-.5)*1.6;
+    const initialHeading=index*2.1+.3+(Math.random()-.5)*.6;
+    const behavior={position:new T.Vector3(homeX,0,homeZ),velocity:new T.Vector3(),target:new T.Vector3(),mode:'walk',timer:40,seed:(Math.random()*4294967296)>>>0,walk:index*.31,heading:initialHeading,lastTime:undefined,alarmCooldown:0};
     const random=()=>{behavior.seed=(1664525*behavior.seed+1013904223)>>>0;return behavior.seed/4294967296;};
-    const center=()=>behavior.position.clone();
+    function chooseTarget(){
+      let angle=behavior.heading+(random()-.5)*2.4;
+      if(Math.hypot(behavior.position.x-homeX,behavior.position.z-homeZ)>2.4)
+        angle=Math.atan2(homeX-behavior.position.x,homeZ-behavior.position.z)+(random()-.5)*.6;
+      const distance=2.2+random()*1.6;
+      behavior.target.set(T.MathUtils.clamp(behavior.position.x+Math.sin(angle)*distance,homeX-3,homeX+3),0,T.MathUtils.clamp(behavior.position.z+Math.cos(angle)*distance,Math.max(homeZ-3,index===1?-18:-100),homeZ+3));
+    }
+    chooseTarget();
+    const worldCenter=new T.Vector3(),localFoot=new T.Vector3(),rotationAxis=new T.Vector3(0,1,0);
     const feet=Array.from({length:6},()=>new T.Vector3());
     const footStates=Array.from({length:6},()=>({ready:false,phase:0,anchor:new T.Vector3(),from:new T.Vector3(),to:new T.Vector3()}));
     let jointCount=0,boneCount=0,spineCount=0;
     function ellipsoid(mesh,index,p,x,y,z){pose.position.copy(p);pose.quaternion.identity();pose.scale.set(x,y,z);pose.updateMatrix();mesh.setMatrixAt(index,pose.matrix);}
     function segment(p,q,width){pose.position.copy(p).add(q).multiplyScalar(.5);a.subVectors(q,p);pose.quaternion.setFromUnitVectors(up,a.clone().normalize());pose.scale.set(width,a.length(),width);pose.updateMatrix();bones.setMatrixAt(boneCount++,pose.matrix);}
     function spike(p,dir,size){pose.position.copy(p);pose.quaternion.setFromUnitVectors(up,dir.clone().normalize());pose.scale.set(size*.34,size,size*.34);pose.updateMatrix();spines.setMatrixAt(spineCount++,pose.matrix);}
-    function footAt(t,side,row){const c=center(t);c.x+=side*(.73+row*.055);c.z+=(row-1)*.44; c.y=ground(c.x,c.z)+.018;return c;}
+    function footAt(t,side,row){
+      const p=new T.Vector3(side*(.73+row*.055),0,(row-1)*.44).applyAxisAngle(rotationAxis,behavior.heading).add(behavior.position);
+      p.y=ground(p.x,p.z)+.018;return p;
+    }
     function update(time,context={}){
       const dt=behavior.lastTime===undefined?0:Math.max(0,Math.min(.25,time-behavior.lastTime));behavior.lastTime=time;
       if(!group.visible)return;
       if(dt>0){
-        behavior.timer-=dt;
-        let danger=false;for(const t of context.threats||[])if(body.position.distanceTo(t.p)<(t.radius||0)+1.2){danger=true;break;}
-        if(danger){behavior.mode='freeze';behavior.timer=3;}
-        else if(behavior.timer<=0){
-          behavior.mode=behavior.mode==='walk'?'forage':'walk';behavior.timer=behavior.mode==='walk'?18+random()*22:2+random()*5;
-          behavior.target.set(homeX-2+random()*4,0,homeZ-1.2+random()*2.4);
-        }
-        const targetVelocity=behavior.target.clone().sub(behavior.position);targetVelocity.y=0;
-        if(behavior.mode==='walk'&&targetVelocity.length()>.08)targetVelocity.normalize().multiplyScalar(.075+index*.012);else targetVelocity.set(0,0,0);
-        behavior.velocity.lerp(targetVelocity,1-Math.exp(-dt*5));behavior.position.addScaledVector(behavior.velocity,dt);
+        behavior.timer-=dt;behavior.alarmCooldown=Math.max(0,behavior.alarmCooldown-dt);
+        worldCenter.copy(behavior.position);worldCenter.y=ground(worldCenter.x,worldCenter.z)+.36;
+        const danger=(context.threats||[]).some(t=>worldCenter.distanceTo(t.p)<(t.radius||0)+.8);
+        // A passing animal can cause a brief pause, but never reset it forever.
+        if(danger&&behavior.alarmCooldown===0){behavior.mode='freeze';behavior.timer=1.2+random();behavior.alarmCooldown=25;}
+        else if(behavior.mode==='walk'&&(behavior.position.distanceTo(behavior.target)<.22||behavior.timer<=0)){
+          behavior.mode='forage';behavior.timer=.8+random()*2.0;
+        }else if(behavior.mode!=='walk'&&behavior.timer<=0){behavior.mode='walk';behavior.timer=40;chooseTarget();}
+        const desired=Math.atan2(behavior.target.x-behavior.position.x,behavior.target.z-behavior.position.z);
+        const error=Math.atan2(Math.sin(desired-behavior.heading),Math.cos(desired-behavior.heading));
+        const turn=behavior.mode==='walk'?T.MathUtils.clamp(error,-dt*.55,dt*.55):0;
+        behavior.heading+=turn;
+        const pace=behavior.mode==='walk'?(.14+index*.017)*Math.max(.20,Math.cos(error)):0;
+        a.set(Math.sin(behavior.heading)*pace,0,Math.cos(behavior.heading)*pace);
+        behavior.velocity.lerp(a,1-Math.exp(-dt*5));behavior.position.addScaledVector(behavior.velocity,dt);
         const moving=behavior.velocity.length(),landing=footStates.some(f=>f.phase>.67);
-        behavior.walk+=dt*(moving>.002?moving/.105:landing?.16:0);
+        behavior.walk+=moving*dt/.20+Math.abs(turn)*.65+(moving<.002&&landing?dt*.22:0);
       }
       jointCount=boneCount=spineCount=0;
-      const c=center(time);c.y=ground(c.x,c.z)+.36;
-      body.position.copy(c);body.rotation.set(.025*Math.sin(time*.6),0,.018*Math.sin(time*.9));
-      shadow.position.set(c.x,ground(c.x,c.z)+.012,c.z);
+      group.position.set(behavior.position.x,0,behavior.position.z);group.rotation.y=behavior.heading;
+      const c=new T.Vector3(0,ground(behavior.position.x,behavior.position.z)+.36,0);
+      body.position.copy(c);body.rotation.set(.025*Math.sin(time*.6+index),0,.018*Math.sin(time*.9+index));
+      shadow.position.set(0,c.y-.348,0);
       // Each foot is anchored in world space during stance. Alternating tripods
       // lift only on the return stroke; body movement never drags planted toes.
       for(let side=-1;side<=1;side+=2)for(let row=0;row<3;row++){
@@ -80,12 +100,13 @@
         const foot=feet[index];foot.copy(state.anchor);
         if(phase>.67){const f=(phase-.67)/.33,s=f*f*(3-2*f);foot.copy(state.from).lerp(state.to,s);foot.y+=Math.sin(f*Math.PI)*.09;}
         state.phase=phase;
+        localFoot.copy(foot).sub(group.position).applyAxisAngle(rotationAxis,-behavior.heading);
         const hip=new T.Vector3(c.x+side*.21,c.y-.025,c.z+(row-1)*.16);
         // Equal-length two-bone IK; elevated knee forms the characteristic arch.
-        const delta=foot.clone().sub(hip),length=delta.length(),half=delta.multiplyScalar(.5);
+        const delta=localFoot.clone().sub(hip),length=delta.length(),half=delta.multiplyScalar(.5);
         const perpendicular=up.clone().addScaledVector(delta,-up.dot(delta)/Math.max(delta.lengthSq(),1e-8)).normalize();
         const knee=hip.clone().add(half).addScaledVector(perpendicular,Math.sqrt(Math.max(0,.55*.55-length*length*.25)));
-        segment(hip,knee,.033);segment(knee,foot,.019);
+        segment(hip,knee,.033);segment(knee,localFoot,.019);
         ellipsoid(joints,jointCount++,knee,.037,.039,.037);
         ellipsoid(joints,jointCount++,hip,.044,.038,.044);
         for(let n=1;n<=3;n++){mid.copy(hip).lerp(knee,n/4);spike(mid,new T.Vector3(side*.4,1,0),.043);}

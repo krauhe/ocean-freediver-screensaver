@@ -114,6 +114,7 @@
   function update(time,threats=[]){
    const dt=lastTime===undefined?0:Math.max(0,Math.min(.25,time-lastTime));lastTime=time;if(!group.visible)return;
    for(const a of agents){
+    if(a.index>=pools[a.pool].mesh.count)continue;
     if(dt>0){
      a.timer-=dt;a.alarm=Math.max(0,a.alarm-dt);
      if(a.kind!=='star')for(const t of threats){if(t.kind==='jelly')continue;const range=(t.radius||0)+(a.kind==='goby'?3:1.8);if(a.p.distanceTo(t.p)<range){a.alarm=5;if(a.mode!=='hide'&&a.mode!=='escape'){a.mode='escape';a.entering=false;a.timer=.6;emit(a.p,4);}a.target.copy(a.home);a.target.z-=.22;}}
@@ -158,6 +159,6 @@
    dg.attributes.position.needsUpdate=dg.attributes.dustAlpha.needsUpdate=dg.attributes.dustSize.needsUpdate=true;
   }
   update(0);
-  return {group,agents,dust,sediment,update,emit,contact,setVisible(v){group.visible=!!v;if(!v){for(const d of dust)d.age=d.life;opacity.fill(0);contacts.clear();}}};
+  return {group,agents,dust,sediment,update,emit,contact,setDensity(amount){for(const p of pools)p.mesh.count=Math.ceil(p.activity.length*T.MathUtils.clamp(amount,0,1));},setVisible(v){group.visible=!!v;if(!v){for(const d of dust)d.age=d.life;opacity.fill(0);contacts.clear();}}};
  };
 })();

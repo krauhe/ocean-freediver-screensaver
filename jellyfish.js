@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Kristian R. Harreby. See LICENSE for terms.
+ * Copyright (C) 2026 Kristian Rauhe Harreby. See LICENSE for terms.
  * Procedural moon-jelly-inspired animals: translucent bells, four folded oral
  * arms and fine trailing tentacles. Shared geometry and analytic motion keep
  * memory bounded. The ocean supplies animation time, including pause/speed.
@@ -81,22 +81,26 @@ window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
   organs.setAttribute('position',new T.Float32BufferAttribute(organPositions,3));
   organs.setAttribute('normal',new T.Float32BufferAttribute(organNormals,3));
   organs.setAttribute('uv',new T.Float32BufferAttribute(organUvs,2));
+  const tentacleLevels=[[14,6],[28,10],[42,14],[56,18]].map(([strands,segments])=>{
   const tentaclePoints=[],tentacleNormals=[],tentacleUvs=[];
-  for(let strand=0;strand<56;strand++){
-    const angle=strand/56*Math.PI*2,length=.85+.65*(.5+.5*Math.sin(strand*2.4));
+  for(let strand=0;strand<strands;strand++){
+    const angle=strand/strands*Math.PI*2,length=.85+.65*(.5+.5*Math.sin(strand*2.4));
     const nx=Math.cos(angle),nz=Math.sin(angle);
-    for(let segment=0;segment<18;segment++)for(let end=0;end<2;end++){
-      const t=(segment+end)/18;
+    for(let segment=0;segment<segments;segment++)for(let end=0;end<2;end++){
+      const t=(segment+end)/segments;
       const rootRadius=Math.sin(1.69)*(1+.017*Math.cos(angle*16));
       tentaclePoints.push(nx*rootRadius,.65*Math.cos(1.69)-t*length,nz*rootRadius);
       tentacleNormals.push(nx,0,nz);
-      tentacleUvs.push(strand/56,t);
+      tentacleUvs.push(strand/strands,t);
     }
   }
   const tentacles=new T.BufferGeometry();
   tentacles.setAttribute('position',new T.Float32BufferAttribute(tentaclePoints,3));
   tentacles.setAttribute('normal',new T.Float32BufferAttribute(tentacleNormals,3));
   tentacles.setAttribute('uv',new T.Float32BufferAttribute(tentacleUvs,2));
+  return tentacles;
+  });
+  let detailLevel=1;
   const animals=[];
   const vertexShader=`
     uniform float time,phase,pulse,kind;
@@ -250,9 +254,9 @@ window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
   // Near, middle and distant lanes widen with distance, so the outer animals
   // still occupy the sides of the view instead of collapsing into its centre.
   const paths=[
-    {x:-16,y:-2,z:-7,rx:5,rz:8},{x:3,y:5,z:-9,rx:5,rz:8},{x:16,y:-6,z:-11,rx:5,rz:8},
-    {x:-32,y:4,z:-32,rx:7,rz:11},{x:-3,y:-7,z:-35,rx:7,rz:11},{x:31,y:8,z:-38,rx:7,rz:11},
-    {x:-49,y:-10,z:-58,rx:10,rz:14},{x:0,y:3,z:-63,rx:10,rz:14},{x:48,y:-3,z:-68,rx:10,rz:14}
+    {x:-23,y:-2,z:-7,rx:5,rz:8},{x:3,y:5,z:-9,rx:5,rz:8},{x:26,y:7,z:-11,rx:5,rz:8},
+    {x:-41,y:4,z:-32,rx:7,rz:11},{x:-3,y:-7,z:-35,rx:7,rz:11},{x:44,y:8,z:-38,rx:7,rz:11},
+    {x:-59,y:-10,z:-58,rx:10,rz:14},{x:0,y:3,z:-63,rx:10,rz:14},{x:64,y:7,z:-68,rx:10,rz:14}
   ];
   function setCount(count){
     // Build only when needed, then reuse hidden animals. All share five models.
@@ -289,12 +293,12 @@ window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
         mesh.position.set(Math.cos(angle)*.21,-.04,Math.sin(angle)*.21);
         mesh.rotation.y=-angle;body.add(mesh);
       }
-      const threads=new T.LineSegments(tentacles,material(2));body.add(threads);
+      const threads=new T.LineSegments(tentacleLevels[detailLevel],material(2));body.add(threads);
       // Shader deformation extends beyond the static bounds, so these small
       // shared meshes do not use static frustum culling.
       body.children.forEach(child=>{child.frustumCulled=false;});
       body.scale.setScalar(.85+(i%3)*.19);
-      animals.push({body,mesh:body,pickMesh:bellMesh,isJellyfish:true,scale:body.scale.x,uniforms,phase,
+      animals.push({orientation:window.createJellyOrientation(T),threads,body,mesh:body,pickMesh:bellMesh,isJellyfish:true,scale:body.scale.x,uniforms,phase,
         bioExcite:0,lastTime:undefined,
         offset:new T.Vector3(),velocity:new T.Vector3(),rotationOffset:new T.Quaternion(),angularVelocity:new T.Vector3(),
         ...paths[i%paths.length]});
@@ -302,8 +306,6 @@ window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
     animals.forEach((animal,index)=>{animal.body.visible=index<count;});
     group.visible=count>0;
   }
-  const pulseDirection=new T.Vector3();
-  const swimmingDirection=new T.Vector3(),bellAxis=new T.Vector3(0,1,0);
   function update(time,held){
     if(!group.visible)return;
     for(const animal of animals){
@@ -312,15 +314,17 @@ window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
       const cycle=(time*(.22+.012*Math.sin(phase))+phase)%1;
       const pulse=T.MathUtils.smoothstep(cycle,0,.18)*(1-T.MathUtils.smoothstep(cycle,.18,1));
       uniforms.time.value=time;uniforms.pulse.value=pulse;
-      // Weak swimmers: current advection and bell-axis thrust, no flocking
+      // Weak swimmers: current advection and individually oriented bell thrust, no flocking
       // or visual predator detection. Each animal retains its own pulse phase.
       const environment=window.marineEnvironment;
       if(!animal.drift){animal.drift=new T.Vector3(animal.x+(Math.random()-.5)*animal.rx*2,animal.y+(Math.random()-.5)*4,animal.z+Math.cos(phase)*animal.rz);animal.driftVelocity=new T.Vector3();animal.driftTime=time;}
       const driftDt=Math.max(0,Math.min(.5,time-animal.driftTime));animal.driftTime=time;
+      animal.orientation.update(time,animal.drift,environment,pulse);
       if(environment){
         environment.current(animal.drift,time,animal.driftVelocity);
         // A bounded vertical balance models ascent pulses and passive sinking.
-        animal.driftVelocity.y+=(pulse*.10-.035)-Math.max(0,animal.drift.y-9)*.03+Math.max(0,-18-animal.drift.y)*.02;
+        animal.driftVelocity.addScaledVector(animal.orientation.axis,pulse*.10);
+        animal.driftVelocity.y+=(-.035)-Math.max(0,animal.drift.y-9)*.03+Math.max(0,-18-animal.drift.y)*.02;
 
         animal.driftVelocity.z-=Math.max(0,animal.drift.z-10)*.02;
         if(animal!==held&&driftDt>0){animal.drift.add(animal.offset);animal.offset.set(0,0,0);animal.drift.addScaledVector(animal.driftVelocity,driftDt);
@@ -330,8 +334,7 @@ window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
           if(animal.drift.x>edge){animal.drift.x=-edge-2-Math.random()*8;animal.drift.y=-12+Math.random()*22;animal.velocity.set(0,0,0);}
         }
       }
-      swimmingDirection.set(animal.driftVelocity.x*.6,1,animal.driftVelocity.z*.6).normalize();
-      body.quaternion.setFromUnitVectors(bellAxis,swimmingDirection);body.rotateY(phase+time*.015);
+      body.quaternion.copy(animal.orientation.quaternion);
       body.position.copy(animal.drift);
 
       // Measure mechanical disturbance and bioluminescent excitation
@@ -377,5 +380,5 @@ window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
       animal.lastTime=time;
     }
   }
-  return {group,animals,update,setCount};
+  return {group,animals,update,setCount,setDetail(level){detailLevel=level;animals.forEach(a=>a.threads.geometry=tentacleLevels[level]);}};
 };

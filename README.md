@@ -1,113 +1,113 @@
 # Ocean Freediver Screensaver
 
-[Selected logo: Dynamic Diagonal Stream — transparent overlay](grafisk/ocean-freediver-logo-transparent.png)
+<img src="grafisk/ocean-freediver-logo-transparent.png" alt="Ocean Freediver Screensaver" width="320">
 
-An interactive 3D screensaver featuring deep competition freedivers (CWT monofin & bi-fin safety escort), hammerhead sharks, great white sharks, translucent jellyfish and dynamic shear-activated bioluminescence in a deep blue ocean. Waves, sunbeams, elastodynamic fin kinetics and animal models are rendered directly in the browser using Three.js. All required files are included, so the scene also works offline.
+A living underwater scene with freedivers, scuba buddies, sharks, schooling fish and drifting jellyfish. Explore a weathered wreck, a submerged truck and a planted limestone reef under changing daylight and night-time bioluminescence.
 
-**[Open the screensaver in your browser](https://krauhe.github.io/ocean-freediver/)** — no download or installation required.
+Created by **Kristian Rauhe Harreby**. Runs directly in your browser, including offline: no installation, server or build step.
 
-![Hammerhead sharks swimming beneath a rippling ocean surface, with sunbeams and interactive controls.](docs/screenshots/ocean.png)
+![Daylight over the wreck and reef, with sharks, fish schools, jellyfish and a freediving line.](docs/screenshots/ocean-day.jpg)
 
-## Getting started
+## Start the screensaver
 
-1. Download the project as a ZIP file or clone the repository.
-2. Extract all files into the same folder.
-3. Open `index.html` in Chrome or Edge with graphics acceleration enabled.
+Download or clone this repository, keep its files together, and open **index.html** in Chrome or Edge with graphics acceleration enabled. Select **Fullscreen** or press **F**. This is a browser screensaver, not a Windows screensaver installer.
 
-No installation, server or build step is required. This is a browser screensaver; it does not install itself as a Windows screensaver or desktop wallpaper.
+[Open the hosted version](https://krauhe.github.io/ocean-freediver/) when GitHub Pages is available for this repository.
+
+## What lives in the scene?
+
+- **Freedivers:** articulated 3D monofin and bi-fin divers, wave-following surface rests, duck dives, descents, line-supported bottom turns and safety escorts. The bottom plate is 28 cm in diameter.
+- **Scuba stories:** a buddy pair arrives by RIB, rolls backwards into the water one at a time, explores the wreck, truck or reef independently nearby, deploys a marker buoy, makes an accelerated safety stop and returns for pickup. A new pair starts the next cycle. Major depth changes use head-up, fins-down postures.
+- **Night diving:** hands, heads and torches look between details. Breathing bubbles rise toward the surface; mechanical disturbance activates scattered, short-lived bioluminescent points.
+- **Boats and water:** the RIB follows wave height and slope. Its rotating propeller leaves bubbles and a spreading wake; back-roll entries produce splashes and entrained air.
+- **Sharks and fish:** sharks patrol on forward-swimming turns and can leave the view. Individual sardine-inspired fish separate, align, regroup and evade larger swimmers; their flanks glint as they turn in sunlight.
+- **Jellyfish and comb jellies:** independent inclinations, slow turns and current-driven drift. Moon jellies pulse along their body axes; comb jellies carry moving rainbow highlights and a separate stimulated night-time flash.
+- **Bottom life:** walking king crabs, small fish, shrimp, sea stars, seagrass and algae among rippled sand, gravel and rocks.
+
+These are procedural visual interpretations, not exact reconstructions, species-calibrated simulations or diving instruction. Stop time is compressed for the scene.
+
+## Wreck, truck and reef
+
+![Scuba buddies exploring the worn ferry wreck beside the fallen Hemmoor-inspired truck.](docs/screenshots/wreck-exploration.jpg)
+
+The Gozo-inspired ferry has rust, missing panels, hull openings, bent rails and scattered debris. The Kreidesee Hemmoor-inspired truck lies on its side behind it, with lettering on the cab front. The limestone ledge, textured sand and rooted vegetation share the **Wreck & reef** toggle, including the truck.
+
+Textures and geometry are generated locally. Reference photographs are not loaded by the screensaver or bundled as project assets.
+
+## Night-time light and motion
+
+![Night-time wreck exploration with scuba torches and rising bubbles.](docs/screenshots/ocean-night.jpg)
+
+The day/night cycle can follow your local clock or a selected time. Surface waves refract the sky and sunbeams, with moving caustics and underwater shadows. Night lighting is enhanced for visibility.
+
+Bioluminescence consists of individual points in disturbed water. Fin wakes sample whole edges rather than fixed glowing tips; flash positions, timing, lifetimes and local density vary. Points stay in the water after the swimmer passes. The **Bioluminescence** slider spans **0–1200%**, starts at **300%** and remembers your setting.
+
+![The pickup RIB viewed underwater, with propeller bubbles and a spreading surface wake.](docs/screenshots/boat-wake.jpg)
+
+All screenshots show the current local scene. Detail views use closer inspection cameras.
 
 ## Controls
 
-Click or tap the open water to minimize the controls. Select **Menu** to reopen them. Pointer movement preserves the minimized state; the existing five-second idle fade still applies.
-
-1. **Fullscreen:** Click the button, press F or double-click the open water. Press Esc to exit fullscreen.
-2. **Pause:** Click Pause or press Space. Repeat to resume.
-3. **Swimming speed:** Adjust the slider with the speed icon.
-4. **Animal count:** Select a total of 0–40 using the Animals slider. The count is shared as evenly as possible between the checked species, including jellyfish. The scene starts with 30 animals; some may swim outside the field of view. Background fish are separate scenery.
-5. **Push:** Hold the left mouse button on a shark or jellyfish bell to push it deeper into the water.
-6. **Pull:** Hold the right mouse button on a shark or jellyfish bell to pull it closer. Move the mouse to steer sideways at the same time.
-7. **Turn:** Grab away from the centre: the head, tail or fins of a shark, or the edge of a jellyfish bell. Force near the centre mainly moves the animal; force farther from the centre also rotates it.
-8. **Touch:** Drag with one finger to move a shark or jellyfish in the screen plane and turn it.
-9. **Time of day:** Move the Lighting slider to choose any minute from 00:00 to 23:59. Moving it selects Custom time automatically; choose Local clock to follow your computer again. The displayed time always uses 24-hour HH:mm format. Arrow keys adjust one minute, and Home/End select the endpoints. Lighting changes also work while paused.
-10. **Species:** Use the Hammerhead, Great white and Jellyfish checkboxes to mix species or show just one. With one species checked, the Animals slider controls that species alone. Unchecking all species hides the animals while retaining the count setting. The separate **Freedivers** checkbox toggles the deep training rig with its monofin athlete and safety diver.
-11. **Particles:** Select 0–5,000 suspended particles. The default is 1,700; zero hides them. Both population sliders work while paused.
-12. **Graphics:** Move the 4-step Graphics slider to balance power consumption, frame rate and visual detail. The available modes are **Eco · 24 fps** (battery-friendly 24 fps cap, 1.0× pixel ratio, 512×512 caustic map updated every second frame, 72 sunbeams, 60 background fish and closer distant-shark LOD), **Balanced · 30 fps** (default, 30 fps cap, up to 1.35× pixel ratio, 512×512 caustics at 30 Hz, 108 sunbeams, 95 background fish), **High · 40 fps** (40 fps cap, up to 1.6× pixel ratio, denser 512×512 caustics at 40 Hz, 132 sunbeams, 110 background fish), and **Ultra · 60 fps** (smooth 60 fps cap, up to 2.0× pixel ratio, 1024×1024 caustics at 60 Hz, 132 sunbeams, 110 background fish and full shark mesh detail at all distances). WebGL automatically requests the high-performance discrete GPU (`powerPreference: 'high-performance'`) when one is available.
-
-Sharks and jellyfish follow with elastic motion and retain some momentum after release, then gradually recover their swimming attitude. You can also move them while paused. All text and controls fade out after 5 seconds of inactivity, including after using a slider. Mouse, touch or keyboard input reveals them again.
-
-Hammerheads and great whites have small differences in body shape, mottled skin and visible, weathered scars. Thrust-coupled tail beats vary dynamically in frequency and amplitude with acceleration and steering bursts, flexible pectoral and dorsal fin tips yield elastically during turns, and five curved gill slits ventilate with rhythmic breathing motions. Procedural companion remoras or pilot fish accompany several of the larger sharks. Great whites have a broader snout, small inset eyes and an animated mouth with textured lining, gum pads and three visible tooth rows; the inner rows fold inward. In the background, streamlined silvery pelagic fish school with animated forked tails, gently parting as sharks swim past. Filtered skin details and subdued tooth highlights reduce flickering edges as the animals move into the distance.
-
-Moon-jelly-inspired animals swim toward and away from the camera on three-dimensional paths, with their bells facing their swimming direction. The bells have an inner surface, modelled internal horseshoes and folded oral arms with volume visible from different angles, illuminated by translucent sun backlighting and moving caustic ripples. Each bell contracts, then relaxes slowly while fine tentacles trail behind. Their movement follows Pause and the swimming-speed control, and their tissue remains softly visible under night lighting with subtle pulse-synchronised bioluminescence.
-
-In the background, a freediving training rig with a surface float, weighted vertical line and illuminated bottom plate hosts a Constant Weight (CWT) freediver and safety diver. The deep diver wears a streamlined wetsuit, monofin, crown-mounted headlamp and safety lanyard, cycling through a realistic duck dive, active dolphin-kick descent, hydrodynamic freefall, bottom turn and steady ascent. At one third of the target depth, a safety diver in long bi-fins descends from the buoy to escort the athlete to the surface. Nearby sharks and fish schools gently avoid the dive line, and the divers' kicks part suspended marine snow and stimulate glowing bioluminescent wakes at night.
-
-## Ocean and lighting
-
-The scene includes an upright Gozo-inspired ferry wreck, a rippled sand bed and a submerged limestone ledge on the right. Two scuba buddies explore a continuous circuit around the wreck, truck, cliff edge and bottom stones, slowing at inspection points with articulated frog kicks and long glides. Small regulator bubbles are visible immediately, then follow independent breathing cycles. At night their hand-held torches follow the nearby attraction, with soft beams visible in the water. The freediving line ends beside the wreck. These are procedural 3D models, not photographs or an exact reconstruction of a real dive site.
-
-The bed mixes pale rippled sand, darker silt and scattered gravel. Limestone has mottled strata, cracks and surface relief; the wreck has rust, flaking surfaces, open hull breaches, missing roof panels, bent rails and fallen debris. Rooted seagrass patches sway gently in the current, with shorter algae on the deck. All textures are generated locally and remain available offline. Vegetation freezes with Pause and is included in **Wreck & reef**.
-
-**Hemmoor truck** adds a separately switchable, photo-inspired model of the Kreidesee truck lying on its side in the sand behind the ferry's stern. Its framed cab, raised tipper, fractured windscreen and wheels are retained; KREIDESEE lettering appears only on the cab front, which faces the viewer. The visual reference was [P. Coors / Tauchernest (2018)](https://www.tauchernest.de/Hemmoor/en/index.html). The model is an artistic interpretation placed in the existing scene, not a reconstruction of Hemmoor's lake or underwater layout. Source photographs are not loaded by the screensaver or bundled as GPL assets.
-
-Use **Bioluminescence** to tune the night-time glow from **0–1200%** (default **300%**, remembered on this browser). Moving fins, hands and body-separation edges activate tiny flashes only along the narrow strip of water they cross. Flashes remain in the water after contact, with a brief recovery interval; they do not follow or orbit a swimmer. Strong strokes excite more points than slow gliding. **Scuba buddies** and **Wreck & reef** toggle the new scene elements. Pale suit panels, distinct belt markings and exposed hands/ankles identify the freedivers. The selected upper-right **Dynamic Diagonal Stream** lockup appears in the fading overlay and About panel.
-
-Lighting follows your computer's local clock and turns orange-red at low sun angles. The visual day cycle uses sunrise at 06:00, the highest sun at 12:00 and sunset at 18:00. It does not calculate the sun's position from your location or the season.
-
-At night, stars shimmer through the refracting surface and soft blue starlight keeps the sharks visible. Starlight brightness is artistically enhanced for visibility, while mechanical shear from swimming or user-dragged animals excites cyan-blue bioluminescent plankton flashes and swirling trails.
-
-Surface reflection and refraction depend on the viewing angle, wave slope and the refractive index of water. The sky, underwater environment and sunbeams are simplified visual models. See the [detailed guide](GUIDE.md).
-
-Sunbeams extend through the water into the foreground. Each shaft refracts through its own moving patch of the surface, so wave slopes change its direction, width and brightness. Overhead sharks cast soft, penumbra-widened shadows through the sunbeams and projected caustics, balanced by gentle forward scattering through thin fin edges and translucent jellyfish bells.
-
-Moving bands of sunlight on sharks, jellyfish and companion fish also come from refraction through those waves. The caustic light map is computed with analytical vertex-Jacobian flux conservation and mipmapped penumbra filtering, ensuring soft light bands glide across skin and tissue without sparkle or temporal flicker. The pattern changes with depth and solar direction, stays anchored in the water as animals swim through it, and switches off at night. Depth-dependent Beer–Lambert spectral absorption attenuates red wavelengths faster with vertical depth and optical path length, naturally enriching deep-water blues.
-
-Suspended particles drift together in a gentle current at several depths, including close to the camera. Passing sharks and jellyfish part particles smoothly around their contours and leave swirling vortex wakes behind their tails. Small local eddies and slowly tumbling flakes add variation, and wave-focused sunlight makes passing particles glint. Motion freezes with Pause; particles remain faintly visible in the blue night lighting. Particles fade out before recycling at the edges of their water volume.
-
-## Files
-
-| File | Contents |
+| Control | Action |
 | --- | --- |
-| `index.html` | Page and controls |
-| `ocean.css` | Layout and appearance |
-| `ocean.js` | Shark models, animation, physics, lighting and interaction |
-| `jellyfish.js` | Translucent jellyfish models, pulsing bells and trailing tissue |
-| `freediver.js` | Deep freediving buoy rig, monofin diver and safety diver |
-| `freediver-rig.js` | Reusable 16-joint skeleton, skin weights and two-segment arm IK |
-| `scuba.js` | Articulated buddy pair, breathing bubble pool and torch lights |
-| `diver-bubbles.js` | Shared freediver/scuba bubble optics and rise/expansion model |
-| `seabed.js` | Batched procedural sand, limestone ledge and ferry wreck geometry |
-| `hemmoor-truck.js` | Kreidesee-inspired truck lying on its side behind the ferry |
-| `marine-behavior.js` | Shared current, environmental steering and individual shark/school-fish simulation |
-| `benthic-life.js` | Instanced bottom fish, shrimp, sea stars, shelters and settling sediment |
-| `king-crab.js` | Articulated crab with planted feet, foraging pauses and threat response |
-| `comb-jelly.js` | Enlarged Mnemiopsis-inspired comb jellies with moving iridescence and separate stimulated green emission |
-| `three.min.js` | Local Three.js r160 library |
-| `THREE-LICENSE` | MIT licence for Three.js |
-| `GUIDE.md` | User guide and technical limitations |
-| `LICENSE` | GPLv3 licence for this project |
+| **Fullscreen / F / double-click** | Enter fullscreen; Esc exits |
+| **Pause / Space** | Freeze or resume the scene |
+| **Swimming speed** | Change simulation speed |
+| **Animals: Low–High** | Adjust enabled wildlife together; humans are unaffected |
+| **Species and scene checkboxes** | Show or hide animals, divers and the wreck/reef |
+| **Particles** | Set the preferred marine-snow density |
+| **Lighting** | Follow the local clock or choose a time of day |
+| **Scuba story / Restart dive** | Choose a dive location or replay the boat-to-pickup sequence |
+| **Graphics / Auto** | Choose detail manually or let measured performance adjust it |
+| **Left/right mouse drag** | Push/pull sharks or moon jellies; grabbing away from the centre also turns them |
+| **Touch drag** | Move and turn an animal in the screen plane |
 
-The scene is silent and works offline. A hidden browser tab stops rendering. If your system requests reduced motion, the scene starts paused.
+Click or tap the background to minimize the controls; select **Menu** to reopen them. Controls also fade during inactivity. **The logo remains visible.**
 
-**Bottom life** adds eight bottom fish, ten shrimp and seven sea stars. Fish and sharks now navigate using individual state and local interactions; jellyfish drift and pulse in the shared current. Plants and particles respond to the same mild flow, and nearby moving fins or crab footfalls can lift small amounts of settling sediment. See [GUIDE.md](GUIDE.md) for behavior details and model limits. The implementation is species-inspired rather than a scientifically calibrated ecosystem.
+## Adaptive graphics
 
-## Credits
+Every graphics level is capped at **30 fps**. **Auto** aims for 30 fps and lowers detail after sustained performance below approximately 24 fps. Stable performance permits cautious upward trials, with a cooldown after an unsuccessful trial.
 
-The reef shelf now has rooted seagrass patches and a compact school along its outer lip. `king-crab.js` adds three independently walking red king crabs on the foreground sand (toggle **King crab**). It uses six walking legs with planted stance phases, unequal claws, reduced grooming legs and a spiny carapace. Hiding the seabed also hides the crab.
+Auto adjusts resolution, caustic lighting, sunbeams, school size, wildlife density, grass, tentacles and particles. It preserves your Animals and Particles preferences and leaves the human population alone. Phones and software rendering start conservatively; available GPU information is a hint, with measured performance deciding subsequent adjustments. An extra reduced Eco tier helps slower devices, but no minimum frame rate is guaranteed.
 
-Wave crests have a small sharpening harmonic, sparse whitecap texture and individual nighttime bioluminescent flashes controlled by the existing slider. These are visual approximations of breaking and mechanical stimulation, not a fluid simulation. Biological references: [NOAA red king crab](https://www.fisheries.noaa.gov/species/red-king-crab) and [Scripps/Latz Laboratory on mechanically stimulated plankton](https://latzlab.ucsd.edu/bioluminescence/dinoflagellates/dinoflagellate-bioluminescence/). No external images are loaded. The combined scene is an artistic habitat mix, not a reconstruction of one ecosystem.
+Moving the **Eco / Balanced / High / Ultra** slider switches to manual control. See [GUIDE.md](GUIDE.md) for implementation details and modelling limitations.
 
-Visual references: the user-supplied Karwela photographs in `developer input/`, plus [Divewise's Karwela description](https://divewise.com.mt/blogs/dive-sites/mv-karwela-gozo-wrecks). Motion references: [FlowState Divers frog-kick film](https://www.flowstatedivers.com/films/how-to-frog-kick) and [GUE.tv frog-kick technique description](https://gue.tv/programs/de-frog-kick-technik-intensitaet-anwendung-tauchen). The animation is procedural, not motion capture. Source photographs are reference material and are not loaded by the running scene.
+## Support the project
 
-* **Creator & Lead Developer:** Kristian R. Harreby
-* **AI Architecture & Co-Development:** Gemini AI (Google DeepMind / Google Cloud Vertex AI) & Codec
-* **Open Source & Rights:** Open source under the **GNU General Public License v3.0 (GPLv3)** — sharing the exact same open-source rights, freedoms and principles as the [T1D Simulator](https://github.com/krauhe/T1D-Simulator) project.
+This is a free, open-source spare-time project. If you enjoy it and would like to help, you can contribute toward **coffee and AI development costs**. Support is entirely optional — thank you!
 
-## Licence
+- [Buy Me a Coffee](https://buymeacoffee.com/krauhe)
+- [Support via MobilePay](https://qr.mobilepay.dk/box/0946757d-b34b-4b1e-8302-f0a67fc49c69/pay-in)
 
-Ocean Freediver Screensaver is open source under the **GNU General Public License v3.0 (GPLv3)**, the same licence as T1D Simulator. See [LICENSE](LICENSE) for the full terms.
+## Development
 
-Copyright © 2026 Kristian R. Harreby. Co-developed with Gemini AI & Codec.
+Vanilla HTML, CSS and JavaScript with a bundled Three.js renderer. All runtime assets are local.
 
-The bundled Three.js library retains its own MIT licence in [THREE-LICENSE](THREE-LICENSE).
+| Files | Purpose |
+| --- | --- |
+| `ocean.js`, `ocean.css`, `index.html` | Scene, optics, interaction and controls |
+| `freediver.js`, `freediver-rig.js` | Articulated freedivers and training rig |
+| `scuba.js`, `scuba-scenarios.js`, `diver-bubbles.js` | Buddy animation, dive stories and breathing bubbles |
+| `boat-water.js` | Wave-following RIB, wake and entry splashes |
+| `marine-behavior.js` | Currents, shark navigation and individual schooling fish |
+| `jellyfish.js`, `comb-jelly.js`, `jelly-orientation.js` | Jelly models, light and orientation |
+| `seabed.js`, `hemmoor-truck.js` | Sand, reef, wreck, vegetation and truck |
+| `king-crab.js`, `benthic-life.js` | Walking crabs and smaller bottom animals |
+| `adaptive-quality.js` | Performance-based graphics governor |
+| `tests/` | Dependency-free Node checks for quality adaptation and jelly orientation |
 
-Freedivers use articulated skinned 3D meshes rather than shader-only limb interpolation. Their line-supported bottom turn coordinates independent arms, a fixed grip, sinking hips and bent knees. The skeleton is exposed through `freedivers.rigs` for future poses and camera views.
+Run the included checks with `node tests/adaptive-quality.cjs` and `node tests/jelly-orientation.cjs`.
+
+## Credits and references
+
+**Creator and lead developer: Kristian Rauhe Harreby.** Developed with AI-assisted research and implementation, including OpenAI Codex and Google Gemini.
+
+Visual references include the [MV Karwela wreck](https://en.wikipedia.org/wiki/MV_Karwela), [P. Coors / Tauchernest's Hemmoor photographs](https://www.tauchernest.de/Hemmoor/en/index.html), [Aurelia turning research](https://pubmed.ncbi.nlm.nih.gov/38211351/) and [outboard propeller-wake imagery](https://blenderartists.org/t/how-does-one-create-a-propeller-wake-effect/1408208). Animation is procedural, not motion capture. More references are recorded in [GUIDE.md](GUIDE.md).
+
+## License
+
+Licensed under the **GNU General Public License v3.0 (GPLv3)**. You may use, modify and redistribute the project under the terms of [LICENSE](LICENSE).
+
+Copyright © 2026 **Kristian Rauhe Harreby**.
+
+The bundled Three.js library retains its MIT license in [THREE-LICENSE](THREE-LICENSE).

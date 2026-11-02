@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Kristian R. Harreby. See LICENSE for terms.
+ * Copyright (C) 2026 Kristian Rauhe Harreby. See LICENSE for terms.
  * Deep freediving competition rig with primary CWT monofin freediver and
  * bi-fin safety escort diver along a 36-metre competition dive rope.
  */
@@ -69,8 +69,8 @@
       const phase = (px * w.hx + pz * w.hz) * w.freq - w.omega * t + w.pOffset;
       const sinP = Math.sin(phase);
       const cosP = Math.cos(phase);
-      fieldX += w.amp * sinP;
-      const slopeFact = w.amp * cosP * w.freq;
+      fieldX += w.amp * (sinP + .14 * (sinP * sinP - .5));
+      const slopeFact = w.amp * cosP * (1 + .28 * sinP) * w.freq;
       slopeX += slopeFact * w.hx;
       slopeZ += slopeFact * w.hz;
 
@@ -85,6 +85,8 @@
     out.slopeX = slopeX * envelope + fieldX * envGradX;
     out.slopeZ = slopeZ * envelope + fieldX * envGradZ;
   }
+
+  window.sampleOceanWaves = evalWaveField;
 
   // Cross-section stations along diver longitudinal axis (y in [-0.88, +0.85])
   const STATIONS = [
@@ -193,7 +195,7 @@
     }
 
     // 2. Streamline Arms (Left: side = -1, Right: side = +1)
-    const A_ROWS = 28, A_COLS = 12;
+    const A_ROWS = 40, A_COLS = 16;
     for (let side = -1; side <= 1; side += 2) {
       const armGrid = [];
       for (let r = 0; r < A_ROWS; r++) {
@@ -202,14 +204,17 @@
         const yArm = 0.52 + s * (1.28 - 0.52);
         const xArm = 0.015 + s * 0.020 + Math.sin(s * Math.PI) * 0.012;
         const zArm = side * (0.175 * (1.0 - s) + 0.022 * s);
-        const rArm = 0.040 * (1.0 - s * 0.52);
+        // Deltoid, upper arm, elbow and forearm retain rounded volume.
+        const rArm = s<.40 ? .061+.011*Math.sin(s/.40*Math.PI)-.008*(s/.40)
+          : s<.80 ? .053+.009*Math.sin((s-.40)/.40*Math.PI)-.019*((s-.40)/.40)
+          : .034-.010*((s-.80)/.20);
 
         for (let c = 0; c < A_COLS; c++) {
           const a = (c / A_COLS) * Math.PI * 2;
           const px = xArm + rArm * Math.cos(a);
           const py = yArm;
           const pz = zArm + rArm * Math.sin(a);
-          armRow.push(addV(px, py, pz, c / A_COLS, s, s, 0.0, 0.0, side));
+          armRow.push(addV(px, py, pz, c / A_COLS, s, Math.max(.001,s), 0.0, 0.0, side));
         }
         armGrid.push(armRow);
       }
@@ -457,7 +462,7 @@
     }
 
     // 2. Streamline & Active Escort Arms (Left: side = -1, Right: side = +1)
-    const A_ROWS = 28, A_COLS = 12;
+    const A_ROWS = 40, A_COLS = 16;
     for (let side = -1; side <= 1; side += 2) {
       const armGrid = [];
       for (let r = 0; r < A_ROWS; r++) {
@@ -466,14 +471,17 @@
         const yArm = 0.52 + s * (1.28 - 0.52);
         const xArm = 0.015 + s * 0.020 + Math.sin(s * Math.PI) * 0.012;
         const zArm = side * (0.175 * (1.0 - s) + 0.022 * s);
-        const rArm = 0.040 * (1.0 - s * 0.52);
+        // Deltoid, upper arm, elbow and forearm retain rounded volume.
+        const rArm = s<.40 ? .061+.011*Math.sin(s/.40*Math.PI)-.008*(s/.40)
+          : s<.80 ? .053+.009*Math.sin((s-.40)/.40*Math.PI)-.019*((s-.40)/.40)
+          : .034-.010*((s-.80)/.20);
 
         for (let c = 0; c < A_COLS; c++) {
           const a = (c / A_COLS) * Math.PI * 2;
           const px = xArm + rArm * Math.cos(a);
           const py = yArm;
           const pz = zArm + rArm * Math.sin(a);
-          armRow.push(addV(px, py, pz, c / A_COLS, s, s, 0.0, 0.0, side));
+          armRow.push(addV(px, py, pz, c / A_COLS, s, Math.max(.001,s), 0.0, 0.0, side));
         }
         armGrid.push(armRow);
       }
@@ -672,6 +680,7 @@
       Object.assign(shader.uniforms, uniforms);
       shader.vertexShader = `
         attribute float armWeight;
+        attribute vec3 armCenter;
         attribute float kickWeight;
         attribute float bladeFlex;
         attribute float legSide;
@@ -788,7 +797,21 @@
         `
       );
       shader.vertexShader=shader.vertexShader.replace('#include <skinning_vertex>',
-        '#include <skinning_vertex>\n vDiverWorldPos=(modelMatrix*vec4(transformed,1.0)).xyz;');
+        `
+        vec3 armOffset=transformed-armCenter;
+        #include <skinning_vertex>
+        if(armWeight>0.){
+          // Linear skinning crushes the cross-section at a folded elbow.
+          // Skin the centreline separately and restore the radial distance.
+          vec4 centerSkin=bindMatrix*vec4(armCenter,1.);
+          vec4 bentCenter=boneMatX*centerSkin*skinWeight.x+boneMatY*centerSkin*skinWeight.y
+            +boneMatZ*centerSkin*skinWeight.z+boneMatW*centerSkin*skinWeight.w;
+          vec3 center=(bindMatrixInverse*bentCenter).xyz;
+          vec3 radial=transformed-center;
+          if(length(radial)>.00001)transformed=center+normalize(radial)*length(armOffset);
+        }
+        vDiverWorldPos=(modelMatrix*vec4(transformed,1.0)).xyz;
+        `);
       shader.fragmentShader = `
         uniform float uBioShimmer;
         uniform vec3 uSuitAccent;
@@ -1300,7 +1323,8 @@
     const plateGroup = new T.Group();
     plateGroup.position.set(RIG_X, PLATE_Y, RIG_Z);
 
-    const discGeom = new T.CylinderGeometry(0.55, 0.55, 0.05, 28);
+    // Scene units are metres: 28 cm diameter.
+    const discGeom = new T.CylinderGeometry(0.14, 0.14, 0.012, 28);
     const discMat = new T.MeshStandardMaterial({
       color: 0xdbe7ee,
       roughness: 0.35,
@@ -1310,7 +1334,7 @@
     const discMesh = new T.Mesh(discGeom, discMat);
     plateGroup.add(discMesh);
 
-    const collarGeom = new T.CylinderGeometry(0.09, 0.09, 0.22, 14);
+    const collarGeom = new T.CylinderGeometry(0.035, 0.035, 0.08, 14);
     const collarMat = new T.MeshStandardMaterial({
       color: 0x26323a,
       roughness: 0.5,
@@ -1326,11 +1350,11 @@
       side: T.DoubleSide
     });
     for (let ti = 0; ti < 3; ti++) {
-      const tagGeom = new T.PlaneGeometry(0.045, 0.22);
-      tagGeom.translate(0, -0.11, 0);
+      const tagGeom = new T.PlaneGeometry(0.025, 0.10);
+      tagGeom.translate(0, -0.05, 0);
       const tagMesh = new T.Mesh(tagGeom, tagMat);
       const tagAngle = (ti / 3.0) * Math.PI * 2.0 + 0.35;
-      tagMesh.position.set(Math.cos(tagAngle) * 0.40, -0.025, Math.sin(tagAngle) * 0.40);
+      tagMesh.position.set(Math.cos(tagAngle) * 0.105, -0.006, Math.sin(tagAngle) * 0.105);
       tagMesh.rotation.y = tagAngle;
       plateGroup.add(tagMesh);
     }
@@ -1362,7 +1386,7 @@
     const plateLampGroup = new T.Group();
     plateLampGroup.position.set(RIG_X, -17.40, RIG_Z);
 
-    const lampDomeGeom = new T.SphereGeometry(0.075, 14, 12);
+    const lampDomeGeom = new T.SphereGeometry(0.035, 14, 12);
     const lampDomeMat = new T.MeshBasicMaterial({
       color: 0xdffbff,
       toneMapped: false
@@ -1380,7 +1404,7 @@
     const lampConeMesh = new T.Mesh(lampConeGeom, lampConeMat);
     plateLampGroup.add(lampConeMesh);
 
-    const lampGlowGeom = new T.SphereGeometry(1.1, 16, 14);
+    const lampGlowGeom = new T.SphereGeometry(0.4, 16, 14);
     const lampGlowMat = createLampGlowMaterial(T, bottomLampUniforms);
     const lampGlowMesh = new T.Mesh(lampGlowGeom, lampGlowMat);
     plateLampGroup.add(lampGlowMesh);
@@ -1737,7 +1761,7 @@
       const intensity = Math.min(1.3, (bodySpeed - 0.12) * 0.60) * nightFactor;
       // Contact with fresh water at each shoulder, continuing during passive glide.
       for (let side = -1; side <= 1; side += 2) {
-        bioBodyPoint.set(0.035, 0.53, side * 0.185).multiplyScalar(DIVER_SCALE)
+        bioBodyPoint.set(.035+(Math.random()-.5)*.06, .38+Math.random()*.24, side * (.16+Math.random()*.05)).multiplyScalar(DIVER_SCALE)
           .applyQuaternion(mesh.quaternion).add(mesh.position);
         oceanBio.emitDisturbance(
           bioBodyPoint.x, bioBodyPoint.y, bioBodyPoint.z,
@@ -1882,15 +1906,54 @@
     // Keeping the face horizontal while tilting only the spine made a resting
     // diver lie on their side instead of looking down into the water.
     const gripPoint=new T.Vector3(),tagPoint=new T.Vector3();
+    const surfacePoint=new T.Vector3(),surfaceAxis=new T.Vector3(),surfaceNormal=new T.Vector3();
+    const surfaceTilt=new T.Quaternion(),surfaceFlow=new T.Vector3();
+    const bodyWaves=Array.from({length:3},()=>({x:0,y:0,z:0,slopeX:0,slopeZ:0}));
+    function followSurface(rig,traj,time,index,dt){
+      const mesh=rig.mesh;
+      surfaceAxis.set(0,1,0).applyQuaternion(mesh.quaternion);
+      const proneAngle=Math.acos(T.MathUtils.clamp(Math.abs(surfaceAxis.y),0,1));
+      const weight=smoothstep(10,12.5,traj.y)*smoothstep(.85,1.40,traj.theta)*smoothstep(1.1,1.42,proneAngle);
+      const motion=rig.surfaceMotion||(rig.surfaceMotion={weight:0,drift:new T.Vector3(),effort:0,curvature:0,phase:0});
+      motion.weight=weight;motion.phase=time*1.15+index*2.3;
+      const stroke=Math.pow(Math.max(0,Math.sin(time*.85+index*2.1)),4);
+      if(window.OceanCurrent)window.OceanCurrent.sample(mesh.position,time,surfaceFlow);else surfaceFlow.set(.08,0,-.018);
+      if(dt>0){
+        motion.drift.addScaledVector(surfaceFlow,dt*weight);
+        motion.drift.multiplyScalar(Math.exp(-dt*(.45+stroke*1.8)));
+        motion.drift.clampLength(0,.35);
+      }
+      motion.effort=stroke*Math.min(1,motion.drift.length()*7+surfaceFlow.length()*2);
+      if(weight<=0)return;
+      mesh.position.x+=motion.drift.x*weight;mesh.position.z+=motion.drift.z*weight;
+      surfaceAxis.set(0,1,0).applyQuaternion(mesh.quaternion);surfaceAxis.y=0;surfaceAxis.normalize();
+      let sx=0,sz=0,height=0;
+      for(let i=0;i<3;i++){
+        surfacePoint.copy(mesh.position).addScaledVector(surfaceAxis,(i-1)*.65);
+        evalWaveField(surfacePoint.x,surfacePoint.z,time,bodyWaves[i]);
+        sx+=bodyWaves[i].slopeX/3;sz+=bodyWaves[i].slopeZ/3;height+=bodyWaves[i].y/3;
+      }
+      surfaceNormal.set(-sx,1,-sz).normalize();surfaceTilt.setFromUnitVectors(unitY,surfaceNormal);
+      surfaceTilt.slerp(new T.Quaternion(),1-weight);mesh.quaternion.premultiply(surfaceTilt);
+      // Buoyancy acts beneath this body, not at the buoy. Keep the torso partly
+      // submerged even across a local trough instead of smoothing it through air.
+      surfaceAxis.set(0,1,0).applyQuaternion(mesh.quaternion);
+      let support=15+height-.30;
+      for(let i=0;i<3;i++)support=Math.min(support,15+bodyWaves[i].y-surfaceAxis.y*(i-1)*.65-.20);
+      mesh.position.y=T.MathUtils.lerp(mesh.position.y,support,weight);
+      motion.curvature=T.MathUtils.clamp((bodyWaves[0].y+bodyWaves[2].y-2*bodyWaves[1].y)*.25,-.10,.10);
+    }
     function updateArticulatedRig(rig,u,deep,cycle,time,tug){
       const grip=deep?smoothstep(22.7,23.8,cycle)*(1-smoothstep(26.1,27.0,cycle)):0;
       const tag=deep?smoothstep(23.1,23.9,cycle)*(1-smoothstep(24.25,24.8,cycle)):0;
       const turn=deep?smoothstep(23.9,24.6,cycle)*(1-smoothstep(26.0,27.2,cycle)):0;
       evalRopePoint(PLATE_Y+1.15,time,tug,gripPoint);
-      evalRopePoint(PLATE_Y,time,tug,tagPoint);tagPoint.x+=deep&&rig===mainRig?-.23:.23;
+      const tagAngle=(deep&&rig===mainRig?2*Math.PI/3:0)+.35;
+      tagPoint.set(Math.cos(tagAngle)*.105,-.056,Math.sin(tagAngle)*.105)
+        .applyQuaternion(plateGroup.quaternion).add(plateGroup.position);
       const equalize=deep?smoothstep(5,7,cycle)*(1-smoothstep(21.5,23,cycle)):0;
-      const surface=smoothstep(12,14,rig.mesh.position.y);
-      rig.pose(u,time,{grip,gripTarget:gripPoint,tag,tagTarget:tagPoint,turn,equalize,surface});
+      const surface=rig.surfaceMotion?rig.surfaceMotion.weight:0;
+      rig.pose(u,time,{grip,gripTarget:gripPoint,tag,tagTarget:tagPoint,turn,equalize,surface,surfaceMotion:rig.surfaceMotion});
     }
 
     function posedFinPoint(rig,point,side){
@@ -2493,6 +2556,8 @@
       safeUniforms.uHeadYaw.value = safeInertial.yaw.pos;
       safeUniforms.uTime.value = time;
 
+      followSurface(mainRig,monoTraj,time,0,dtPhase);
+      followSurface(safeRig,biTraj,time,1,dtPhase);
       updateArticulatedRig(mainRig,mainUniforms,isMonofinDeep,cycle,time,tugAmount);
       updateArticulatedRig(safeRig,safeUniforms,!isMonofinDeep,cycle,time,tugAmount);
 
@@ -2522,34 +2587,13 @@
             const shear = Math.min(2.2, (vCenter - 0.45) / 0.70);
             bioDiverForward.set(0, 1, 0).applyQuaternion(mainDiverMesh.quaternion);
 
-            // Water crossed by the centre of the moving blade
-            const countCenter = Math.min(5, Math.floor(1 + shear * 3));
-            oceanBio.emitBurst(
-              bioMonoTipM.x, bioMonoTipM.y, bioMonoTipM.z,
-              bioMonoVelM.x,
-              bioMonoVelM.y,
-              bioMonoVelM.z,
-              shear * nightBioFactor,
-              countCenter
-            );
-
-            // Outer tip vortices
-            oceanBio.emitBurst(
-              bioMonoTipL.x, bioMonoTipL.y, bioMonoTipL.z,
-              bioMonoVelL.x,
-              bioMonoVelL.y,
-              bioMonoVelL.z,
-              shear * nightBioFactor * 0.85,
-              2
-            );
-            oceanBio.emitBurst(
-              bioMonoTipR.x, bioMonoTipR.y, bioMonoTipR.z,
-              bioMonoVelR.x,
-              bioMonoVelR.y,
-              bioMonoVelR.z,
-              shear * nightBioFactor * 0.85,
-              2
-            );
+            // Continuously sampled trailing edge; the three tracked points
+            // describe blade motion, not three persistent light sources.
+            const edgeCount=Math.min(9,3+shear*3);
+            oceanBio.emitEdge(bioMonoTipL,bioMonoTipM,bioMonoVelL,bioMonoVelM,
+              shear*nightBioFactor,edgeCount*.5,.11);
+            oceanBio.emitEdge(bioMonoTipM,bioMonoTipR,bioMonoVelM,bioMonoVelR,
+              shear*nightBioFactor,edgeCount*.5,.11);
           }
         }
         prevBioMonoTipL.copy(bioMonoTipL);
@@ -2581,7 +2625,7 @@
                 bioBiVelL.y,
                 bioBiVelL.z,
                 shearL * nightBioFactor,
-                Math.min(4, Math.floor(1 + shearL * 2))
+                Math.min(4, Math.floor(1 + shearL * 2)), .14
               );
             }
             const vBiR = bioBiVelR.length();
@@ -2593,7 +2637,7 @@
                 bioBiVelR.y,
                 bioBiVelR.z,
                 shearR * nightBioFactor,
-                Math.min(4, Math.floor(1 + shearR * 2))
+                Math.min(4, Math.floor(1 + shearR * 2)), .14
               );
             }
           }

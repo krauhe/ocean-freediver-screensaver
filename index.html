@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: GPL-3.0-only
-     Copyright (C) 2026 Kristian R. Harreby. See LICENSE for terms. -->
+     Copyright (C) 2026 Kristian Rauhe Harreby. See LICENSE for terms. -->
 <!-- Standalone 3D screensaver. Open this file directly; all resources are local. -->
 <html lang="en">
 <head>
@@ -15,7 +15,7 @@
   <main id="ocean" aria-label="Ocean Freediver Screensaver - 3D ocean screensaver with freedivers, sharks and jellyfish">
     <canvas id="scene" role="img" aria-label="Freedivers descend along a competition line among sharks, jellyfish and bioluminescence in a deep blue ocean."></canvas>
     <div class="vignette" aria-hidden="true"></div>
-    <div class="chrome selected-logo" role="img" aria-label="Ocean Freediver Screensaver — Dynamic Diagonal Stream"></div>
+    <div class="selected-logo" role="img" aria-label="Ocean Freediver Screensaver — Dynamic Diagonal Stream"></div>
     <div id="loading" role="status">Diving below the surface …</div>
     <div id="error" role="alert" hidden></div>
     <footer class="chrome">
@@ -37,9 +37,9 @@
           <span>About</span>
         </button>
         <div class="count-controls">
-          <label class="population-count" for="animal-count" title="Total animals, shared between the selected species">
-            <span>Animals <output id="animal-count-value" for="animal-count">30</output></span>
-            <input id="animal-count" type="range" min="0" max="40" step="1" value="30" aria-label="Number of animals">
+          <label class="population-count" for="animal-count" title="Density of all enabled wildlife; divers are unaffected">
+            <span>Animals <output id="animal-count-value" for="animal-count">Medium</output></span>
+            <span>Low</span><input id="animal-count" type="range" min="0" max="100" step="1" value="65" aria-label="Animal density" aria-valuetext="Medium"><span>High</span>
           </label>
           <label class="population-count" for="particle-count" title="Number of suspended particles in the water">
             <span>Particles <output id="particle-count-value" for="particle-count">1700</output></span>
@@ -62,7 +62,11 @@
           <label title="An articulated red king crab walking on the sand"><input type="checkbox" id="show-crab" checked> King crab</label>
           <label title="Bottom fish, shrimp, sea stars and contact sediment"><input type="checkbox" id="show-bottom-life" checked> Bottom life</label>
           <label title="Gozo-inspired ferry wreck, seabed and submerged reef"><input type="checkbox" id="show-dive-site" checked> Wreck & reef</label>
-          <label title="Kreidesee-inspired truck lying on its side behind the ferry"><input type="checkbox" id="show-hemmoor" checked> Hemmoor truck</label>
+        </div>
+        <div class="scuba-controls">
+          <label>Scuba story <select id="scuba-scenario"><option value="auto">All dives</option><option value="0">Wreck</option><option value="1">Truck</option><option value="2">Reef</option></select></label>
+          <button id="scuba-replay" type="button">Restart dive</button>
+          <output id="scuba-status" aria-live="off"></output>
         </div>
         <div class="day-controls">
           <label for="time-mode">Lighting</label>
@@ -79,7 +83,8 @@
         </div>
         <div class="quality-controls">
           <label for="quality">Graphics</label>
-          <div class="quality-slider" title="Balance power use, frame rate and visual detail">
+          <label><input id="quality-auto" type="checkbox" checked> Auto</label>
+          <div class="quality-slider" title="Visual detail and power use; all modes maximum 30 fps">
             <span class="time-endpoint" aria-hidden="true">Eco</span>
             <input id="quality" type="range" min="0" max="3" step="1" value="1" aria-label="Graphics quality and power mode" aria-valuetext="Balanced, 30 fps">
             <span class="time-endpoint" aria-hidden="true">Ultra</span>
@@ -101,18 +106,22 @@
           <h2 id="about-title">Ocean Freediver Screensaver</h2>
           <button id="close-about" type="button" aria-label="Close dialog">✕</button>
         </header>
-        <p class="about-tagline">An underwater scene with a Gozo-inspired ferry wreck, the Hemmoor truck, freedivers, scuba buddies, sharks, jellyfish and motion-activated bioluminescence. Adjust the glow from 0–300%; it is most visible at night.</p>
+        <p class="about-tagline">An underwater scene with a Gozo-inspired ferry wreck, the Hemmoor truck, freedivers, scuba buddies, sharks, jellyfish and motion-activated bioluminescence. Adjust the glow from 0–1200%; it is most visible at night.</p>
         <div class="about-credits">
           <h3>Credits & Open Source</h3>
-          <p><strong>Creator & Developer:</strong> Kristian R. Harreby</p>
-          <p><strong>AI Architecture & Co-Development:</strong> Gemini AI & Codec</p>
-          <p><strong>License:</strong> Open Source under the <a href="LICENSE" target="_blank" rel="noopener">GNU General Public License v3.0 (GPLv3)</a> — granting the exact same open-source rights, freedoms and principles as the <a href="https://github.com/krauhe/T1D-Simulator" target="_blank" rel="noopener">T1D Simulator</a> project.</p>
+          <p><strong>Creator & Developer:</strong> Kristian Rauhe Harreby</p>
+          <p><strong>AI Architecture & Co-Development:</strong> Google Gemini & OpenAI Codex</p>
+          <p><strong>License:</strong> Open Source under the <a href="LICENSE" target="_blank" rel="noopener">GNU General Public License v3.0 (GPLv3)</a>.</p>
+          <h3>Support the project</h3>
+          <p>If you enjoy the screensaver, you are welcome to help with coffee and AI development costs. Support is entirely optional.</p>
+          <p><a href="https://buymeacoffee.com/krauhe" target="_blank" rel="noopener">Buy Me a Coffee</a> · <a href="https://qr.mobilepay.dk/box/0946757d-b34b-4b1e-8302-f0a67fc49c69/pay-in" target="_blank" rel="noopener">MobilePay</a></p>
         </div>
       </div>
     </dialog>
   </main>
   <noscript>Enable JavaScript in your browser to view the animated screensaver.</noscript>
   <script src="three.min.js"></script>
+  <script src="jelly-orientation.js"></script>
   <script src="jellyfish.js"></script>
   <script src="diver-bubbles.js"></script>
   <script src="freediver-rig.js"></script>
@@ -120,10 +129,13 @@
   <script src="seabed.js"></script>
   <script src="marine-behavior.js"></script>
   <script src="hemmoor-truck.js"></script>
+  <script src="boat-water.js"></script>
+  <script src="scuba-scenarios.js"></script>
   <script src="scuba.js"></script>
   <script src="king-crab.js"></script>
   <script src="benthic-life.js"></script>
   <script src="comb-jelly.js"></script>
+  <script src="adaptive-quality.js"></script>
   <script src="ocean.js"></script>
 </body>
 </html>

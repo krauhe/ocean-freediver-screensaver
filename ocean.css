@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Kristian R. Harreby. See LICENSE for terms.
+ * Copyright (C) 2026 Kristian Rauhe Harreby. See LICENSE for terms.
  * The ocean fills the window. Subtle controls fade out after inactivity. */
 :root { color-scheme: dark; font-family: "Segoe UI", system-ui, sans-serif; color: #deedf3; background: #031b35; }
 * { box-sizing: border-box; }
@@ -108,3 +108,8 @@ body.immersed .controls { pointer-events: none; }
 .bioluminescence-controls output { min-width: 4ch; text-align: right; font-variant-numeric: tabular-nums; }
 .controls { max-height: 78dvh; overflow-y: auto; scrollbar-width: thin; }
 @media (max-width: 650px) { .selected-logo:not(.about-logo) { left: 12px; top: 10px; width: 165px; } }
+
+.scuba-controls { display:flex; flex-basis:100%; flex-wrap:wrap; align-items:center; gap:8px; padding:7px 12px; border-top:1px solid #8eb4ce20; color:#bad1dc; font-size:12px; }
+.scuba-controls label { display:flex; align-items:center; gap:8px; }
+.scuba-controls select { padding:6px 8px; border:1px solid #91c5df33; border-radius:8px; background:#061c35; color:#deedf3; font:inherit; }
+#scuba-status { flex-basis:100%; min-height:16px; font-variant-numeric:tabular-nums; }

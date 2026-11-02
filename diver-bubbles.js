@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Kristian R. Harreby. See LICENSE for terms.
+ * Copyright (C) 2026 Kristian Rauhe Harreby. See LICENSE for terms.
  * Shared freediver/scuba air-water optics and spherical-cap ascent model.
  * Material extracted unchanged from the original freediver bubbles.
  */

@@ -46,9 +46,17 @@
       float fog=exp(-length(vView)*.021);
       gl_FragColor=vec4(light,plate*edge*endMask*fog*.88);
     }`;
-  const starts=[[-4.5,2.5,14],[4.0,.3,12],[-1.0,-2,8]];
+  // Random positions across three depth bands, not a foreground arrangement.
+  const depthBands=[[4,12],[-12,-3],[-34,-22]];
+  const startBands=[...depthBands];
+  for(let i=startBands.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[startBands[i],startBands[j]]=[startBands[j],startBands[i]];}
+  function randomPosition(position,band,entering=false){
+   const z=band[0]+Math.random()*(band[1]-band[0]);
+   const x=entering?-Math.max(24,(27-z)*1.7):(Math.random()*1.6-.8)*(27-z);
+   position.set(x,x>17?3+Math.random()*7:-8+Math.random()*18,z);
+  }
   for(let i=0;i<3;i++){
-   const root=new T.Group();root.name='Comb jelly '+(i+1);root.position.set(starts[i][0]+(Math.random()-.5)*8,starts[i][1]+(Math.random()-.5)*5,starts[i][2]+(Math.random()-.5)*2);root.scale.setScalar(1.5-i*.20);group.add(root);
+   const root=new T.Group();root.name='Comb jelly '+(i+1);randomPosition(root.position,startBands[i]);root.scale.setScalar(1.5-i*.20);group.add(root);
    const uniforms={clock:{value:0},phase:{value:i*2.39996},illumination:{value:1},day:water.daylight,flash:{value:0},flashAge:{value:99},bioAmount:water.bioAmount};
    const skin=new T.ShaderMaterial({uniforms,vertexShader:vertex,fragmentShader:skinFragment,transparent:true,depthWrite:false,side:T.DoubleSide,forceSinglePass:true});
    const body=new T.Mesh(skinGeometry,skin);body.scale.set(.28,.47,.19);root.add(body);
@@ -59,8 +67,9 @@
     for(const z of [-1,1]){const auricle=new T.Mesh(skinGeometry,skin);auricle.position.set(side*.09,-.48,z*.11);auricle.scale.set(.035,.15,.036);auricle.rotation.z=-side*.2;root.add(auricle);}
    }
    const combs=new T.Mesh(combGeometry,new T.ShaderMaterial({uniforms,vertexShader:combVertex,fragmentShader:combFragment,transparent:true,depthWrite:false,side:T.DoubleSide,blending:T.AdditiveBlending}));combs.name='Eight moving comb rows';root.add(combs);
-   animals.push({root,uniforms,lobes,position:root.position,velocity:new T.Vector3(),nextArrival:0,phase:Math.random()*Math.PI*2,lastFlash:-100,flashStrength:0});
+   animals.push({orientation:window.createJellyOrientation(T,'comb'),root,uniforms,lobes,position:root.position,velocity:new T.Vector3(),nextArrival:0,phase:Math.random()*Math.PI*2,lastFlash:-100,flashStrength:0});
   }
+  let enabledCount=3;
   let lastTime;const previousThreatPositions=new Map();
   function stimulate(index,strength,time){const a=animals[index];if(!a||time-a.lastFlash<3)return;a.lastFlash=time;a.flashStrength=Math.min(1,Math.max(0,strength));}
   function update(time,threats=[],scuba){
@@ -69,22 +78,24 @@
    if(dt>0)for(const t of threats){const previous=previousThreatPositions.get(t.p);if(previous&&previous.distanceTo(t.p)/dt>.15)movingThreats.push(t);if(previous)previous.copy(t.p);else previousThreatPositions.set(t.p,t.p.clone());}
    for(let i=0;i<animals.length;i++){
     const a=animals[i],u=a.uniforms;
+    if(i>=enabledCount){a.root.visible=false;continue;}
+    a.orientation.update(time,a.position,environment);
     if(dt>0){
      if(!a.root.visible){
       if(time<a.nextArrival)continue;
-      a.position.set(-24,-6+Math.random()*13,8+Math.random()*6);
+      randomPosition(a.position,depthBands[Math.floor(Math.random()*depthBands.length)],true);
       a.lastFlash=-100;a.flashStrength=0;a.phase=Math.random()*Math.PI*2;u.phase.value=a.phase;
       a.root.visible=true;
      }
      environment.current(a.position,time,flow);
      // Advect with the water, without a spring back to a fixed home.
-     a.velocity.copy(flow);a.velocity.y+=.012*Math.sin(time*.13+a.phase);
+     a.velocity.copy(flow).addScaledVector(a.orientation.axis,.025);a.velocity.y+=.012*Math.sin(time*.13+a.phase);
      a.velocity.y+=Math.max(0,-12-a.position.y)*.02-Math.max(0,a.position.y-10)*.02;
      a.position.addScaledVector(a.velocity,dt);
-     if(a.position.x>24){a.root.visible=false;a.nextArrival=time+4+Math.random()*16;continue;}
+     if(a.position.x>Math.max(24,(27-a.position.z)*1.7)){a.root.visible=false;a.nextArrival=time+4+Math.random()*16;continue;}
      for(const t of movingThreats){const d=a.position.distanceTo(t.p);if(d<(t.radius||0)+1.15)stimulate(i,.65,time);}
     }
-    a.root.rotation.set(.08*Math.sin(time*.12+a.phase),a.phase+time*.035,.12*Math.sin(time*.09+a.phase));
+    a.root.quaternion.copy(a.orientation.quaternion);
     a.lobes.forEach((lobe,j)=>{lobe.rotation.z=(j===0?-1:1)*(.12+.035*Math.sin(time*.45+a.phase));});
     let illumination=water.daylight.value*.95;
     if(scuba&&scuba.group.visible)for(const diver of scuba.divers){
@@ -99,6 +110,6 @@
     u.flashAge.value=time-a.lastFlash;u.flash.value=a.flashStrength*Math.exp(-Math.max(0,u.flashAge.value)*3);
    }
   }
-  return {group,animals,update,stimulate,setVisible(value){group.visible=!!value;if(!value){previousThreatPositions.clear();for(const a of animals){a.lastFlash=-100;a.flashStrength=0;a.uniforms.flash.value=0;}}}};
+  return {group,animals,update,stimulate,setCount(count){const previous=enabledCount;enabledCount=Math.max(0,Math.min(animals.length,Math.round(count)));for(let i=0;i<animals.length;i++){if(i>=enabledCount)animals[i].root.visible=false;else if(i>=previous){animals[i].root.visible=true;animals[i].nextArrival=0;}}},setVisible(value){group.visible=!!value;if(!value){previousThreatPositions.clear();for(const a of animals){a.lastFlash=-100;a.flashStrength=0;a.uniforms.flash.value=0;}}}};
  };
 })();
