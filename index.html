@@ -7,18 +7,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#031b35">
-  <title>Hammerheads · The Blue Deep</title>
+  <title>Ocean Freediver Screensaver</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="ocean.css">
 </head>
 <body>
-  <main id="ocean" aria-label="3D screensaver with sharks and jellyfish in a deep blue ocean">
-    <canvas id="scene" role="img" aria-label="Sharks and jellyfish swim slowly among sunbeams and drifting particles in the ocean."></canvas>
+  <main id="ocean" aria-label="Ocean Freediver Screensaver - 3D ocean screensaver with freedivers, sharks and jellyfish">
+    <canvas id="scene" role="img" aria-label="Freedivers descend along a competition line among sharks, jellyfish and bioluminescence in a deep blue ocean."></canvas>
     <div class="vignette" aria-hidden="true"></div>
+    <div class="chrome selected-logo" role="img" aria-label="Ocean Freediver Screensaver — Dynamic Diagonal Stream"></div>
     <div id="loading" role="status">Diving below the surface …</div>
     <div id="error" role="alert" hidden></div>
     <footer class="chrome">
-      <nav class="controls" aria-label="Screensaver controls">
+      <nav id="screensaver-controls" class="controls" aria-label="Screensaver controls">
         <button id="pause" type="button" title="Space" aria-label="Pause animation" aria-pressed="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path id="pause-icon" d="M9 5v14M15 5v14"/></svg>
           <span id="pause-label">Pause</span>
@@ -31,6 +32,10 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg>
           <span>Fullscreen</span>
         </button>
+        <button id="about-btn" type="button" title="About & Credits" aria-label="About and Credits">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span>About</span>
+        </button>
         <div class="count-controls">
           <label class="population-count" for="animal-count" title="Total animals, shared between the selected species">
             <span>Animals <output id="animal-count-value" for="animal-count">30</output></span>
@@ -41,12 +46,23 @@
             <input id="particle-count" type="range" min="0" max="5000" step="100" value="1700" aria-label="Number of particles">
           </label>
         </div>
+        <div class="bioluminescence-controls">
+          <label for="bioluminescence-amount">Bioluminescence</label>
+          <input id="bioluminescence-amount" type="range" min="0" max="12" step="1" value="3" aria-label="Bioluminescence amount" title="Off, then 100–1200%">
+          <output id="bioluminescence-value" for="bioluminescence-amount">300%</output>
+        </div>
         <div class="species-controls" role="group" aria-labelledby="species-label">
           <span id="species-label">Species</span>
           <label><input type="checkbox" name="species" value="hammerhead" checked> Hammerhead</label>
           <label><input type="checkbox" name="species" value="greatwhite" checked> Great white</label>
           <label><input type="checkbox" name="species" value="jellyfish" checked> Jellyfish</label>
+          <label title="Three enlarged Mnemiopsis leidyi with moving iridescent comb rows"><input type="checkbox" id="show-comb-jellies" checked> Comb jellies</label>
           <label title="Deep freediver with monofin, safety diver and dive line"><input type="checkbox" id="show-freedivers" checked> Freedivers</label>
+          <label title="A buddy pair exploring the wreck"><input type="checkbox" id="show-scuba" checked> Scuba buddies</label>
+          <label title="An articulated red king crab walking on the sand"><input type="checkbox" id="show-crab" checked> King crab</label>
+          <label title="Bottom fish, shrimp, sea stars and contact sediment"><input type="checkbox" id="show-bottom-life" checked> Bottom life</label>
+          <label title="Gozo-inspired ferry wreck, seabed and submerged reef"><input type="checkbox" id="show-dive-site" checked> Wreck & reef</label>
+          <label title="Kreidesee-inspired truck lying on its side behind the ferry"><input type="checkbox" id="show-hemmoor" checked> Hemmoor truck</label>
         </div>
         <div class="day-controls">
           <label for="time-mode">Lighting</label>
@@ -72,13 +88,42 @@
         </div>
       </nav>
     </footer>
+    <button id="show-menu" class="chrome" type="button" aria-controls="screensaver-controls" aria-expanded="false" aria-label="Show controls" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
     <p class="chrome hint">Left: push · Right: pull · Grab away from the centre to turn</p>
     <div id="notice" role="status" aria-live="polite"></div>
+    <dialog id="about-dialog" aria-labelledby="about-title">
+      <div class="about-card">
+        <div class="selected-logo about-logo" role="img" aria-label="Selected logo: Dynamic Diagonal Stream"></div>
+        <header class="about-header">
+          <h2 id="about-title">Ocean Freediver Screensaver</h2>
+          <button id="close-about" type="button" aria-label="Close dialog">✕</button>
+        </header>
+        <p class="about-tagline">An underwater scene with a Gozo-inspired ferry wreck, the Hemmoor truck, freedivers, scuba buddies, sharks, jellyfish and motion-activated bioluminescence. Adjust the glow from 0–300%; it is most visible at night.</p>
+        <div class="about-credits">
+          <h3>Credits & Open Source</h3>
+          <p><strong>Creator & Developer:</strong> Kristian R. Harreby</p>
+          <p><strong>AI Architecture & Co-Development:</strong> Gemini AI & Codec</p>
+          <p><strong>License:</strong> Open Source under the <a href="LICENSE" target="_blank" rel="noopener">GNU General Public License v3.0 (GPLv3)</a> — granting the exact same open-source rights, freedoms and principles as the <a href="https://github.com/krauhe/T1D-Simulator" target="_blank" rel="noopener">T1D Simulator</a> project.</p>
+        </div>
+      </div>
+    </dialog>
   </main>
   <noscript>Enable JavaScript in your browser to view the animated screensaver.</noscript>
   <script src="three.min.js"></script>
   <script src="jellyfish.js"></script>
+  <script src="diver-bubbles.js"></script>
+  <script src="freediver-rig.js"></script>
   <script src="freediver.js"></script>
+  <script src="seabed.js"></script>
+  <script src="marine-behavior.js"></script>
+  <script src="hemmoor-truck.js"></script>
+  <script src="scuba.js"></script>
+  <script src="king-crab.js"></script>
+  <script src="benthic-life.js"></script>
+  <script src="comb-jelly.js"></script>
   <script src="ocean.js"></script>
 </body>
 </html>

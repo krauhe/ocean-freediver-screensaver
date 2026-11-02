@@ -304,7 +304,7 @@ window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
   }
   const pulseDirection=new T.Vector3();
   const swimmingDirection=new T.Vector3(),bellAxis=new T.Vector3(0,1,0);
-  function update(time){
+  function update(time,held){
     if(!group.visible)return;
     for(const animal of animals){
       if(!animal.body.visible)continue;
@@ -312,18 +312,27 @@ window.createJellyfish=function(T,scene,waterUniforms,oceanOptics){
       const cycle=(time*(.22+.012*Math.sin(phase))+phase)%1;
       const pulse=T.MathUtils.smoothstep(cycle,0,.18)*(1-T.MathUtils.smoothstep(cycle,.18,1));
       uniforms.time.value=time;uniforms.pulse.value=pulse;
-      // Follow a three-dimensional loop, pointing the bell along its tangent.
-      // Different phases put animals on approaching and receding paths at once.
-      const travel=time*(.052+.008*Math.sin(phase))+phase;
-      swimmingDirection.set(animal.rx*Math.cos(travel),3.2*Math.cos(travel*.8+phase),-animal.rz*Math.sin(travel)).normalize();
-      body.quaternion.setFromUnitVectors(bellAxis,swimmingDirection);
-      body.rotateY(phase+time*.025);
-      pulseDirection.set(0,pulse*.24,0).applyQuaternion(body.quaternion);
-      // The pulse follows the tilted bell axis. Slow bounded currents avoid
-      // wrapping or visible respawns, and pause still freezes all motion.
-      body.position.set(animal.x+Math.sin(travel)*animal.rx,
-        animal.y+Math.sin(travel*.8+phase)*4,
-        animal.z+Math.cos(travel)*animal.rz).add(pulseDirection);
+      // Weak swimmers: current advection and bell-axis thrust, no flocking
+      // or visual predator detection. Each animal retains its own pulse phase.
+      const environment=window.marineEnvironment;
+      if(!animal.drift){animal.drift=new T.Vector3(animal.x+(Math.random()-.5)*animal.rx*2,animal.y+(Math.random()-.5)*4,animal.z+Math.cos(phase)*animal.rz);animal.driftVelocity=new T.Vector3();animal.driftTime=time;}
+      const driftDt=Math.max(0,Math.min(.5,time-animal.driftTime));animal.driftTime=time;
+      if(environment){
+        environment.current(animal.drift,time,animal.driftVelocity);
+        // A bounded vertical balance models ascent pulses and passive sinking.
+        animal.driftVelocity.y+=(pulse*.10-.035)-Math.max(0,animal.drift.y-9)*.03+Math.max(0,-18-animal.drift.y)*.02;
+
+        animal.driftVelocity.z-=Math.max(0,animal.drift.z-10)*.02;
+        if(animal!==held&&driftDt>0){animal.drift.add(animal.offset);animal.offset.set(0,0,0);animal.drift.addScaledVector(animal.driftVelocity,driftDt);
+          // Re-enter upstream outside the widest camera view; the extra distance
+          // creates a variable absence before the next individual drifts in.
+          const edge=Math.max(35,(27-animal.drift.z)*1.8);
+          if(animal.drift.x>edge){animal.drift.x=-edge-2-Math.random()*8;animal.drift.y=-12+Math.random()*22;animal.velocity.set(0,0,0);}
+        }
+      }
+      swimmingDirection.set(animal.driftVelocity.x*.6,1,animal.driftVelocity.z*.6).normalize();
+      body.quaternion.setFromUnitVectors(bellAxis,swimmingDirection);body.rotateY(phase+time*.015);
+      body.position.copy(animal.drift);
 
       // Measure mechanical disturbance and bioluminescent excitation
       let sharkDisturbance=0;

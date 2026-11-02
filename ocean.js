@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Kristian R. Harreby. See LICENSE for terms.
  *
  * The Blue Deep: a standalone, continuous WebGL scene with modelled hammerheads.
- * Three.js is local. No images, network requests, server or installation are needed.
+ * Scene assets are local; the screensaver works entirely offline.
  * Shark geometry is reused. Water and swimming are calculated on the GPU,
  * keeping memory use stable even when the page stays open for hours.
  */
@@ -37,9 +37,9 @@
   renderer.autoClear = false;
   const scene = new T.Scene();
   scene.fog = new T.FogExp2(0x073653, 0.021);
-  const camera = new T.PerspectiveCamera(49, 1, 0.1, 190);
+  const camera = new T.PerspectiveCamera(58, 1, 0.1, 190);
   camera.position.set(0, 3.5, 27);
-  const lookAt = new T.Vector3(0, 0.4, -9);
+  const lookAt = new T.Vector3(0, -4.4, -15);
   const ambient = new T.HemisphereLight(0xa1d2e1, 0x102b42, 1.75);
   scene.add(ambient);
   const sun = new T.DirectionalLight(0xffe6b2, 3.5);
@@ -77,7 +77,8 @@
     solarDirection: { value: new T.Vector3() },
     lightDirection: { value: new T.Vector3() },
     sunColor: { value: new T.Color() },
-    sunPower: { value: 1 }, daylight: { value: 1 }, twilight: { value: 0 }
+    sunPower: { value: 1 }, daylight: { value: 1 }, twilight: { value: 0 },
+    bioAmount: { value: 1.5 }
   };
 
   // A gentle visual day cycle follows the computer's local clock. Sunrise
@@ -140,6 +141,7 @@
       uniform vec3 sunColor;
       uniform float sunPower;
       uniform float daylight;
+      uniform float bioAmount;
       uniform float twilight;
       float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123);}
       // Quintic interpolated noise with analytical derivatives. Both the value
@@ -175,8 +177,11 @@
           float amplitude=.76*pow(.54,seed);
           float phase=dot(p,heading)*frequency-sqrt(9.81*frequency)*time*.18
             +hash(vec2(seed,5.19))*6.283185;
-          field.x+=amplitude*filtered*sin(phase);
-          field.yz+=amplitude*filtered*cos(phase)*heading*frequency;
+          // Small second harmonic sharpens crests and broadens troughs;
+          // the matching derivative keeps refraction and caustics consistent.
+          float s=sin(phase);
+          field.x+=amplitude*filtered*(s+.14*(s*s-.5));
+          field.yz+=amplitude*filtered*cos(phase)*(1.+.28*s)*heading*frequency;
         }
         return vec3(field.x*envelope,field.yz*envelope+field.x*envelopeGradient);
       }
@@ -266,21 +271,24 @@
           vec3 waterPath=oceanRadiance(direction);
           vec3 ceiling=surfaceLight*transmission+waterPath*(1.-transmission);
 
-          // Layer 1: Hydrodynamic wave-crest shear bioluminescence
-          float nightBio=smoothstep(.32,.02,daylight);
+          // Sparse whitecaps seen from below: a bounded crest-breaking proxy,
+          // not a fluid simulation. No light is emitted by the foam itself.
+          float crest=smoothstep(.28,.67,length(wave.yz))*smoothstep(.28,.70,wave.x);
+          float broken=crest*smoothstep(.48,.73,noise(surfaceWorldPosition.xz*1.7+vec2(time*.07,0.)));
+          float froth=smoothstep(.45,.72,noise(surfaceWorldPosition.xz*13.));
+          ceiling=mix(ceiling,vec3(.28,.42,.47)*(.12+.88*daylight)*transmission,broken*froth*.48);
+          float nightBio=(1.-smoothstep(.02,.32,daylight))*bioAmount;
           if(nightBio>.001){
-            float waveSteepness=length(wave.yz);
-            float waveHeight=wave.x;
-            if(waveSteepness>.32 && waveHeight>.18){
-              float waveShear=smoothstep(.32,.62,waveSteepness)*smoothstep(.18,.55,waveHeight);
-              float foamNoise=noise(surfaceWorldPosition.xz*2.8+vec2(time*.35,-time*.22));
-              float microFoam=.52+.48*foamNoise;
-              float waveGlow=waveShear*nightBio*microFoam*3.4;
-              vec3 waveBioCore=vec3(.04,.78,1.00);
-              vec3 waveBioPeak=vec3(.50,.96,1.00);
-              vec3 waveBioColor=mix(waveBioCore,waveBioPeak,clamp(waveShear*1.6-.25,0.,1.));
-              ceiling+=waveBioColor*waveGlow*transmission;
-            }
+            // Water-fixed cells with brief, staggered flashes, only under a
+            // breaking crest. Pixel filtering prevents distant glitter aliasing.
+            vec2 cell=floor(surfaceWorldPosition.xz*7.);
+            vec2 spot=vec2(hash(cell+1.7),hash(cell+8.3))*.70+.15;
+            float radius=length(fract(surfaceWorldPosition.xz*7.)-spot);
+            float aa=max(.018,footprint*7.);
+            float point=(1.-smoothstep(.055,.055+aa,radius))*min(1.,.11/aa);
+            float phase=fract(time*.72+hash(cell+31.));
+            float flash=smoothstep(0.,.025,phase)*(1.-smoothstep(.025,.19,phase));
+            ceiling+=vec3(.035,.70,1.)*point*flash*broken*nightBio*7.*transmission;
           }
 
           float visibility=1.-smoothstep(105.,165.,distanceToSurface);
@@ -519,8 +527,9 @@
           float amplitude=.76*pow(.54,seed);
           float phase=dot(p,heading)*frequency-sqrt(9.81*frequency)*time*.18
             +hash(vec2(seed,5.19))*6.283185;
-          field.x+=amplitude*filtered*sin(phase);
-          field.yz+=amplitude*filtered*cos(phase)*heading*frequency;
+          float s=sin(phase);
+          field.x+=amplitude*filtered*(s+.14*(s*s-.5));
+          field.yz+=amplitude*filtered*cos(phase)*(1.+.28*s)*heading*frequency;
         }
         return vec3(field.x*envelope,field.yz*envelope+field.x*envelopeGradient);
       }
@@ -1166,7 +1175,7 @@
       jawAngle:{value:0},jawPivot:{value:new T.Vector3(...geometry.userData.jawPivot)},
       dragBend:{value:new T.Vector2()}, finTurn:{value:new T.Vector2()}, sunColor:waterUniforms.sunColor,
       sunPower:waterUniforms.sunPower, lightDirection:waterUniforms.lightDirection,
-      daylight:waterUniforms.daylight, sharkSpeed:{value:0},
+      daylight:waterUniforms.daylight, bioAmount:waterUniforms.bioAmount, sharkSpeed:{value:0},
       activeSharkCount:oceanOptics.activeSharkCount,
       causticMultiTap:oceanOptics.causticMultiTap,
       animalStates:oceanOptics.animalStates, animalHeadings:oceanOptics.animalHeadings,
@@ -1259,6 +1268,7 @@
         uniform vec3 lightDirection;
         uniform float sunPower;
         uniform float daylight;
+        uniform float bioAmount;
         uniform float sharkSpeed;
         uniform float individualSeed;
         uniform float swimTime;
@@ -1450,15 +1460,8 @@
         vec3 pathAbsorption=exp(-vec3(.014,.004,.0008)*viewDist);
         outgoingLight*=mix(vec3(1.),verticalAbsorption*pathAbsorption,.78);
 
-        // Part 4: Nocturnal bioluminescent grazing sheen on leading snout/fin skin
-        if(daylight<.32){
-          float nightBio=smoothstep(.32,.02,daylight);
-          float forwardFacing=clamp(dot(normalize(sharkWorldNormal),normalize(vSharkForward)),0.,1.);
-          float viewFacing=clamp(dot(normalize(sharkWorldNormal),-normalize(vViewPosition)),0.,1.);
-          float graze=pow(1.-viewFacing,2.5);
-          float sheenFactor=clamp(sharkSpeed*.4,0.,1.5)*nightBio*(forwardFacing*.65+graze*.35);
-          outgoingLight+=diffuseColor.rgb*vec3(.08,.74,1.)*sheenFactor*.35;
-        }
+        // Disturbance light belongs to individual plankton points in the water.
+        // Steering / collision speed must never add self-emission to shark skin.
 
         #include <opaque_fragment>
       `);
@@ -1497,7 +1500,7 @@
       prevCaudalTip:new T.Vector3(),
       prevPectoralL:new T.Vector3(),
       prevPectoralR:new T.Vector3(),
-      hasPrevFinPos:false,
+      hasPrevFinPos:false, bioPreviousPosition:new T.Vector3(), bioBodyReady:false,
       extraSwimPhase:0,burstPower:0});
   }
   // Asymmetric paths and different orbit periods avoid synchronised movement.
@@ -1604,6 +1607,7 @@
       uniform vec4 animalHeadings[24];
       attribute float size;attribute vec2 particleSeed;attribute float nearWater;
       varying float alpha;varying float illumination;varying vec2 tumble;
+      ${window.OceanCurrent.glsl}
       void main(){
         // All particles share a slow rightward current, slightly into the scene.
         // Local eddies are weaker than the current, so neighbours travel together.
@@ -1612,8 +1616,10 @@
         vec3 p=position;
         float halfWidth=mix(70.,24.,nearWater);
         float back=mix(-105.,-2.,nearWater),front=mix(20.,27.,nearWater);
-        p.x=mod(p.x+time*.08+halfWidth,halfWidth*2.)-halfWidth;
-        p.z=mod(p.z-time*.018-back,front-back)+back;
+        vec3 drift=marineDisplacement(position,time);
+        p.x=mod(p.x+drift.x+halfWidth,halfWidth*2.)-halfWidth;
+        p.z=mod(p.z+drift.z-back,front-back)+back;
+        p.y+=drift.y;
         // Recycling is fully invisible at both ends; never jump a bright flake.
         float flowFade=smoothstep(0.,4.,halfWidth-abs(p.x))
           *smoothstep(0.,2.,min(p.z-back,front-p.z));
@@ -1740,7 +1746,8 @@
 
     const uniforms = {
       uTime: { value: 0 },
-      uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) }
+      uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
+      uAmount: waterUniforms.bioAmount
     };
 
     const material = new T.ShaderMaterial({
@@ -1753,6 +1760,7 @@
       vertexShader: `
         uniform float uTime;
         uniform float uPixelRatio;
+        uniform float uAmount;
         attribute vec3 aVelocity;
         attribute vec4 aBioData;
 
@@ -1764,19 +1772,19 @@
           float birthTime = aBioData.x;
           float age = uTime - birthTime;
 
-          if (age <= 0.0 || age > 1.25 || aBioData.y <= 0.001) {
+          if (age <= 0.0 || age > 0.85 || aBioData.y <= 0.001) {
             gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
             gl_PointSize = 0.0;
             return;
           }
 
-          // Dobbelt-eksponentiel biokemisk kinetik: tauRise = 25ms, tauDecay = 220ms (320ms for halo)
+          // Individual brief plankton flashes, spatially scattered around motion.
           float tauRise = 0.025;
-          float tauDecay = mix(0.22, 0.32, aBioData.w);
-          float localAge = max(0.0, age - aBioData.z * 0.08 * (1.0 - aBioData.w));
+          float tauDecay = 0.18;
+          float localAge = max(0.0, age - aBioData.z * 0.06);
           float flash = (tauDecay / (tauDecay - tauRise)) * (exp(-localAge / tauDecay) - exp(-localAge / tauRise));
 
-          vAlpha = clamp(flash * aBioData.y, 0.0, 1.0);
+          vAlpha = clamp(flash * aBioData.y * sqrt(uAmount), 0.0, 1.1);
           vType = aBioData.w;
 
           // Hydrodynamisk viskoes advektion med opbremsning i vandet
@@ -1787,10 +1795,10 @@
           vCamDist = max(0.2, -mvPosition.z);
           gl_Position = projectionMatrix * mvPosition;
 
-          // Point size: 1.0 - 2.6 px for micro-spores, max 8.0 px for subtle diffuse mist
-          float baseSize = mix(0.015, 0.060 * (1.0 + age * 0.4), vType);
+          // A flash remains a single point: never a halo or a growing cloud.
+          float baseSize = 0.035 + aBioData.z * 0.020;
           float projectedSize = (baseSize * uPixelRatio * 380.0) / vCamDist;
-          gl_PointSize = (vType < 0.5) ? clamp(projectedSize, 1.0, 2.6) : clamp(projectedSize, 2.0, 8.0);
+          gl_PointSize = clamp(projectedSize, 1.5, 2.2);
         }
       `,
       fragmentShader: `
@@ -1805,10 +1813,8 @@
           float r2 = dot(uv, uv);
           if (r2 > 1.0) discard;
 
-          // Skarp eksponentiel kerne for type 0, bloed diffus Gauss for type 1
-          float radialProfile = (vType < 0.5)
-            ? exp(-r2 * 6.5) * (1.0 - r2)
-            : exp(-r2 * 3.8) * pow(1.0 - r2, 1.6) * 0.12;
+          // Soft antialiased edge on a tiny point; no diffuse light sprites.
+          float radialProfile = exp(-r2 * 3.0) * (1.0 - r2);
 
           vec3 coreCyan = vec3(0.04, 0.78, 1.00);
           vec3 peakWhiteCyan = vec3(0.50, 0.96, 1.00);
@@ -1832,34 +1838,67 @@
 
     let bioHead = 0;
     let needsUpdate = false;
+    let remainingBudget = 0;
+    let frameScale = 0;
+    let frameSeconds = 0;
+    let previousTime = -1;
+    // Spatial memory belongs to water, not to the swimmer. A disturbed parcel
+    // cannot flash repeatedly as successive body patches pass through it.
+    const waterCellTimes = new Float32Array(8192).fill(-100);
+    const waterCellKeys = new Int32Array(8192);
 
-    function emitBurst(x, y, z, vx, vy, vz, shearIntensity, count) {
-      if (shearIntensity <= 0.01 || count <= 0) return;
+    function beginFrame(time, elapsed) {
+      const advancing = time !== previousTime;
+      previousTime = time;
+      uniforms.uTime.value = time;
+      frameScale = advancing ? Math.min(2, Math.max(0, elapsed * 30)) : 0;
+      frameSeconds = advancing ? Math.min(0.067, Math.max(0, elapsed)) : 0;
+      // At most 1,800 brief flashes per second across the entire scene.
+      remainingBudget = Math.min(120, Math.ceil(60 * frameScale));
+    }
+
+    function emitBurst(x, y, z, vx, vy, vz, shearIntensity, count, spread = 0.025) {
+      const amount = uniforms.uAmount.value;
+      const sourceSpeed = Math.hypot(vx, vy, vz);
+      if (amount <= 0 || shearIntensity <= 0.01 || count <= 0 || remainingBudget <= 0 || sourceSpeed < 0.08 || sourceSpeed > 20) return;
+      // Sparse independent organisms: amount controls how many points flash,
+      // while their radius stays tiny even at the maximum setting.
+      const desiredCount = Math.min(remainingBudget, count * amount * frameScale * 0.16 * Math.min(1.5, sourceSpeed / 0.5));
+      count = Math.min(remainingBudget, Math.floor(desiredCount) + (Math.random() < desiredCount % 1 ? 1 : 0));
+      if (!count) return;
+      remainingBudget -= count;
       const birthTime = uniforms.uTime.value;
-      const clampedIntensity = Math.min(2.5, shearIntensity);
+      const clampedIntensity = Math.min(1.2, shearIntensity);
 
       for (let c = 0; c < count; c++) {
+        // Activate a narrow swept strip in the water actually crossed since
+        // the last frame. No surrounding sphere, orbit or attached light swarm.
+        const along = Math.random() * frameSeconds;
+        const thickness = Math.min(0.045, Math.max(0.008, spread));
+        const px = x - vx * along + (Math.random() - .5) * thickness;
+        const py = y - vy * along + (Math.random() - .5) * thickness;
+        const pz = z - vz * along + (Math.random() - .5) * thickness;
+        const cx = Math.floor(px / .025), cy = Math.floor(py / .025), cz = Math.floor(pz / .025);
+        const key = Math.imul(cx, 73856093) ^ Math.imul(cy, 19349663) ^ Math.imul(cz, 83492791);
+        const slot = key & 8191;
+        if (waterCellKeys[slot] === key && birthTime - waterCellTimes[slot] < 0.85) continue;
+        waterCellKeys[slot] = key; waterCellTimes[slot] = birthTime;
         const idx = bioHead;
         bioHead = (bioHead + 1) % N;
 
-        const isHalo = Math.random() > 0.96;
-        const pType = isHalo ? 1.0 : 0.0;
+        const pType = 0.0;
         const seed = Math.random();
 
-        const jitter = isHalo ? 0.08 : 0.035;
-        const jx = (Math.random() - 0.5) * jitter * 2;
-        const jy = (Math.random() - 0.5) * jitter * 2;
-        const jz = (Math.random() - 0.5) * jitter * 2;
-
         const pIdx = idx * 3;
-        posArray[pIdx + 0] = x + jx;
-        posArray[pIdx + 1] = y + jy;
-        posArray[pIdx + 2] = z + jz;
+        posArray[pIdx + 0] = (cx + .5) * .025;
+        posArray[pIdx + 1] = (cy + .5) * .025;
+        posArray[pIdx + 2] = (cz + .5) * .025;
 
-        const vJitter = isHalo ? 0.10 : 0.05;
-        velArray[pIdx + 0] = vx + (Math.random() - 0.5) * vJitter;
-        velArray[pIdx + 1] = vy + (Math.random() - 0.5) * vJitter;
-        velArray[pIdx + 2] = vz + (Math.random() - 0.5) * vJitter;
+        // The organism remains in the water after contact, with only a slight
+        // shared current. The swimmer's velocity is never assigned to the light.
+        velArray[pIdx + 0] = .015;
+        velArray[pIdx + 1] = -.004;
+        velArray[pIdx + 2] = .008;
 
         const bIdx = idx * 4;
         bioArray[bIdx + 0] = birthTime;
@@ -1868,6 +1907,24 @@
         bioArray[bIdx + 3] = pType;
       }
       needsUpdate = true;
+    }
+
+    function emitDisturbance(x, y, z, vx, vy, vz, intensity, count, thickness = 0.025) {
+      // Body boundary-layer separation is weaker than an active blade stroke.
+      const speed = Math.hypot(vx, vy, vz);
+      if (speed < .18) return;
+      emitBurst(x, y, z, vx, vy, vz, intensity * Math.min(1, speed * speed), count, thickness);
+    }
+
+    function setAmount(value) {
+      const numeric = Number(value);
+      uniforms.uAmount.value = T.MathUtils.clamp(Number.isFinite(numeric) ? numeric : 3, 0, 12);
+      mesh.visible = uniforms.uAmount.value > 0;
+      // Off clears existing flashes, so switching on never resurrects old wakes.
+      if (!mesh.visible) {
+        for (let i = 0; i < N; i++) bioArray[i * 4 + 1] = 0;
+        bioAttr.needsUpdate = true;
+      }
     }
 
     function update(time) {
@@ -1882,6 +1939,10 @@
 
     return {
       emitBurst,
+      emitDisturbance,
+      beginFrame,
+      setAmount,
+      getAmount: () => uniforms.uAmount.value,
       update,
       mesh,
       uniforms
@@ -1890,6 +1951,30 @@
 
   const oceanBioluminescence = createBioluminescenceWakeSystem(T, scene);
   window.oceanBioluminescence = oceanBioluminescence;
+  const bioAmountInput = document.getElementById('bioluminescence-amount');
+  const bioAmountOutput = document.getElementById('bioluminescence-value');
+  function syncBioAmount(value) {
+    const numeric=Number(value);
+    oceanBioluminescence.setAmount(numeric>0?Math.max(1,Math.round(numeric)):numeric);
+    const amount = oceanBioluminescence.getAmount();
+    const label = amount === 0 ? 'Off' : Math.round(amount * 100) + '%';
+    if (bioAmountInput) {
+      bioAmountInput.value = String(amount);
+      bioAmountInput.setAttribute('aria-valuetext', label);
+    }
+    if (bioAmountOutput) bioAmountOutput.value = label;
+  }
+  let savedBioAmount = 3;
+  try {
+    const saved = localStorage.getItem('ocean-bioluminescence-amount');
+    if (saved !== null && Number.isFinite(Number(saved))) savedBioAmount = Number(saved);
+  } catch (_) { /* Direct-file browsers can disable storage. */ }
+  syncBioAmount(savedBioAmount);
+  if (bioAmountInput) bioAmountInput.addEventListener('input', () => {
+    syncBioAmount(bioAmountInput.value);
+    try { localStorage.setItem('ocean-bioluminescence-amount', String(oceanBioluminescence.getAmount())); } catch (_) {}
+    redrawNeeded = true;
+  });
 
   // Background fish use instancing: many fish, one draw call.
   function buildSmallFishGeometry() {
@@ -1990,13 +2075,13 @@
     shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>',
       `#include <beginnormal_vertex>
       float tailW = clamp((.10 - position.x) / .45, 0., 1.);
-      float wave = sin(time * 9.2 + fishPhase + position.x * 11.5) * tailW * tailW * .058;
-      float slope = cos(time * 9.2 + fishPhase + position.x * 11.5) * 11.5 * tailW * tailW * .058;
+      float wave = sin(fishPhase + position.x * 11.5) * tailW * tailW * .058;
+      float slope = cos(fishPhase + position.x * 11.5) * 11.5 * tailW * tailW * .058;
       objectNormal.x -= slope * objectNormal.z;`);
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
       `#include <begin_vertex>
       float tailW2 = clamp((.10 - position.x) / .45, 0., 1.);
-      float wave2 = sin(time * 9.2 + fishPhase + position.x * 11.5) * tailW2 * tailW2 * .058;
+      float wave2 = sin(fishPhase + position.x * 11.5) * tailW2 * tailW2 * .058;
       transformed.z += wave2;
       vFishWorld = (modelMatrix * instanceMatrix * vec4(transformed, 1.)).xyz;`);
     shader.fragmentShader = `varying vec3 vFishWorld;
@@ -2255,6 +2340,23 @@
   const freedivers = window.createFreedivers
     ? window.createFreedivers(T, scene, waterUniforms, oceanOptics, oceanBioluminescence)
     : null;
+  const diveSite = window.createDiveSite ? window.createDiveSite(T, scene, waterUniforms) : null;
+  const kingCrabs = window.createKingCrab ? [0,1,2].map(i=>window.createKingCrab(T,scene,waterUniforms,i)) : [];
+  const kingCrab = kingCrabs[0] || null;
+  const hemmoorTruck = window.createHemmoorTruck ? window.createHemmoorTruck(T, scene, waterUniforms) : null;
+  const scubaDivers = window.createScubaDivers
+    ? window.createScubaDivers(T, scene, waterUniforms, oceanOptics, oceanBioluminescence, diveSite) : null;
+  const marineEnvironment=window.createMarineEnvironment(T,diveSite,hemmoorTruck);
+  marineEnvironment.setRig(freedivers);
+  window.marineEnvironment=marineEnvironment;
+  const marineAgents=window.createMarineAgents(T,marineEnvironment,fishSeeds,sharks);
+  const benthicLife=window.createBenthicLife(T,scene,waterUniforms,marineEnvironment);
+  const combJellies=window.createCombJellies(T,scene,waterUniforms,marineEnvironment);
+  const behaviorThreats=[];
+  for (const [id, feature] of [['show-scuba', scubaDivers], ['show-crab', kingCrab], ['show-bottom-life',benthicLife], ['show-comb-jellies',combJellies], ['show-dive-site', diveSite], ['show-hemmoor', hemmoorTruck]]) {
+    const input = document.getElementById(id);
+    if (input && feature) input.addEventListener('change', () => { feature.setVisible(input.checked); redrawNeeded = true; });
+  }
   const showFreediversInput = document.getElementById('show-freedivers');
   if (showFreediversInput && freedivers) {
     freedivers.setVisible(showFreediversInput.checked);
@@ -2415,7 +2517,7 @@
     if(particleUniforms && particleUniforms.pixelRatio) particleUniforms.pixelRatio.value = renderer.getPixelRatio();
     camera.aspect=width/height;
     // Portrait layouts get a wider field of view so whole sharks remain visible.
-    camera.fov=camera.aspect<.85?62:49;
+    camera.fov=camera.aspect<.85?68:58;
     camera.updateProjectionMatrix();
     redrawNeeded=true;
   }
@@ -2450,13 +2552,7 @@
   if (qualityInput) qualityInput.addEventListener('input', e => setQuality(e.target.value));
   setQuality(qualityInput ? qualityInput.value : 1);
 
-  // Preallocated scratch objects for renderScene — zero heap allocations per frame
-  const boidForces=Array.from({length:40},()=>new T.Vector3());
-  const boidP1=new T.Vector3(),boidP2=new T.Vector3(),boidDiff=new T.Vector3();
-  const freediverLOS = new T.Vector3();
-  const sharkToCam = new T.Vector3();
-  const losProjPoint = new T.Vector3();
-  const losClearanceVec = new T.Vector3();
+  // Scratch objects reused by renderScene.
   const maxCandidateAnimals=100;
   const candidateAnimals=new Array(maxCandidateAnimals).fill(null);
   const animalSortIndices=new Int32Array(maxCandidateAnimals);
@@ -2471,6 +2567,8 @@
   const bioSharkForward=new T.Vector3();
   const bioJellyRimScratch=new T.Vector3();
   const bioJellyExpelScratch=new T.Vector3();
+  const bioBodyVelocity=new T.Vector3();
+  const bioBodyPoint=new T.Vector3();
 
   function getSharkFinWorldPos(shark,lx,ly,lz,flexVal,isPectoral,out){
     const tail=T.MathUtils.clamp((1.8-lx)/6.2,0,1.2);
@@ -2500,17 +2598,12 @@
     if(shark.isJellyfish){
       ({x,y,z}=shark.mesh.position);
     }else{
-      const phase=shark.phase+animationTime*shark.rate*shark.direction;
-      x=Math.sin(phase)*shark.rx;z=shark.z+Math.cos(phase)*shark.rz;
-      y=shark.y+Math.sin(phase*2+shark.phase)*.85;
-      const dx=Math.cos(phase)*shark.rx*shark.direction;
-      const dz=-Math.sin(phase)*shark.rz*shark.direction;
-      shark.mesh.rotation.set(0,Math.atan2(-dz,dx),0);
-      shark.mesh.rotateX(Math.sin(phase)*.20*shark.direction+Math.sin(animationTime*.11+shark.phase)*.055);
-      shark.mesh.rotateZ(Math.cos(phase*2+shark.phase)*.045);
-      const dyRate=1.7*Math.cos(phase*2+shark.phase);
-      const dPosDt=Math.hypot(dx,dyRate,dz)*shark.rate;
-      shark.uniforms.sharkSpeed.value=(paused?0:dPosDt*speed)+shark.velocity.length();
+      const n=shark.navigation;
+      x=n.p.x;y=n.p.y;z=n.p.z;
+      const v=n.v,pace=v.length();
+      shark.mesh.rotation.set(0,Math.atan2(-v.z,v.x),Math.asin(T.MathUtils.clamp(v.y/Math.max(.01,pace),-.35,.35)),'YXZ');
+      shark.mesh.rotateX(T.MathUtils.clamp(-n.turn*.45,-.18,.18));
+      shark.uniforms.sharkSpeed.value=(paused?0:pace*speed)+shark.velocity.length();
     }
     baseRotation.copy(shark.mesh.quaternion);
     // Force at the contact point moves the body and produces torque
@@ -2539,7 +2632,6 @@
         shark.angularVelocity.addScaledVector(appliedTorque,dt).clampLength(0,2.5);
       }else{
         shark.velocity.multiplyScalar(Math.exp(-5.5*dt));
-        if(!shark.isJellyfish)shark.velocity.addScaledVector(boidForces[sharkIndex], dt * 15.0);
         // After release, swim back towards the normal upright attitude with
         // a damped angular spring. Apply torque rather than resetting the
         // rotation, so the shark retains its inertia and cannot snap upright.
@@ -2574,6 +2666,8 @@
       shark.angularVelocity.set(0,0,0);
     }
     shark.mesh.position.set(x,y,z).add(shark.offset);
+    if (diveSite) diveSite.constrain(shark.mesh.position, shark.scale * (shark.isJellyfish ? 1.6 : 4.9), shark.offset, shark.velocity);
+    if (hemmoorTruck) hemmoorTruck.constrain(shark.mesh.position, shark.scale * (shark.isJellyfish ? 1.6 : 4.9), shark.offset, shark.velocity);
     shark.mesh.quaternion.copy(baseRotation).premultiply(shark.rotationOffset);
     // The tail yields against movement, including when direction changes.
     // The deformation is filtered so it straightens gently after release.
@@ -2593,24 +2687,23 @@
     if(shark.velocity.lengthSq()===0 && shark.angularVelocity.lengthSq()===0 && shark.finTurnInteraction.lengthSq()<.00001){
       shark.finTurnInteraction.set(0,0);
     }
-    const phase=shark.phase+animationTime*shark.rate*shark.direction;
-    const pathTurn=-shark.direction*.045*(1+.3*Math.cos(phase*2));
-    const pathHeave=-.035*Math.cos(phase*2+shark.phase);
+    const pathTurn=T.MathUtils.clamp(shark.navigation.turn*.45,-.16,.16);
+    const pathHeave=-shark.navigation.v.y*.08;
     shark.uniforms.finTurn.value.set(
       T.MathUtils.clamp(shark.finTurnInteraction.x+pathTurn,-.24,.24),
       T.MathUtils.clamp(shark.finTurnInteraction.y+pathHeave,-.24,.24)
     );
-    const effort=shark===heldShark?0:T.MathUtils.clamp(shark.velocity.length()*.22+boidForces[sharkIndex].length()*.07,0,1.25);
+    const effort=shark===heldShark?0:T.MathUtils.clamp(shark.velocity.length()*.22+Math.abs(shark.navigation.turn)*.7,0,1.25);
     shark.burstPower+=(effort-shark.burstPower)*(1-Math.exp(-5.5*elapsed));
     if(effort<.0015 && shark.burstPower<.0015) shark.burstPower=0;
-    if(!paused && elapsed>0) shark.extraSwimPhase+=elapsed*speed*shark.burstPower*2.1;
-    shark.uniforms.swimTime.value=animationTime*(.83+shark.rate*7)+shark.extraSwimPhase;
-    shark.uniforms.swimPower.value=(shark.power||1)*(1+.38*shark.burstPower);
+    if(shark.swimPhaseTime===undefined)shark.swimPhaseTime=animationTime*(.83+shark.rate*7);
+    if(!paused && elapsed>0)shark.swimPhaseTime+=elapsed*speed*(.65+shark.navigation.v.length()*.45+shark.burstPower*.7);
+    shark.uniforms.swimTime.value=shark.swimPhaseTime;
+    shark.uniforms.swimPower.value=(shark.power||1)*(.78+shark.navigation.v.length()*.20+.28*shark.burstPower);
     const jaw=sharkAnatomies[shark.species].jaw;
     // Small, unhurried openings, offset for each individual. Animation time
     // also freezes the mouth when the screensaver is paused.
-    shark.uniforms.jawAngle.value=jaw ? jaw.restAngle+jaw.idleAmplitude*Math.sin(animationTime*.63+shark.phase)
-      +(jaw.maximumAngle-jaw.restAngle-jaw.idleAmplitude)*Math.pow(.5+.5*Math.sin(animationTime*.13+shark.phase*1.73),18) : 0;
+    shark.uniforms.jawAngle.value=jaw ? jaw.restAngle+jaw.idleAmplitude*Math.sin(animationTime*.63+shark.phase)+shark.burstPower*.018 : 0;
     keepSharkAwayFromCamera(shark,elapsed);
     if (!shark.isJellyfish) {
       const distSq = shark.mesh.position.distanceToSquared(camera.position);
@@ -2629,11 +2722,12 @@
   }
 
   function renderScene(elapsed=0){
-    jellyfish.update(animationTime);
+    oceanBioluminescence.beginFrame(animationTime, elapsed);
+    jellyfish.update(animationTime,heldShark);
     if (freedivers) freedivers.update(animationTime, paused, speed);
+    if (scubaDivers) scubaDivers.update(animationTime, paused, speed);
     waterUniforms.time.value=animationTime;
     particleUniforms.time.value=animationTime;
-    oceanBioluminescence.update(animationTime);
     if(!paused && !heldShark)easedPointer.lerp(pointer,.015);
     camera.position.x=Math.sin(animationTime*.027)*.75+easedPointer.x*.65;
     camera.position.y=3.5+Math.sin(animationTime*.039)*.24+easedPointer.y*.35;
@@ -2646,61 +2740,18 @@
     }
     lightShafts.visible=waterUniforms.sunPower.value>0;
 
-    for(let i=0;i<sharks.length;i++) boidForces[i].set(0,0,0);
-    if(!paused){
-      for(let i=0;i<sharks.length;i++){
-        if(!sharks[i].mesh.visible||sharks[i]===heldShark)continue;
-        const s1=sharks[i], ph1=s1.phase+animationTime*s1.rate*s1.direction;
-        boidP1.set(Math.sin(ph1)*s1.rx,s1.y+Math.sin(ph1*2+s1.phase)*.85,s1.z+Math.cos(ph1)*s1.rz).add(s1.offset);
-        if (freedivers && freedivers.group.visible) {
-          // 1. Direct Repulsion from the Freediver Rig & Shot Line
-          if (boidP1.y >= freedivers.ropeBottomY - 3 && boidP1.y <= freedivers.ropeTopY + 2) {
-            const rdx = boidP1.x - freedivers.rigX;
-            const rdz = boidP1.z - freedivers.rigZ;
-            const rDistSq = rdx * rdx + rdz * rdz;
-            if (rDistSq < 144.0 && rDistSq > 0.01) {
-              const rDist = Math.sqrt(rDistSq);
-              const rPush = (1.0 - rDist / 12.0) * 7.5;
-              boidForces[i].x += (rdx / rDist) * rPush;
-              boidForces[i].z += (rdz / rDist) * rPush;
-            }
-          }
-
-          // 2. Camera-to-Freediver Sightline Corridor Clearance (prevents sharks from swimming in front of the divers)
-          // Camera is at camera.position; Freediver target center is at (freedivers.rigX, 0.0, freedivers.rigZ)
-          freediverLOS.set(freedivers.rigX - camera.position.x, 0.0 - camera.position.y, freedivers.rigZ - camera.position.z);
-          const losLenSq = freediverLOS.lengthSq();
-          if (losLenSq > 1.0) {
-            sharkToCam.subVectors(boidP1, camera.position);
-            const uLOS = sharkToCam.dot(freediverLOS) / losLenSq;
-            if (uLOS > 0.05 && uLOS < 0.95) {
-              losProjPoint.copy(camera.position).addScaledVector(freediverLOS, uLOS);
-              losClearanceVec.subVectors(boidP1, losProjPoint);
-              const losDistSq = losClearanceVec.lengthSq();
-              const clearRadius = 6.5;
-              if (losDistSq < clearRadius * clearRadius && losDistSq > 0.001) {
-                const losDist = Math.sqrt(losDistSq);
-                const losPush = (1.0 - losDist / clearRadius) * 5.5;
-                // Gently nudge shark away from the sightline corridor
-                boidForces[i].addScaledVector(losClearanceVec, losPush / losDist);
-              }
-            }
-          }
-        }
-        for(let j=0;j<i;j++){
-          if(!sharks[j].mesh.visible||sharks[j]===heldShark)continue;
-          const s2=sharks[j], ph2=s2.phase+animationTime*s2.rate*s2.direction;
-          boidP2.set(Math.sin(ph2)*s2.rx,s2.y+Math.sin(ph2*2+s2.phase)*.85,s2.z+Math.cos(ph2)*s2.rz).add(s2.offset);
-          boidDiff.subVectors(boidP1,boidP2);
-          const distSq=boidDiff.lengthSq();
-          if(distSq<144&&distSq>0.1){
-            const factor=40.0/(distSq*Math.sqrt(distSq));
-            boidForces[i].addScaledVector(boidDiff,factor);
-            boidForces[j].addScaledVector(boidDiff,-factor);
-          }
-        }
-      }
-    }
+    behaviorThreats.length=0;
+    for(const animal of sharks)if(animal.mesh.visible)behaviorThreats.push({p:animal.mesh.position,kind:'shark',radius:animal.scale*3});
+    if(freedivers&&freedivers.group.visible)for(const d of freedivers.activeDivers)if(d.visible)behaviorThreats.push({p:d.position,kind:'diver',radius:1});
+    if(scubaDivers&&scubaDivers.group.visible)for(const d of scubaDivers.divers)behaviorThreats.push({p:d.root.position,kind:'diver',radius:1});
+    marineAgents.update(animationTime,behaviorThreats,currentQuality.fish,heldShark);
+    combJellies.update(animationTime,behaviorThreats,scubaDivers);
+    const bottomVisible=document.getElementById('show-bottom-life').checked && diveSite.group.visible;
+    if(benthicLife.group.visible!==bottomVisible)benthicLife.setVisible(bottomVisible);
+    for(const kingCrab of kingCrabs){kingCrab.group.visible=document.getElementById('show-crab').checked&&diveSite.group.visible;kingCrab.update(animationTime,{threats:behaviorThreats,sediment:benthicLife});}
+    benthicLife.update(animationTime,behaviorThreats);
+    if(!paused&&bottomVisible&&scubaDivers.group.visible)for(const diver of scubaDivers.divers)for(const leg of diver.legs)benthicLife.contact(leg,leg.previousTip,animationTime);
+    if(!paused&&bottomVisible&&freedivers.group.visible)for(const diver of freedivers.activeDivers)for(const tip of diver.finTips)benthicLife.contact(tip,tip,animationTime);
 
     // Both kinds of animal share grabbing, inertia and release recovery.
     // Jellyfish supply their own path and orient their bell along that path.
@@ -2711,11 +2762,28 @@
 
     // Hydrodynamic Shear Wake Bioluminescence (Sharks & Jellyfish)
     const nightBioFactor = Math.max(0, Math.min(1, (0.32 - waterUniforms.daylight.value) / 0.30));
-    if (nightBioFactor > 0.01 && elapsed > 0.001) {
+    if (nightBioFactor > 0.01 && oceanBioluminescence.getAmount() > 0 && elapsed > 0.001) {
       for (let i = 0; i < sharks.length; i++) {
         const s = sharks[i];
         if (!s.mesh.visible) continue;
         bioSharkForward.set(1, 0, 0).applyQuaternion(s.mesh.quaternion).normalize();
+        // Incoming water is displaced by the head and shoulders, even while
+        // gliding. This follows measured translation rather than fin effort.
+        if (s.bioBodyReady) {
+          bioBodyVelocity.subVectors(s.mesh.position, s.bioPreviousPosition).divideScalar(elapsed);
+          const bodySpeed = bioBodyVelocity.length();
+          if (bodySpeed > 0.025 && bodySpeed < 20) {
+            for (const side of [-1, 1]) {
+              // Thin separation strips immediately behind the gill/shoulder edges.
+              bioBodyPoint.set(0.9, -0.08, side * 0.56)
+                .multiplyScalar(s.scale).applyQuaternion(s.mesh.quaternion).add(s.mesh.position);
+              oceanBioluminescence.emitDisturbance(
+                bioBodyPoint.x, bioBodyPoint.y, bioBodyPoint.z,
+                bioBodyVelocity.x, bioBodyVelocity.y, bioBodyVelocity.z,
+                Math.min(1.4, bodySpeed * 0.8) * nightBioFactor, 1.5, 0.025 * s.scale);
+            }
+          }
+        }
 
         // 1. Caudal fin upper lobe tip: lx = -4.685, ly = 1.95, lz = 0.0
         getSharkFinWorldPos(s, -4.685, 1.95, 0.0, 0.35, false, bioSharkTipWorld);
@@ -2727,9 +2795,9 @@
             const count = Math.min(6, Math.floor(1 + shear * 4));
             oceanBioluminescence.emitBurst(
               bioSharkTipWorld.x, bioSharkTipWorld.y, bioSharkTipWorld.z,
-              bioFinVel.x * 0.32 - bioSharkForward.x * 0.28,
-              bioFinVel.y * 0.32,
-              bioFinVel.z * 0.32 - bioSharkForward.z * 0.28,
+              bioFinVel.x,
+              bioFinVel.y,
+              bioFinVel.z,
               shear * nightBioFactor,
               count
             );
@@ -2746,9 +2814,9 @@
             const shear = Math.min(1.8, (finSpeed - 0.45) / 0.85);
             oceanBioluminescence.emitBurst(
               bioSharkTipWorld.x, bioSharkTipWorld.y, bioSharkTipWorld.z,
-              bioFinVel.x * 0.30 - bioSharkForward.x * 0.20,
-              bioFinVel.y * 0.30,
-              bioFinVel.z * 0.30 - bioSharkForward.z * 0.20,
+              bioFinVel.x,
+              bioFinVel.y,
+              bioFinVel.z,
               shear * nightBioFactor * 0.75,
               Math.min(3, Math.floor(1 + shear * 2))
             );
@@ -2764,9 +2832,9 @@
             const shear = Math.min(1.8, (finSpeed - 0.45) / 0.85);
             oceanBioluminescence.emitBurst(
               bioSharkTipWorld.x, bioSharkTipWorld.y, bioSharkTipWorld.z,
-              bioFinVel.x * 0.30 - bioSharkForward.x * 0.20,
-              bioFinVel.y * 0.30,
-              bioFinVel.z * 0.30 - bioSharkForward.z * 0.20,
+              bioFinVel.x,
+              bioFinVel.y,
+              bioFinVel.z,
               shear * nightBioFactor * 0.75,
               Math.min(3, Math.floor(1 + shear * 2))
             );
@@ -2804,6 +2872,18 @@
           }
         }
       }
+    }
+
+    // Track even when daylight or the amount control suppresses flashes, so
+    // changing lighting/visibility cannot turn a stale position into a burst.
+    for (const s of sharks) {
+      s.bioPreviousPosition.copy(s.mesh.position);
+      s.bioBodyReady = s.mesh.visible;
+      if (nightBioFactor <= 0.01 || oceanBioluminescence.getAmount() === 0 || !s.mesh.visible) s.hasPrevFinPos = false;
+    }
+    if (jellyfish && jellyfish.animals) for (const a of jellyfish.animals) {
+      if (!a.bioPreviousPosition) a.bioPreviousPosition = new T.Vector3();
+      a.bioPreviousPosition.copy(a.body.position);
     }
 
     for (let r = 0; r < maxRemoras; r++) {
@@ -2898,11 +2978,7 @@
         animalStates[writeSlot].set(cx, cy, cz, bodyRadius);
         animalHeadings[writeSlot].set(animalForwardScratch.x, animalForwardScratch.y, animalForwardScratch.z, 2.95 * a.scale);
 
-        const phase = a.phase + animationTime * a.rate * a.direction;
-        const dPhase = a.rate * a.direction;
-        const dxdt = Math.cos(phase) * a.rx * dPhase;
-        const dzdt = -Math.sin(phase) * a.rz * dPhase;
-        const dydt = 1.7 * Math.cos(phase * 2 + a.phase) * dPhase;
+        const dxdt=a.navigation.v.x,dydt=a.navigation.v.y,dzdt=a.navigation.v.z;
         const pathScale = paused ? 0 : speed;
         const vx = dxdt * pathScale + a.velocity.x;
         const vy = dydt * pathScale + a.velocity.y;
@@ -2921,10 +2997,11 @@
         animalStates[writeSlot].set(a.mesh.position.x, a.mesh.position.y, a.mesh.position.z, bodyRadius);
         animalHeadings[writeSlot].set(animalForwardScratch.x, animalForwardScratch.y, animalForwardScratch.z, 0);
 
-        const pathScale = paused ? 0 : speed * 0.22;
-        const vx = animalForwardScratch.x * pathScale + a.velocity.x;
-        const vy = animalForwardScratch.y * pathScale + a.velocity.y;
-        const vz = animalForwardScratch.z * pathScale + a.velocity.z;
+        const pathScale = paused ? 0 : speed;
+        const drift=a.driftVelocity||animalForwardScratch;
+        const vx = drift.x * pathScale + a.velocity.x;
+        const vy = drift.y * pathScale + a.velocity.y;
+        const vz = drift.z * pathScale + a.velocity.z;
         const activitySpeed = (paused ? 0 : speed * 0.65) + a.velocity.length() * 0.25;
         animalMotions[writeSlot].set(vx, vy, vz, activitySpeed);
         writeSlot++;
@@ -2954,68 +3031,19 @@
       candidateAnimals[i] = null;
     }
     for(let i=0;i<currentQuality.fish;i++) {
-      const seed=fishSeeds[i];
-      const school=i<55?0:1;
-      const orbitDir=school===0?1:-1;
-      const orbitRate=school===0?0.016:0.014;
-      const rx=school===0?27:29;
-      const rz=9.5;
-      const centerY=school===0?7.5:-5.5;
-      const centerZ=school===0?-36:-56;
-      const orbitAngle=animationTime*orbitRate*orbitDir+seed[3]*0.12+school*3.14159;
-
-      let fx=Math.sin(orbitAngle)*rx+(seed[0]-.5)*8.0+Math.sin(animationTime*.65+seed[3])*.35;
-      let fy=centerY+(seed[1]-.5)*3.5+Math.sin(orbitAngle*2.0+seed[3])*1.6+Math.cos(animationTime*.55+seed[3]*1.3)*.25;
-      let fz=centerZ+Math.cos(orbitAngle)*rz+(seed[2]-.5)*6.5+Math.sin(animationTime*.75+seed[3]*.7)*.35;
-
-      let dx=Math.cos(orbitAngle)*rx*orbitDir;
-      let dy=3.2*Math.cos(orbitAngle*2.0+seed[3])*orbitDir;
-      let dz=-Math.sin(orbitAngle)*rz*orbitDir;
-
-      let avoidX=0,avoidY=0,avoidZ=0;
-      for(let k=0;k<activeCount;k++){
-        if(animalHeadings[k].w<=0.01)continue;
-        const sx=animalStates[k].x,sy=animalStates[k].y,sz=animalStates[k].z;
-        const distSq=(fx-sx)*(fx-sx)+(fy-sy)*(fy-sy)+(fz-sz)*(fz-sz);
-        if(distSq<72.25&&distSq>0.01){
-          const dist=Math.sqrt(distSq);
-          const push=(1.0-dist/8.5)*1.8;
-          avoidX+=((fx-sx)/dist)*push;
-          avoidY+=((fy-sy)/dist)*push;
-          avoidZ+=((fz-sz)/dist)*push;
-        }
-      }
-      if (freedivers && freedivers.group.visible && fy >= freedivers.ropeBottomY - 3 && fy <= freedivers.ropeTopY + 2) {
-        const rdx = fx - freedivers.rigX;
-        const rdz = fz - freedivers.rigZ;
-        const rDistSq = rdx * rdx + rdz * rdz;
-        if (rDistSq < 49.0 && rDistSq > 0.01) {
-          const rDist = Math.sqrt(rDistSq);
-          const rPush = (1.0 - rDist / 7.0) * 1.5;
-          avoidX += (rdx / rDist) * rPush;
-          avoidZ += (rdz / rDist) * rPush;
-        }
-      }
-      fx+=avoidX;fy+=avoidY;fz+=avoidZ;
-      dx+=avoidX*1.5;dy+=avoidY*1.5;dz+=avoidZ*1.5;
-
-      const horizSpeed=Math.hypot(dx,dz);
-      const speed3D=Math.hypot(horizSpeed,dy);
-      const yaw=Math.atan2(-dz,dx);
-      const pitch=Math.asin(T.MathUtils.clamp(dy/Math.max(0.01,speed3D),-0.85,0.85));
-      const roll=T.MathUtils.clamp(-dx*orbitDir*0.012,-0.28,0.28);
-
-      fishTransform.position.set(fx,fy,fz);
-      fishTransform.rotation.set(pitch,yaw,roll,'YXZ');
-      fishTransform.scale.setScalar(0.48+seed[1]*0.42);
-      fishTransform.updateMatrix();
-      fish.setMatrixAt(i,fishTransform.matrix);
+      const a=marineAgents.fish[i],v=a.v;
+      fishTransform.position.copy(a.p);
+      fishTransform.rotation.set(0,Math.atan2(-v.z,v.x),Math.asin(T.MathUtils.clamp(v.y/Math.max(.01,v.length()),-.6,.6)),'YXZ');
+      fishTransform.scale.setScalar(a.size);fishTransform.updateMatrix();fish.setMatrixAt(i,fishTransform.matrix);
+      fishPhases[i]=a.stroke;
     }
+    fishGeometry.attributes.fishPhase.needsUpdate=true;
     fish.instanceMatrix.needsUpdate=true;
     renderer.clear();
     updateCaustics();
     renderer.render(background,backgroundCamera);
     renderer.clearDepth();
+    oceanBioluminescence.update(animationTime);
     renderer.render(scene,camera);
   }
   function frame(now){
@@ -3091,6 +3119,19 @@
     }catch(error){notice('Press F11 to enter browser fullscreen.');}
   }
   document.getElementById('fullscreen').addEventListener('click',toggleFullscreen);
+  const aboutBtn = document.getElementById('about-btn');
+  const aboutDialog = document.getElementById('about-dialog');
+  const closeAboutBtn = document.getElementById('close-about');
+  if (aboutBtn && aboutDialog) {
+    aboutBtn.addEventListener('click', () => {
+      aboutDialog.showModal();
+      revealControls();
+    });
+    if (closeAboutBtn) closeAboutBtn.addEventListener('click', () => aboutDialog.close());
+    aboutDialog.addEventListener('click', (e) => {
+      if (e.target === aboutDialog) aboutDialog.close();
+    });
+  }
   canvas.addEventListener('dblclick',()=>{if(performance.now()-lastSharkGrab>650)toggleFullscreen();});
   document.addEventListener('fullscreenchange',async()=>{
     document.querySelector('#fullscreen span').textContent=document.fullscreenElement?'Exit fullscreen':'Fullscreen';
@@ -3099,6 +3140,37 @@
     revealControls();
   });
   document.addEventListener('visibilitychange',()=>{if(!document.hidden) requestWakeLock();});
+
+  const controlsFooter=document.querySelector('footer');
+  const showMenuButton=document.getElementById('show-menu');
+  let backgroundPress=null;
+  function minimizeMenu(){
+    const hadFocus=controlsFooter.contains(document.activeElement);
+    controlsFooter.hidden=true;controlsFooter.inert=true;
+    showMenuButton.hidden=false;showMenuButton.setAttribute('aria-expanded','false');
+    if(hadFocus)showMenuButton.focus({preventScroll:true});
+    revealControls();
+  }
+  showMenuButton.addEventListener('click',()=>{
+    controlsFooter.hidden=false;controlsFooter.inert=false;
+    showMenuButton.setAttribute('aria-expanded','true');showMenuButton.hidden=true;
+    pauseButton.focus({preventScroll:true});revealControls();
+  });
+  // Animal picking runs first. Only an un-dragged primary tap in open water
+  // minimizes the menu; grabbing, pulling and the controls keep their gestures.
+  canvas.addEventListener('pointerdown',event=>{
+    backgroundPress=event.button===0 && event.isPrimary && !heldShark
+      ? {id:event.pointerId,x:event.clientX,y:event.clientY} : null;
+  },{passive:true});
+  document.addEventListener('pointerup',event=>{
+    if(backgroundPress && event.pointerId===backgroundPress.id){
+      const tap=event.target===canvas && Math.hypot(event.clientX-backgroundPress.x,event.clientY-backgroundPress.y)<=8;
+      backgroundPress=null;
+      if(tap)minimizeMenu();
+    }
+  },{passive:true});
+  document.addEventListener('pointercancel',()=>{backgroundPress=null;},{passive:true});
+  window.addEventListener('blur',()=>{backgroundPress=null;});
 
   let hideTimer;
   function revealControls(){
@@ -3110,6 +3182,8 @@
     },5000);
   }
   document.addEventListener('pointermove',event=>{
+    if(backgroundPress && event.pointerId===backgroundPress.id
+      && Math.hypot(event.clientX-backgroundPress.x,event.clientY-backgroundPress.y)>8)backgroundPress=null;
     pointer.set((event.clientX/innerWidth-.5)*2,(.5-event.clientY/innerHeight)*2);
     revealControls();
   },{passive:true});

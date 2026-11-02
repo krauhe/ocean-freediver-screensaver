@@ -1,8 +1,10 @@
-# Hammerheads · The Blue Deep
+# Ocean Freediver Screensaver
 
-An interactive 3D screensaver with hammerheads, great white sharks and translucent jellyfish in a deep blue ocean. Waves, sunbeams, swimming and animal models are rendered directly in the browser using Three.js. All required files are included, so the scene also works offline.
+[Selected logo: Dynamic Diagonal Stream — transparent overlay](grafisk/ocean-freediver-logo-transparent.png)
 
-**[Open the screensaver in your browser](https://krauhe.github.io/Hammerheads/)** — no download or installation required.
+An interactive 3D screensaver featuring deep competition freedivers (CWT monofin & bi-fin safety escort), hammerhead sharks, great white sharks, translucent jellyfish and dynamic shear-activated bioluminescence in a deep blue ocean. Waves, sunbeams, elastodynamic fin kinetics and animal models are rendered directly in the browser using Three.js. All required files are included, so the scene also works offline.
+
+**[Open the screensaver in your browser](https://krauhe.github.io/ocean-freediver/)** — no download or installation required.
 
 ![Hammerhead sharks swimming beneath a rippling ocean surface, with sunbeams and interactive controls.](docs/screenshots/ocean.png)
 
@@ -15,6 +17,8 @@ An interactive 3D screensaver with hammerheads, great white sharks and transluce
 No installation, server or build step is required. This is a browser screensaver; it does not install itself as a Windows screensaver or desktop wallpaper.
 
 ## Controls
+
+Click or tap the open water to minimize the controls. Select **Menu** to reopen them. Pointer movement preserves the minimized state; the existing five-second idle fade still applies.
 
 1. **Fullscreen:** Click the button, press F or double-click the open water. Press Esc to exit fullscreen.
 2. **Pause:** Click Pause or press Space. Repeat to resume.
@@ -39,6 +43,14 @@ In the background, a freediving training rig with a surface float, weighted vert
 
 ## Ocean and lighting
 
+The scene includes an upright Gozo-inspired ferry wreck, a rippled sand bed and a submerged limestone ledge on the right. Two scuba buddies explore a continuous circuit around the wreck, truck, cliff edge and bottom stones, slowing at inspection points with articulated frog kicks and long glides. Small regulator bubbles are visible immediately, then follow independent breathing cycles. At night their hand-held torches follow the nearby attraction, with soft beams visible in the water. The freediving line ends beside the wreck. These are procedural 3D models, not photographs or an exact reconstruction of a real dive site.
+
+The bed mixes pale rippled sand, darker silt and scattered gravel. Limestone has mottled strata, cracks and surface relief; the wreck has rust, flaking surfaces, open hull breaches, missing roof panels, bent rails and fallen debris. Rooted seagrass patches sway gently in the current, with shorter algae on the deck. All textures are generated locally and remain available offline. Vegetation freezes with Pause and is included in **Wreck & reef**.
+
+**Hemmoor truck** adds a separately switchable, photo-inspired model of the Kreidesee truck lying on its side in the sand behind the ferry's stern. Its framed cab, raised tipper, fractured windscreen and wheels are retained; KREIDESEE lettering appears only on the cab front, which faces the viewer. The visual reference was [P. Coors / Tauchernest (2018)](https://www.tauchernest.de/Hemmoor/en/index.html). The model is an artistic interpretation placed in the existing scene, not a reconstruction of Hemmoor's lake or underwater layout. Source photographs are not loaded by the screensaver or bundled as GPL assets.
+
+Use **Bioluminescence** to tune the night-time glow from **0–1200%** (default **300%**, remembered on this browser). Moving fins, hands and body-separation edges activate tiny flashes only along the narrow strip of water they cross. Flashes remain in the water after contact, with a brief recovery interval; they do not follow or orbit a swimmer. Strong strokes excite more points than slow gliding. **Scuba buddies** and **Wreck & reef** toggle the new scene elements. Pale suit panels, distinct belt markings and exposed hands/ankles identify the freedivers. The selected upper-right **Dynamic Diagonal Stream** lockup appears in the fading overlay and About panel.
+
 Lighting follows your computer's local clock and turns orange-red at low sun angles. The visual day cycle uses sunrise at 06:00, the highest sun at 12:00 and sunset at 18:00. It does not calculate the sun's position from your location or the season.
 
 At night, stars shimmer through the refracting surface and soft blue starlight keeps the sharks visible. Starlight brightness is artistically enhanced for visibility, while mechanical shear from swimming or user-dragged animals excites cyan-blue bioluminescent plankton flashes and swirling trails.
@@ -60,17 +72,42 @@ Suspended particles drift together in a gentle current at several depths, includ
 | `ocean.js` | Shark models, animation, physics, lighting and interaction |
 | `jellyfish.js` | Translucent jellyfish models, pulsing bells and trailing tissue |
 | `freediver.js` | Deep freediving buoy rig, monofin diver and safety diver |
+| `freediver-rig.js` | Reusable 16-joint skeleton, skin weights and two-segment arm IK |
+| `scuba.js` | Articulated buddy pair, breathing bubble pool and torch lights |
+| `diver-bubbles.js` | Shared freediver/scuba bubble optics and rise/expansion model |
+| `seabed.js` | Batched procedural sand, limestone ledge and ferry wreck geometry |
+| `hemmoor-truck.js` | Kreidesee-inspired truck lying on its side behind the ferry |
+| `marine-behavior.js` | Shared current, environmental steering and individual shark/school-fish simulation |
+| `benthic-life.js` | Instanced bottom fish, shrimp, sea stars, shelters and settling sediment |
+| `king-crab.js` | Articulated crab with planted feet, foraging pauses and threat response |
+| `comb-jelly.js` | Enlarged Mnemiopsis-inspired comb jellies with moving iridescence and separate stimulated green emission |
 | `three.min.js` | Local Three.js r160 library |
 | `THREE-LICENSE` | MIT licence for Three.js |
 | `GUIDE.md` | User guide and technical limitations |
 | `LICENSE` | GPLv3 licence for this project |
 
-The scene is silent and makes no network requests. A hidden browser tab stops rendering. If your system requests reduced motion, the scene starts paused.
+The scene is silent and works offline. A hidden browser tab stops rendering. If your system requests reduced motion, the scene starts paused.
+
+**Bottom life** adds eight bottom fish, ten shrimp and seven sea stars. Fish and sharks now navigate using individual state and local interactions; jellyfish drift and pulse in the shared current. Plants and particles respond to the same mild flow, and nearby moving fins or crab footfalls can lift small amounts of settling sediment. See [GUIDE.md](GUIDE.md) for behavior details and model limits. The implementation is species-inspired rather than a scientifically calibrated ecosystem.
+
+## Credits
+
+The reef shelf now has rooted seagrass patches and a compact school along its outer lip. `king-crab.js` adds three independently walking red king crabs on the foreground sand (toggle **King crab**). It uses six walking legs with planted stance phases, unequal claws, reduced grooming legs and a spiny carapace. Hiding the seabed also hides the crab.
+
+Wave crests have a small sharpening harmonic, sparse whitecap texture and individual nighttime bioluminescent flashes controlled by the existing slider. These are visual approximations of breaking and mechanical stimulation, not a fluid simulation. Biological references: [NOAA red king crab](https://www.fisheries.noaa.gov/species/red-king-crab) and [Scripps/Latz Laboratory on mechanically stimulated plankton](https://latzlab.ucsd.edu/bioluminescence/dinoflagellates/dinoflagellate-bioluminescence/). No external images are loaded. The combined scene is an artistic habitat mix, not a reconstruction of one ecosystem.
+
+Visual references: the user-supplied Karwela photographs in `developer input/`, plus [Divewise's Karwela description](https://divewise.com.mt/blogs/dive-sites/mv-karwela-gozo-wrecks). Motion references: [FlowState Divers frog-kick film](https://www.flowstatedivers.com/films/how-to-frog-kick) and [GUE.tv frog-kick technique description](https://gue.tv/programs/de-frog-kick-technik-intensitaet-anwendung-tauchen). The animation is procedural, not motion capture. Source photographs are reference material and are not loaded by the running scene.
+
+* **Creator & Lead Developer:** Kristian R. Harreby
+* **AI Architecture & Co-Development:** Gemini AI (Google DeepMind / Google Cloud Vertex AI) & Codec
+* **Open Source & Rights:** Open source under the **GNU General Public License v3.0 (GPLv3)** — sharing the exact same open-source rights, freedoms and principles as the [T1D Simulator](https://github.com/krauhe/T1D-Simulator) project.
 
 ## Licence
 
-Hammerheads is open source under the **GNU General Public License v3.0 (GPLv3)**, the same licence as T1D Simulator. See [LICENSE](LICENSE) for the full terms.
+Ocean Freediver Screensaver is open source under the **GNU General Public License v3.0 (GPLv3)**, the same licence as T1D Simulator. See [LICENSE](LICENSE) for the full terms.
 
-Copyright © 2026 Kristian R. Harreby.
+Copyright © 2026 Kristian R. Harreby. Co-developed with Gemini AI & Codec.
 
 The bundled Three.js library retains its own MIT licence in [THREE-LICENSE](THREE-LICENSE).
+
+Freedivers use articulated skinned 3D meshes rather than shader-only limb interpolation. Their line-supported bottom turn coordinates independent arms, a fixed grip, sinking hips and bent knees. The skeleton is exposed through `freedivers.rigs` for future poses and camera views.

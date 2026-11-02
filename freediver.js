@@ -193,7 +193,7 @@
     }
 
     // 2. Streamline Arms (Left: side = -1, Right: side = +1)
-    const A_ROWS = 16, A_COLS = 8;
+    const A_ROWS = 28, A_COLS = 12;
     for (let side = -1; side <= 1; side += 2) {
       const armGrid = [];
       for (let r = 0; r < A_ROWS; r++) {
@@ -457,7 +457,7 @@
     }
 
     // 2. Streamline & Active Escort Arms (Left: side = -1, Right: side = +1)
-    const A_ROWS = 16, A_COLS = 8;
+    const A_ROWS = 28, A_COLS = 12;
     for (let side = -1; side <= 1; side += 2) {
       const armGrid = [];
       for (let r = 0; r < A_ROWS; r++) {
@@ -697,6 +697,8 @@
         varying vec2 vFinUv;
         varying float vDiverLocalY;
         varying float vLegSide;
+        varying vec3 vSuitLocal;
+        varying float vArmWeight;
         ${shader.vertexShader}
       `;
       shader.vertexShader = shader.vertexShader.replace(
@@ -712,19 +714,6 @@
           }
           objectNormal = normalize(vec3(objectNormal.x - flexSlope * objectNormal.y, objectNormal.y + flexSlope * objectNormal.x, objectNormal.z));
         }
-        if (position.y < -0.04 && uPikeAngle > 0.001) {
-          float wPike = smoothstep(-0.04, -0.32, position.y);
-          float kneeTuckAngle = smoothstep(-0.48, -0.80, position.y) * 0.22 * uPikeAngle;
-          float pikeA = uPikeAngle * wPike - kneeTuckAngle;
-          float sP = sin(pikeA);
-          float cP = cos(pikeA);
-          vec3 rotNorm = vec3(
-            objectNormal.x * cP - objectNormal.y * sP,
-            objectNormal.x * sP + objectNormal.y * cP,
-            objectNormal.z
-          );
-          objectNormal = normalize(mix(objectNormal, rotNorm, wPike));
-        }
         `
       );
       shader.vertexShader = shader.vertexShader.replace(
@@ -737,127 +726,7 @@
           transformed.xz *= compressFactor;
         }
 
-        // 1. Dual-bone anatomical skeletal kinematic arm (Upper arm shoulder-to-elbow + Forearm elbow-to-hand)
-        if (armWeight > 0.0) {
-          float sideArm = (abs(legSide) > 0.5) ? legSide : sign(position.z);
-          float relax = (sideArm > 0.0) ? uArmRelaxR : uArmRelaxL;
-          float reach = (sideArm > 0.0) ? uArmReachR : 0.0;
-
-          // Living subtle scull / sway and streamline micro-resonance
-          float scull = (relax > 0.3) ? sin(uTime * 2.2 + sideArm * 1.4) * 0.016 * relax : 0.0;
-          float streamResonance = (1.0 - relax) * (1.0 - reach) * sin(uKickPhase + 1.2) * uKickAmp * 0.010;
-
-          // Target anatomical joint coordinates:
-          // A. Overhead Streamline (relax = 0, reach = 0)
-          vec3 shoulderPivot = vec3(0.015, 0.52, sideArm * 0.175);
-          vec3 elbowStream = vec3(0.028, 0.86, sideArm * 0.106);
-          vec3 handStream = vec3(0.035, 1.285, sideArm * 0.022);
-
-          // B. Relaxed Escort Posture alongside lateral thighs/hips (relax = 1, reach = 0)
-          // Upper arm hangs from shoulder (y=0.52) to elbow at ribs (y=0.20, z=sideArm*0.205)
-          // Forearm extends from elbow to hand beside outer thigh (y=-0.18, z=sideArm*0.198, x=+0.055)
-          vec3 elbowRelax = vec3(0.025 + scull * 0.4, 0.20, sideArm * 0.205);
-          vec3 handRelax = vec3(0.055 + scull, -0.18, sideArm * 0.198);
-
-          // C. Bottom Tag Reach (reach = 1)
-          vec3 elbowReach = vec3(0.34, 0.52, sideArm * 0.11);
-          vec3 handReach = vec3(0.72, 0.52, sideArm * 0.04);
-
-          // Joint interpolation weights
-          float wStream = (1.0 - relax) * (1.0 - reach);
-          float wRelax = relax * (1.0 - reach);
-          float wReach = reach;
-
-          vec3 elbowTarget = elbowStream * wStream + elbowRelax * wRelax + elbowReach * wReach;
-          vec3 handTarget = handStream * wStream + handRelax * wRelax + handReach * wReach + vec3(streamResonance, 0.0, 0.0);
-
-          // Upper arm kinematics (position.y in [0.52, 0.86])
-          float uArm = clamp((position.y - 0.52) / 0.34, 0.0, 1.0);
-          vec3 centerRestU = mix(shoulderPivot, elbowStream, uArm);
-          vec3 centerTargetU = mix(shoulderPivot, elbowTarget, uArm);
-          vec3 dPosU = position - centerRestU;
-          float rotX_U = dPosU.x * cos(3.14159 * relax);
-          vec3 posUpper = centerTargetU + vec3(rotX_U, 0.0, dPosU.z);
-
-          // Forearm kinematics (position.y in [0.86, 1.285])
-          float vArm = clamp((position.y - 0.86) / 0.425, 0.0, 1.0);
-          vec3 centerRestF = mix(elbowStream, handStream, vArm);
-          vec3 centerTargetF = mix(elbowTarget, handTarget, vArm);
-          vec3 dPosF = position - centerRestF;
-          float rotX_F = dPosF.x * cos(3.14159 * relax);
-          vec3 posFore = centerTargetF + vec3(rotX_F, 0.0, dPosF.z);
-
-          // Seamless blending at elbow hinge (y in [0.83, 0.89])
-          float wElbowHinge = smoothstep(0.83, 0.89, position.y);
-          vec3 posArm = mix(posUpper, posFore, wElbowHinge);
-
-          // Seamless blending into shoulder collar (y in [0.52, 0.58])
-          float wShoulderBlend = smoothstep(0.52, 0.58, position.y);
-          transformed = mix(transformed, posArm, wShoulderBlend);
-        }
-
-        // 2. Biomechanical Hip Flexion (uPikeAngle), Knee Tuck & Spine Bend
-        if (position.y < -0.04 && uPikeAngle > 0.001) {
-          float wPike = smoothstep(-0.04, -0.32, position.y);
-          float kneeTuckAngle = smoothstep(-0.48, -0.80, position.y) * 0.22 * uPikeAngle;
-          float pikeA = uPikeAngle * wPike - kneeTuckAngle;
-          vec3 hipPivot = vec3(0.0, -0.06, 0.0);
-          vec3 relLeg = transformed - hipPivot;
-          float sP = sin(pikeA);
-          float cP = cos(pikeA);
-          vec3 rotatedLeg = vec3(
-            relLeg.x * cP - relLeg.y * sP,
-            relLeg.x * sP + relLeg.y * cP,
-            relLeg.z
-          );
-          transformed = mix(transformed, hipPivot + rotatedLeg, wPike);
-        }
-
-        // 2b. Knee Tuck during 3D bottom turn (drastically reduces moment of inertia)
-        if (uKneeTuck > 0.001 && position.y < -0.45 && position.y > -1.05) {
-          float wKnee = smoothstep(-0.45, -0.65, position.y) * (1.0 - smoothstep(-0.95, -1.05, position.y));
-          transformed.x -= uKneeTuck * wKnee * 0.12;
-          transformed.y += uKneeTuck * wKnee * 0.05;
-        }
-
-        // 2c. Spine Bend during 3D bottom turn (athletic lateral curvature towards rope)
-        if (uSpineBend > 0.001 && position.y > -0.20 && position.y < 0.60) {
-          float wSpine = sin(smoothstep(-0.20, 0.60, position.y) * 3.14159);
-          transformed.x += uSpineBend * wSpine * 0.065;
-        }
-
-        // 3. Head Pitch & Yaw Gaze (uHeadPitch, uHeadYaw)
-        // Keeps the diver's gaze actively directed towards the rope for safety and visual orientation
-        if (position.y > 0.62) {
-          float wHead = smoothstep(0.62, 0.74, position.y);
-          vec3 neckPivot = vec3(0.012, 0.62, 0.0);
-          vec3 relHead = transformed - neckPivot;
-
-          // Pitch: Nod/tilt head towards dive line (+X) or along line
-          if (abs(uHeadPitch) > 0.001) {
-            float sP = sin(uHeadPitch * wHead);
-            float cP = cos(uHeadPitch * wHead);
-            relHead = vec3(
-              relHead.x * cP - relHead.y * sP,
-              relHead.x * sP + relHead.y * cP,
-              relHead.z
-            );
-          }
-
-          // Yaw: Glancing left/right towards rope and buddy
-          if (abs(uHeadYaw) > 0.001) {
-            float sH = sin(uHeadYaw * wHead);
-            float cH = cos(uHeadYaw * wHead);
-            relHead = vec3(
-              relHead.x * cH - relHead.z * sH,
-              relHead.y,
-              relHead.x * sH + relHead.z * cH
-            );
-          }
-
-          transformed = neckPivot + relHead;
-        }
-
+        // Skeletal joints are applied by Three.js skinning after these soft fin deformations.
         // 4. Undulation & compliant kicks (along local X)
         // High elastohydrodynamic compliance with physical elastodynamic blade flex
         if (abs(legSide) > 0.5) {
@@ -914,10 +783,15 @@
         vFinUv = uv;
         vDiverLocalY = position.y;
         vLegSide = legSide;
+        vSuitLocal = position;
+        vArmWeight = armWeight;
         `
       );
+      shader.vertexShader=shader.vertexShader.replace('#include <skinning_vertex>',
+        '#include <skinning_vertex>\n vDiverWorldPos=(modelMatrix*vec4(transformed,1.0)).xyz;');
       shader.fragmentShader = `
         uniform float uBioShimmer;
+        uniform vec3 uSuitAccent;
         uniform float uTime;
         varying vec3 vDiverWorldPos;
         varying float vBladeFlex;
@@ -925,6 +799,8 @@
         varying vec2 vFinUv;
         varying float vDiverLocalY;
         varying float vLegSide;
+        varying vec3 vSuitLocal;
+        varying float vArmWeight;
         ${shader.fragmentShader}
       `;
       shader.fragmentShader = shader.fragmentShader.replace(
@@ -976,6 +852,36 @@
           suitCol = mix(suitCol, seamStitch, seamMask * 0.70);
           suitCol = mix(suitCol, darkCuff, cuffMask * 0.85);
 
+          // The graphics are evaluated in the undeformed suit coordinates, so
+          // shoulders, belt and skin follow the articulated body without sliding.
+          float torsoOnly = 1.0 - smoothstep(0.0, 0.06, vArmWeight);
+          float shoulderYoke = smoothstep(0.395, 0.425, vDiverLocalY)
+            * (1.0 - smoothstep(0.555, 0.58, vDiverLocalY)) * torsoOnly;
+          float sideStripe = smoothstep(0.075, 0.12, abs(vSuitLocal.z))
+            * smoothstep(0.06, 0.10, vDiverLocalY)
+            * (1.0 - smoothstep(0.40, 0.44, vDiverLocalY)) * torsoOnly;
+          float calfBand = smoothstep(-0.70, -0.68, vDiverLocalY)
+            * (1.0 - smoothstep(-0.61, -0.59, vDiverLocalY));
+          vec3 pearl = vec3(0.73, 0.84, 0.86);
+          suitCol = mix(suitCol, pearl, max(shoulderYoke, calfBand) * 0.93);
+          suitCol = mix(suitCol, uSuitAccent, sideStripe * 0.90);
+
+          // Pale lead weights on a rubber waist belt and a brushed front buckle.
+          float belt = smoothstep(-0.075, -0.065, vDiverLocalY)
+            * (1.0 - smoothstep(0.005, 0.015, vDiverLocalY)) * torsoOnly;
+          float weightBlock = smoothstep(0.20, 0.29, abs(sin(vFinUv.x * 18.84956)));
+          vec3 beltColor = mix(vec3(0.045, 0.055, 0.065), vec3(0.51, 0.57, 0.58), weightBlock);
+          float buckle = (1.0 - smoothstep(0.035, 0.05, abs(vSuitLocal.z)))
+            * smoothstep(0.045, 0.07, vSuitLocal.x);
+          suitCol = mix(suitCol, mix(beltColor, pearl, buckle), belt);
+
+          // Exposed hands and a narrow ankle gap above the fin foot pockets.
+          // Arm weight identifies hands even when they relax down by the thighs.
+          float bareHand = smoothstep(0.82, 0.87, vArmWeight);
+          float bareAnkle = smoothstep(-0.88, -0.865, vDiverLocalY)
+            * (1.0 - smoothstep(-0.815, -0.80, vDiverLocalY));
+          vec3 skin = vec3(0.68, 0.47, 0.33);
+          suitCol = mix(suitCol, skin, max(bareHand, bareAnkle));
           diffuseColor.rgb = suitCol;
         }
         `
@@ -1021,6 +927,8 @@
         // Subtle ambient depth floor (preserves silhouette clarity against abyss without additive mirror sheen)
         float depthContrast = smoothstep(6.0, 32.0, waterDepth);
         outgoingLight = max(outgoingLight, vec3(0.016, 0.024, 0.035) * depthContrast);
+        // Weak scattered fill retains the pale identification marks at depth.
+        outgoingLight = max(outgoingLight, diffuseColor.rgb * vec3(0.065, 0.085, 0.095) * depthContrast);
 
         if (uBioShimmer > 0.001) {
           float finBorder = smoothstep(0.65, 0.98, abs(vFinUv.x - 0.5) * 2.0);
@@ -1497,6 +1405,7 @@
       uHeadYaw: { value: 0 },
       uDepthCompression: { value: 0 },
       uBioShimmer: { value: 0 },
+      uSuitAccent: { value: new T.Color(0x5ddbc8) },
       uMonoBladeFlex: { value: 0 },
       uBiBladeFlexL: { value: 0 },
       uBiBladeFlexR: { value: 0 },
@@ -1504,7 +1413,8 @@
     };
     const mainMaterial = createDiverMaterial(T, mainUniforms);
     const mainGeometry = buildMainDiverGeometry(T);
-    const mainDiverMesh = new T.Mesh(mainGeometry, mainMaterial);
+    const mainRig = window.createFreediverRig(T,mainGeometry,mainMaterial);
+    const mainDiverMesh = mainRig.mesh;
     mainDiverMesh.scale.set(DIVER_SCALE, DIVER_SCALE, DIVER_SCALE);
 
     const mainTorchGroup = new T.Group();
@@ -1587,8 +1497,8 @@
     }
 
     const mainSnorkel = createSnorkel(T);
-    mainDiverMesh.add(mainSnorkel);
-    mainDiverMesh.add(mainTorchGroup);
+    mainSnorkel.position.set(-.012,-.62,0);mainRig.joints.neck.add(mainSnorkel);
+    mainTorchGroup.position.sub(new T.Vector3(.012,.62,0));mainRig.joints.neck.add(mainTorchGroup);
     group.add(mainDiverMesh);
 
     // Bi-fin Diver (Right side of rope: RIG_X + 0.82)
@@ -1606,6 +1516,7 @@
       uHeadYaw: { value: 0 },
       uDepthCompression: { value: 0 },
       uBioShimmer: { value: 0 },
+      uSuitAccent: { value: new T.Color(0xf4d386) },
       uMonoBladeFlex: { value: 0 },
       uBiBladeFlexL: { value: 0 },
       uBiBladeFlexR: { value: 0 },
@@ -1613,7 +1524,8 @@
     };
     const safeMaterial = createDiverMaterial(T, safeUniforms);
     const safeGeometry = buildSafetyDiverGeometry(T);
-    const safetyDiverMesh = new T.Mesh(safeGeometry, safeMaterial);
+    const safeRig = window.createFreediverRig(T,safeGeometry,safeMaterial);
+    const safetyDiverMesh = safeRig.mesh;
     safetyDiverMesh.scale.set(DIVER_SCALE, DIVER_SCALE, DIVER_SCALE);
 
     const safeTorchGroup = new T.Group();
@@ -1649,8 +1561,8 @@
     safeTorchGroup.add(safeGlintMesh);
 
     const safeSnorkel = createSnorkel(T);
-    safetyDiverMesh.add(safeSnorkel);
-    safetyDiverMesh.add(safeTorchGroup);
+    safeSnorkel.position.set(-.012,-.62,0);safeRig.joints.neck.add(safeSnorkel);
+    safeTorchGroup.position.sub(new T.Vector3(.012,.62,0));safeRig.joints.neck.add(safeTorchGroup);
     group.add(safetyDiverMesh);
 
     // -------------------------------------------------------------------------
@@ -1710,107 +1622,10 @@
     let safePocketRad = 0.022;
     let lastSimTime = undefined;
 
-    const bubbleUniforms = {
-      lightDirection: (waterUniforms && waterUniforms.lightDirection) || { value: new T.Vector3(0, 1, 0) },
-      sunColor: (waterUniforms && waterUniforms.sunColor) || { value: new T.Color(1, 1, 1) },
-      sunPower: (waterUniforms && waterUniforms.sunPower) || { value: 1.0 },
-      daylight: (waterUniforms && waterUniforms.daylight) || { value: 1.0 }
-    };
-
-    const bubbleMat = new T.ShaderMaterial({
-      uniforms: bubbleUniforms,
-      transparent: true,
-      depthWrite: false,
-      blending: T.AdditiveBlending,
-      vertexShader: `
-        uniform vec3 lightDirection;
-        attribute vec2 aSeed;
-        attribute float aRadius;
-        varying float vAlpha;
-        varying float vDepthRatio;
-        varying vec3 vLightDirView;
-        varying vec3 vViewDir;
-
-        void main() {
-          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          float dist = -mvPosition.z;
-
-          float depth = max(0.0, 15.0 - position.y);
-          float basePx = (position.y > 14.5 ? 12.0 : (aRadius > 0.001 ? aRadius * 250.0 : 8.5 * aSeed.y));
-          gl_PointSize = clamp(basePx * (26.0 / max(6.0, dist)), 2.5, 78.0);
-
-          vAlpha = position.y < -900.0 ? 0.0 : (position.y > 14.5 ? 0.65 : 0.52);
-          vDepthRatio = clamp(depth / 35.0, 0.0, 1.0);
-          vViewDir = normalize(-mvPosition.xyz);
-          vLightDirView = normalize((viewMatrix * vec4(lightDirection, 0.0)).xyz);
-          gl_Position = projectionMatrix * mvPosition;
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 sunColor;
-        uniform float sunPower;
-        uniform float daylight;
-        varying float vAlpha;
-        varying float vDepthRatio;
-        varying vec3 vLightDirView;
-        varying vec3 vViewDir;
-
-        void main() {
-          if (vAlpha <= 0.01) discard;
-
-          // Remap coordinates so (0,0) is center, +Y is UP (top dome), -Y is DOWN (flat base)
-          vec2 p = vec2(gl_PointCoord.x * 2.0 - 1.0, 1.0 - gl_PointCoord.y * 2.0);
-
-          // 1. Fluid Dynamics Shape: Oblate Spherical Cap (Clift-Grace-Weber E ≈ 0.38 - 0.42)
-          // Hydrodynamic stagnation pressure flattens the dome, while the toroidal wake indents the rear base:
-          float indent = (p.y < 0.0) ? (1.0 - p.x * p.x) * 0.08 : 0.0;
-          float effY = p.y - indent;
-          float yScaled = effY < 0.0 ? effY * 3.40 : effY * 1.85;
-          float capDist2 = p.x * p.x + yScaled * yScaled;
-          if (capDist2 > 1.0) discard;
-
-          // Reconstruct 3D surface normal of the flattened cap
-          float nz = sqrt(max(0.0, 1.0 - capDist2));
-          vec3 normalLocal = normalize(vec3(p.x, yScaled * 1.30, nz * 0.90));
-
-          // 2. Air-water Total Internal Reflection (TIR) & Silvery Mirror Rim:
-          // Water (n=1.333) to Air (n=1.0) critical angle theta_c = 48.6 deg produces total reflection on grazing rays:
-          float fresnelRim = pow(1.0 - normalLocal.z, 2.2);
-          float tirMirror = smoothstep(0.60, 0.96, 1.0 - normalLocal.z) * 0.95;
-
-          // 3. Internal Water-Mirror Interface ("Vandspejl inden i goplen"):
-          // Flat horizontal liquid interface at the bottom with intense reflection & crisp meniscus line:
-          float baseMirror = smoothstep(0.04, -0.06, p.y) * (1.0 - p.x * p.x * 1.25) * 0.50;
-          float meniscusLine = smoothstep(0.025, 0.0, abs(p.y - (-0.08))) * (1.0 - p.x * p.x * 1.2) * 0.75;
-
-          float core = exp(-capDist2 * 2.8) * 0.15;
-
-          // 4. Specular Sun Reflection & Glint (when sun aligns with observer)
-          vec3 halfVector = normalize(vLightDirView + vViewDir);
-          float nDotH = max(0.0, dot(normalLocal, halfVector));
-          float specGlint = pow(nDotH, 28.0) * (0.35 + 0.65 * smoothstep(-0.06, 0.35, p.y));
-          float broadSheen = pow(max(0.0, dot(normalLocal, vLightDirView)), 5.0) * 0.35 * smoothstep(-0.1, 0.3, p.y);
-          float solarHighlight = (specGlint * 2.4 + broadSheen) * sunPower * daylight;
-
-          // Edge anti-aliasing
-          float edgeAntialias = 1.0 - smoothstep(0.90, 1.0, capDist2);
-          float alpha = (fresnelRim * 0.75 + tirMirror * 0.60 + baseMirror + meniscusLine + core + solarHighlight * 0.90) * edgeAntialias * vAlpha;
-
-          // Color composition: silvery reflective rim + internal water-mirror + sun glint
-          vec3 shallowColor = vec3(0.92, 0.97, 1.0);
-          vec3 deepColor = vec3(0.68, 0.88, 0.98);
-          vec3 baseColor = mix(shallowColor, deepColor, vDepthRatio);
-          vec3 silverRim = vec3(0.95, 0.98, 1.0);
-          vec3 glintColor = mix(vec3(1.0), sunColor, 0.35);
-
-          vec3 finalColor = baseColor * (fresnelRim * 0.85 + core * 0.5 + baseMirror)
-                          + silverRim * (tirMirror * 0.90 + meniscusLine * 0.85)
-                          + glintColor * solarHighlight;
-
-          gl_FragColor = vec4(finalColor, clamp(alpha, 0.0, 1.0));
-        }
-      `
-    });
+    // Both breath-hold mask air and scuba regulator air share the original
+    // oblate-cap water/air optics and buoyant velocity integration.
+    const bubbleMat = window.createDiverBubbleMaterial(T, waterUniforms);
+    const bubbleVelocityStep = new Float64Array(3);
     const bubblePoints = new T.Points(bubbleGeom, bubbleMat);
     bubblePoints.frustumCulled = false;
     group.add(bubblePoints);
@@ -1819,6 +1634,7 @@
     // Active Divers State for Wakes / Optical Integration
     // -------------------------------------------------------------------------
     const mainDiverState = {
+      finTips: [new T.Vector3()],
       visible: true,
       position: new T.Vector3(RIG_X - 0.78, 14.55, RIG_Z),
       velocity: new T.Vector3(0, 0, 0),
@@ -1827,6 +1643,7 @@
       active: true
     };
     const safetyDiverState = {
+      finTips: [new T.Vector3(),new T.Vector3()],
       visible: true,
       position: new T.Vector3(RIG_X + 0.82, 14.55, RIG_Z),
       velocity: new T.Vector3(0, 0, 0),
@@ -1909,6 +1726,26 @@
     let hasBioHandPrev = false;
 
     const bioDiverForward = new T.Vector3();
+    const bioBodyPoint = new T.Vector3();
+    const bioBodyVelocity = new T.Vector3();
+
+    function emitBodyDisturbance(mesh, previousPosition, dt, nightFactor) {
+      if (!oceanBio || !oceanBio.emitDisturbance || dt <= 0.001 || nightFactor <= 0.01) return;
+      bioBodyVelocity.subVectors(mesh.position, previousPosition).divideScalar(dt);
+      const bodySpeed = bioBodyVelocity.length();
+      if (bodySpeed < 0.12 || bodySpeed > 12.0 || mesh.position.y > 14.1) return;
+      const intensity = Math.min(1.3, (bodySpeed - 0.12) * 0.60) * nightFactor;
+      // Contact with fresh water at each shoulder, continuing during passive glide.
+      for (let side = -1; side <= 1; side += 2) {
+        bioBodyPoint.set(0.035, 0.53, side * 0.185).multiplyScalar(DIVER_SCALE)
+          .applyQuaternion(mesh.quaternion).add(mesh.position);
+        oceanBio.emitDisturbance(
+          bioBodyPoint.x, bioBodyPoint.y, bioBodyPoint.z,
+          bioBodyVelocity.x, bioBodyVelocity.y, bioBodyVelocity.z,
+          intensity, 1.4, 0.025
+        );
+      }
+    }
     let lastUpdateTime = undefined;
     let monoKickPhase = 0.0;
     let biKickPhase = 0.0;
@@ -2040,11 +1877,32 @@
     const MAIN_DIVER_BASE_YAW = -0.74; // -42.4 deg (broadside 3/4 view displaying full 76cm monofin span)
     const SAFE_DIVER_BASE_YAW = -0.90; // -51.6 deg (broadside 3/4 view displaying long bi-fin scissor kicks)
 
-    // Helper: Authentic 3D orientation facing towards the dive rope and spectator
-    // Combines pitch around transverse axis, roll around longitudinal spine axis, and yaw precession
+    // Model axes: +X is the face/chest, +Y the spine towards the head,
+    // +Z the transverse axis. Pitch both face and spine in the sagittal plane.
+    // Keeping the face horizontal while tilting only the spine made a resting
+    // diver lie on their side instead of looking down into the water.
+    const gripPoint=new T.Vector3(),tagPoint=new T.Vector3();
+    function updateArticulatedRig(rig,u,deep,cycle,time,tug){
+      const grip=deep?smoothstep(22.7,23.8,cycle)*(1-smoothstep(26.1,27.0,cycle)):0;
+      const tag=deep?smoothstep(23.1,23.9,cycle)*(1-smoothstep(24.25,24.8,cycle)):0;
+      const turn=deep?smoothstep(23.9,24.6,cycle)*(1-smoothstep(26.0,27.2,cycle)):0;
+      evalRopePoint(PLATE_Y+1.15,time,tug,gripPoint);
+      evalRopePoint(PLATE_Y,time,tug,tagPoint);tagPoint.x+=deep&&rig===mainRig?-.23:.23;
+      const equalize=deep?smoothstep(5,7,cycle)*(1-smoothstep(21.5,23,cycle)):0;
+      const surface=smoothstep(12,14,rig.mesh.position.y);
+      rig.pose(u,time,{grip,gripTarget:gripPoint,tag,tagTarget:tagPoint,turn,equalize,surface});
+    }
+
+    function posedFinPoint(rig,point,side){
+      const bone=rig.joints[side<0?'kneeL':'kneeR'];
+      const index=rig.mesh.skeleton.bones.indexOf(bone);
+      point.applyMatrix4(rig.mesh.skeleton.boneInverses[index]).applyMatrix4(bone.matrixWorld);
+      return point;
+    }
+
     function orientDiver3D(mesh, pitch, roll, yaw, toRopeSign, baseYaw = 0.0, naturalSway = 0.0) {
-      vF.set(toRopeSign, 0.0, 0.0);
-      vU.set(0.0, Math.cos(pitch), -Math.sin(pitch) * toRopeSign);
+      vF.set(Math.cos(pitch) * toRopeSign, -Math.sin(pitch), 0.0);
+      vU.set(Math.sin(pitch) * toRopeSign, Math.cos(pitch), 0.0);
       vS.crossVectors(vF, vU).normalize();
       basisMatrix.makeBasis(vF, vU, vS);
       qPitch.setFromRotationMatrix(basisMatrix);
@@ -2065,8 +1923,8 @@
     function evalDeepTrajectory(cycle, waveY, time, diveIndex = 0) {
       const varDepth = (hash2(diveIndex, 2.1) - 0.5) * 0.4;
       const varRate = 1.0 + (hash2(diveIndex, 4.3) - 0.5) * 0.08;
-      const targetPlateDepth = -16.8 + varDepth;
-      const targetFreefallBottom = -15.8 + varDepth * 0.5;
+      const targetPlateDepth = -15.7 + varDepth*.25;
+      const targetFreefallBottom = -14.8 + varDepth * 0.25;
       const ascentStartDepth = -14.774 + varDepth * 0.5;
 
       if (cycle < 2.0) {
@@ -2085,7 +1943,7 @@
         deepTraj.roll = 0.0;
         deepTraj.turnYaw = 0.0;
         deepTraj.gazeYaw = 0.04 * Math.sin(time * 0.9);
-        deepTraj.gazePitch = -0.35;
+        deepTraj.gazePitch = -0.12;
       } else if (cycle < 4.2) {
         // Biomechanical Duck-Dive (gliding, uninterrupted continuous descent:
         // forward streamline -> hip pike -> vertical leg lift -> kick entry with zero stalling)
@@ -2153,8 +2011,8 @@
         deepTraj.roll = 0.0;
         deepTraj.turnYaw = 0.0;
         deepTraj.armRelax = 0.0;
-        deepTraj.armRelaxL = 0.0;
-        deepTraj.armRelaxR = 0.0;
+        deepTraj.armRelaxL = .55*smoothstep(10,12,cycle);
+        deepTraj.armRelaxR = .92*smoothstep(10,12,cycle);
         deepTraj.armReachR = 0.0;
         deepTraj.kickAmp = 0.0; // Completely motionless, straight fins in pure streamline glide!
         deepTraj.kickPhaseRate = 0.0;
@@ -2186,31 +2044,31 @@
           deepTraj.gazeYaw = 0.0;
           deepTraj.gazePitch = -0.15 + t * 0.15;
         } else if (cycle < 26.2) {
-          // Authentic 3D Competition Bottom Turn (Orbital Pivot):
+          // Rope-supported turn: brake, tag, let hips sink, then extend for ascent.
           // Pivots pitch 180 deg (head-down to head-up) around the bottom plate, maintains
           // an inward bank (~10.3 deg) presenting the dorsal aspect of the diver and monofin
-          // at a 3/4 angle (zero edge-on vanishing), tucks knees, curves spine,
-          // and grips the plate/line with the right arm while left arm stays streamlined.
+          // with soft knees and a slight spine bend,
+          // while the gripping wrist stays attached to the moving dive line.
           const u = (cycle - 24.0) / 2.2;
-          deepTraj.y = targetPlateDepth - 0.12 * Math.sin(u * Math.PI);
-          deepTraj.theta = Math.PI * (1.0 - smoothstep(0, 1, u));
+          deepTraj.y = targetPlateDepth - 1.25*smoothstep(.12,.94,u);
+          deepTraj.theta = Math.PI * (1.0 - smoothstep(.12, .93, u));
           deepTraj.roll = Math.sin(u * Math.PI) * 0.18;
           deepTraj.turnYaw = Math.sin(u * Math.PI) * 0.20;
           deepTraj.armReachR = Math.sin(u * Math.PI) * 1.0; // Right arm reaches plate/line
-          deepTraj.kneeTuck = Math.sin(u * Math.PI) * 0.65;
-          deepTraj.spineBend = Math.sin(u * Math.PI) * 0.25;
+          deepTraj.kneeTuck = smoothstep(0,.28,u)*(1-smoothstep(.65,1,u))*1.35;
+          deepTraj.spineBend = smoothstep(0,.23,u)*(1-smoothstep(.60,1,u))*.30;
           deepTraj.armRelax = 0.0;
           deepTraj.armRelaxL = 0.0;
           deepTraj.armRelaxR = 0.0;
-          deepTraj.pikeAngle = Math.sin(u * Math.PI) * 0.45;
+          deepTraj.pikeAngle = smoothstep(0,.30,u)*(1-smoothstep(.58,1,u))*.95;
           deepTraj.kickAmp = 0.04;
           deepTraj.kickPhaseRate = 1.8 * varRate;
           deepTraj.gazeYaw = Math.sin(u * Math.PI) * 0.25;
-          deepTraj.gazePitch = 0.12 * Math.sin(u * Math.PI);
+          deepTraj.gazePitch = -.28 * Math.sin(u * Math.PI);
         } else {
           // Launch pull & kick acceleration off the plate (s: 0 -> 1, zero velocity jerk)
           const s = (cycle - 26.2) / 2.0;
-          deepTraj.y = targetPlateDepth + (ascentStartDepth - targetPlateDepth) * (s * s);
+          deepTraj.y = targetPlateDepth-1.25 + (ascentStartDepth-targetPlateDepth+1.25)*(s*s);
           deepTraj.theta = 0.0;
           deepTraj.roll = 0.0;
           deepTraj.turnYaw = 0.0;
@@ -2285,7 +2143,7 @@
         deepTraj.kickAmp = 0.18 * (1.0 - tProne) + 0.06 * tProne;
         deepTraj.kickPhaseRate = (2.0 * (1.0 - tProne) + 1.2 * tProne) * varRate;
         deepTraj.gazeYaw = 0.04 * Math.sin(time * 0.9);
-        deepTraj.gazePitch = 0.12 * (1.0 - tProne) - 0.35 * tProne;
+        deepTraj.gazePitch = 0.12 * (1.0 - tProne) - 0.12 * tProne;
       }
     }
 
@@ -2314,7 +2172,7 @@
         safeTraj.armRelax = 0.85; // Arms relaxed forward resting on/beside buoy rim
         safeTraj.armRelaxL = 0.85;
         safeTraj.armRelaxR = 0.85;
-        safeTraj.gazePitch = -0.38; // Face immersed, mask pointed straight down the vertical rope monitoring deep diver
+        safeTraj.gazePitch = -0.12; // Neutral neck; mask points down with the prone torso.
         safeTraj.gazeYaw = 0.04 * Math.sin(time * 0.75); // Alert scanning down the line
       } else if (cycle < 27.2) {
         // 2. Athletic Duck-Dive plunge triggered by bottom rope tug (24.8 - 27.2s):
@@ -2360,7 +2218,9 @@
         // 4. Turn & Rendezvous Intercept (34.5 - 36.8s):
         // Sweeping 180° turn around y ≈ 4.0m to meet ascending deep diver.
         const t = (cycle - 34.5) / 2.3;
-        safeTraj.pikeAngle = Math.sin(t * Math.PI) * 1.15;
+        safeTraj.pikeAngle = Math.sin(t * Math.PI) * .85;
+        safeTraj.kneeTuck = Math.sin(t * Math.PI) * 1.05;
+        safeTraj.spineBend = Math.sin(t * Math.PI) * .18;
         safeTraj.theta = Math.PI * (1.0 - smoothstep(0, 1, t)); // Smooth 180° pivot from down to up!
         const hoverY = (4.2 + varDepth * 0.25) - 0.25 * Math.sin(t * Math.PI);
         const targetEscortY = deepY - 0.55;
@@ -2399,7 +2259,7 @@
         safeTraj.armRelaxL = 0.85;
         safeTraj.armRelaxR = 0.85;
         safeTraj.gazeYaw = 0.0;
-        safeTraj.gazePitch = 0.22 * (1.0 - tProne) - 0.38 * tProne; // Returns gaze down line
+        safeTraj.gazePitch = 0.22 * (1.0 - tProne) - 0.12 * tProne; // Returns gaze down line
       }
     }
 
@@ -2502,19 +2362,23 @@
       evalRopePoint(mainInertial.y.pos, time, tugAmount, diverRopePosMono);
       evalRopePoint(safeInertial.y.pos, time, tugAmount, diverRopePosSafe);
 
-      let monoTargetX = diverRopePosMono.x - 0.70;
+      // Prone bodies point head-first towards the buoy. Give their shoulders
+      // enough room on opposite sides rather than letting the two heads overlap.
+      const monoSurfaceSpace=.45*smoothstep(12,14,monoTraj.y)*Math.pow(Math.sin(monoTraj.theta),2);
+      const biSurfaceSpace=.45*smoothstep(12,14,biTraj.y)*Math.pow(Math.sin(biTraj.theta),2);
+      let monoTargetX = diverRopePosMono.x - 0.70 - monoSurfaceSpace;
       let monoTargetZ = diverRopePosMono.z - 0.28;
-      let biTargetX = diverRopePosSafe.x + 0.72;
+      let biTargetX = diverRopePosSafe.x + 0.72 + biSurfaceSpace;
       let biTargetZ = diverRopePosSafe.z - 0.24;
       if (cycle >= 23.5 && cycle <= 26.8) {
         const sTurn = (cycle - 23.5) / 3.3;
         const uArc = Math.sin(sTurn * Math.PI);
         if (isMonofinDeep) {
-          monoTargetX = (diverRopePosMono.x - 0.70) + uArc * 0.35;
-          monoTargetZ = (diverRopePosMono.z - 0.28) + uArc * 0.28;
+          monoTargetX = (diverRopePosMono.x - 0.70) - uArc * 0.20;
+          monoTargetZ = (diverRopePosMono.z - 0.28) - uArc * 0.14;
         } else {
-          biTargetX = (diverRopePosSafe.x + 0.72) - uArc * 0.35;
-          biTargetZ = (diverRopePosSafe.z - 0.24) + uArc * 0.28;
+          biTargetX = (diverRopePosSafe.x + 0.72) + uArc * 0.20;
+          biTargetZ = (diverRopePosSafe.z - 0.24) - uArc * 0.14;
         }
       }
 
@@ -2568,8 +2432,9 @@
 
       // Bioluminescent fin shear shimmer at night
       const nightBioFactor = smoothstep(0.35, 0.02, daylightVal);
-      mainUniforms.uBioShimmer.value = nightBioFactor * Math.min(1.0, monoTraj.kickAmp * 1.35);
-      safeUniforms.uBioShimmer.value = nightBioFactor * Math.min(1.0, biTraj.kickAmp * 1.35);
+      const bioAmount = oceanBio && oceanBio.getAmount ? oceanBio.getAmount() : 1.0;
+      mainUniforms.uBioShimmer.value = bioAmount * nightBioFactor * Math.min(1.0, monoTraj.kickAmp * 1.35);
+      safeUniforms.uBioShimmer.value = bioAmount * nightBioFactor * Math.min(1.0, biTraj.kickAmp * 1.35);
 
       // Boyle's Law hydrostatic compression: 0 at surface (y = 14.3), 1 at bottom plate (y = -16.8)
       const monoDepthComp = Math.max(0.0, Math.min(1.0, (14.3 - mainInertial.y.pos) / 31.1));
@@ -2628,6 +2493,9 @@
       safeUniforms.uHeadYaw.value = safeInertial.yaw.pos;
       safeUniforms.uTime.value = time;
 
+      updateArticulatedRig(mainRig,mainUniforms,isMonofinDeep,cycle,time,tugAmount);
+      updateArticulatedRig(safeRig,safeUniforms,!isMonofinDeep,cycle,time,tugAmount);
+
       // -----------------------------------------------------------------------
       // Hydrodynamic Bioluminescent Wake Emission (Monofin, Bi-fins, Hands)
       // -----------------------------------------------------------------------
@@ -2636,13 +2504,13 @@
         const monoDisp = Math.sin(monoKickPhase - 3.4) * monoTraj.kickAmp * 0.25 + mainUniforms.uMonoBladeFlex.value * 0.58;
 
         bioMonoTipLocal.set(0.003 + monoDisp, -1.78, -0.38);
-        bioMonoTipL.copy(bioMonoTipLocal).multiplyScalar(DIVER_SCALE).applyQuaternion(mainDiverMesh.quaternion).add(mainDiverMesh.position);
+        posedFinPoint(mainRig,bioMonoTipL.copy(bioMonoTipLocal),-1);
 
         bioMonoTipLocal.set(0.003 + monoDisp, -1.71, 0.0);
-        bioMonoTipM.copy(bioMonoTipLocal).multiplyScalar(DIVER_SCALE).applyQuaternion(mainDiverMesh.quaternion).add(mainDiverMesh.position);
+        posedFinPoint(mainRig,bioMonoTipM.copy(bioMonoTipLocal),1);
 
         bioMonoTipLocal.set(0.003 + monoDisp, -1.78, 0.38);
-        bioMonoTipR.copy(bioMonoTipLocal).multiplyScalar(DIVER_SCALE).applyQuaternion(mainDiverMesh.quaternion).add(mainDiverMesh.position);
+        posedFinPoint(mainRig,bioMonoTipR.copy(bioMonoTipLocal),1);
 
         if (hasBioMonoPrev) {
           bioMonoVelL.subVectors(bioMonoTipL, prevBioMonoTipL).divideScalar(dt);
@@ -2654,13 +2522,13 @@
             const shear = Math.min(2.2, (vCenter - 0.45) / 0.70);
             bioDiverForward.set(0, 1, 0).applyQuaternion(mainDiverMesh.quaternion);
 
-            // Center wake burst (micro-spores + Mie halo)
+            // Water crossed by the centre of the moving blade
             const countCenter = Math.min(5, Math.floor(1 + shear * 3));
             oceanBio.emitBurst(
               bioMonoTipM.x, bioMonoTipM.y, bioMonoTipM.z,
-              bioMonoVelM.x * 0.35 - bioDiverForward.x * 0.25,
-              bioMonoVelM.y * 0.35 - bioDiverForward.y * 0.25,
-              bioMonoVelM.z * 0.35 - bioDiverForward.z * 0.25,
+              bioMonoVelM.x,
+              bioMonoVelM.y,
+              bioMonoVelM.z,
               shear * nightBioFactor,
               countCenter
             );
@@ -2668,17 +2536,17 @@
             // Outer tip vortices
             oceanBio.emitBurst(
               bioMonoTipL.x, bioMonoTipL.y, bioMonoTipL.z,
-              bioMonoVelL.x * 0.32 - bioDiverForward.x * 0.20,
-              bioMonoVelL.y * 0.32 - bioDiverForward.y * 0.20,
-              bioMonoVelL.z * 0.32 - bioDiverForward.z * 0.20,
+              bioMonoVelL.x,
+              bioMonoVelL.y,
+              bioMonoVelL.z,
               shear * nightBioFactor * 0.85,
               2
             );
             oceanBio.emitBurst(
               bioMonoTipR.x, bioMonoTipR.y, bioMonoTipR.z,
-              bioMonoVelR.x * 0.32 - bioDiverForward.x * 0.20,
-              bioMonoVelR.y * 0.32 - bioDiverForward.y * 0.20,
-              bioMonoVelR.z * 0.32 - bioDiverForward.z * 0.20,
+              bioMonoVelR.x,
+              bioMonoVelR.y,
+              bioMonoVelR.z,
               shear * nightBioFactor * 0.85,
               2
             );
@@ -2692,11 +2560,11 @@
         // 2. Safety Diver: Alternating Bi-Fin Blade Tips (Left & Right)
         const biDispL = Math.sin(biKickPhase) * biTraj.kickAmp * 0.28 + safeUniforms.uBiBladeFlexL.value * 0.52;
         bioBiTipLocal.set(0.008 + biDispL, -1.82, -0.095);
-        bioBiTipL.copy(bioBiTipLocal).multiplyScalar(DIVER_SCALE).applyQuaternion(safetyDiverMesh.quaternion).add(safetyDiverMesh.position);
+        posedFinPoint(safeRig,bioBiTipL.copy(bioBiTipLocal),-1);
 
         const biDispR = -Math.sin(biKickPhase) * biTraj.kickAmp * 0.28 + safeUniforms.uBiBladeFlexR.value * 0.52;
         bioBiTipLocal.set(0.008 + biDispR, -1.82, 0.095);
-        bioBiTipR.copy(bioBiTipLocal).multiplyScalar(DIVER_SCALE).applyQuaternion(safetyDiverMesh.quaternion).add(safetyDiverMesh.position);
+        posedFinPoint(safeRig,bioBiTipR.copy(bioBiTipLocal),1);
 
         if (hasBioBiPrev) {
           bioBiVelL.subVectors(bioBiTipL, prevBioBiTipL).divideScalar(dt);
@@ -2709,9 +2577,9 @@
               const shearL = Math.min(2.0, (vBiL - 0.45) / 0.70);
               oceanBio.emitBurst(
                 bioBiTipL.x, bioBiTipL.y, bioBiTipL.z,
-                bioBiVelL.x * 0.35 - bioDiverForward.x * 0.20,
-                bioBiVelL.y * 0.35 - bioDiverForward.y * 0.20,
-                bioBiVelL.z * 0.35 - bioDiverForward.z * 0.20,
+                bioBiVelL.x,
+                bioBiVelL.y,
+                bioBiVelL.z,
                 shearL * nightBioFactor,
                 Math.min(4, Math.floor(1 + shearL * 2))
               );
@@ -2721,9 +2589,9 @@
               const shearR = Math.min(2.0, (vBiR - 0.45) / 0.70);
               oceanBio.emitBurst(
                 bioBiTipR.x, bioBiTipR.y, bioBiTipR.z,
-                bioBiVelR.x * 0.35 - bioDiverForward.x * 0.20,
-                bioBiVelR.y * 0.35 - bioDiverForward.y * 0.20,
-                bioBiVelR.z * 0.35 - bioDiverForward.z * 0.20,
+                bioBiVelR.x,
+                bioBiVelR.y,
+                bioBiVelR.z,
                 shearR * nightBioFactor,
                 Math.min(4, Math.floor(1 + shearR * 2))
               );
@@ -2738,17 +2606,7 @@
         const isDuck = (cycle >= 2.0 && cycle <= 4.8) || (cycle >= 24.8 && cycle <= 27.5);
         const isTagReach = (mainUniforms.uArmReachR.value > 0.05);
         if (isDuck || isTagReach) {
-          const armRelax = mainUniforms.uArmRelaxR.value;
-          const armReach = mainUniforms.uArmReachR.value;
-          const wStream = (1.0 - armRelax) * (1.0 - armReach);
-          const wRelax = armRelax * (1.0 - armReach);
-          const wReach = armReach;
-          bioHandLocal.set(
-            0.035 * wStream + 0.055 * wRelax + 0.72 * wReach,
-            1.285 * wStream + (-0.18) * wRelax + 0.52 * wReach,
-            0.022 * wStream + 0.198 * wRelax + 0.04 * wReach
-          );
-          bioHandWorld.copy(bioHandLocal).multiplyScalar(DIVER_SCALE).applyQuaternion(mainDiverMesh.quaternion).add(mainDiverMesh.position);
+          bioHandWorld.copy(mainRig.worldHands[1]);
 
           if (hasBioHandPrev) {
             bioHandVel.subVectors(bioHandWorld, prevBioHandWorld).divideScalar(dt);
@@ -2757,9 +2615,9 @@
               const shearHand = Math.min(2.0, (handSpeed - 0.45) / 0.70);
               oceanBio.emitBurst(
                 bioHandWorld.x, bioHandWorld.y, bioHandWorld.z,
-                bioHandVel.x * 0.30,
-                bioHandVel.y * 0.30,
-                bioHandVel.z * 0.30,
+                bioHandVel.x,
+                bioHandVel.y,
+                bioHandVel.z,
                 shearHand * nightBioFactor,
                 Math.min(3, Math.floor(1 + shearHand * 2))
               );
@@ -2784,8 +2642,8 @@
 
       if (isMonofinDeep) {
         // Monofin is Deep Diver: Torch ON
-        mainTorchGroup.rotation.y = mainInertial.yaw.pos;
-        mainTorchGroup.rotation.z = mainInertial.pitch.pos;
+        mainTorchGroup.rotation.y = 0;
+        mainTorchGroup.rotation.z = 0;
         let fade = 1.0;
         if (mainInertial.y.pos > 13.5) {
           fade = 1.0 - Math.min(1.0, (mainInertial.y.pos - 13.5) / 1.5) * 0.85;
@@ -2804,8 +2662,8 @@
         safeGlintUniforms.uGlintIntensity.value = 0.0;
       } else {
         // Bi-fin is Deep Diver: Torch ON
-        safeTorchGroup.rotation.y = safeInertial.yaw.pos;
-        safeTorchGroup.rotation.z = safeInertial.pitch.pos;
+        safeTorchGroup.rotation.y = 0;
+        safeTorchGroup.rotation.z = 0;
         let fade = 1.0;
         if (safeInertial.y.pos > 13.5) {
           fade = 1.0 - Math.min(1.0, (safeInertial.y.pos - 13.5) / 1.5) * 0.85;
@@ -2892,14 +2750,15 @@
         safeDuckTimer = 0.0;
       }
 
-      const activeDeepMesh = isMonofinDeep ? mainDiverMesh : safetyDiverMesh;
+      const activeDeepRig=isMonofinDeep?mainRig:safeRig,activeSafeRig=isMonofinDeep?safeRig:mainRig;
+      const activeDeepMesh = activeDeepRig.mesh;
       const activeSafeMesh = isMonofinDeep ? safetyDiverMesh : mainDiverMesh;
       activeDeepMesh.updateMatrixWorld(true);
       activeSafeMesh.updateMatrixWorld(true);
 
       // Exact 3D world coordinates of the goggles / mask on each diver's face
-      deepGogglesPos.set(0.118, 0.745, 0.0).applyMatrix4(activeDeepMesh.matrixWorld);
-      safeGogglesPos.set(0.118, 0.745, 0.0).applyMatrix4(activeSafeMesh.matrixWorld);
+      deepGogglesPos.set(0.118, 0.745, 0.0).applyMatrix4(activeDeepRig.headMatrix);
+      safeGogglesPos.set(0.118, 0.745, 0.0).applyMatrix4(activeSafeRig.headMatrix);
 
       const isDeepAscending = (cycle >= 26.2 && cycle <= 42.0);
       const deepDepth = Math.max(0.0, 15.0 - deepGogglesPos.y);
@@ -2914,7 +2773,7 @@
       if (isDeepAscending) {
         const pocketVolRatio = Math.max(1.0, 4.25 / deepP);
         deepPocketRad = 0.024 * Math.pow(pocketVolRatio, 0.3333333);
-        maskTempVec.set(0.118, 0.745, 0.038).applyMatrix4(activeDeepMesh.matrixWorld);
+        maskTempVec.set(0.118, 0.745, 0.038).applyMatrix4(activeDeepRig.headMatrix);
         bubblePositions[54 * 3] = maskTempVec.x;
         bubblePositions[54 * 3 + 1] = maskTempVec.y;
         bubblePositions[54 * 3 + 2] = maskTempVec.z;
@@ -2927,7 +2786,7 @@
       if (isSafeAscending) {
         const safePocketVolRatio = Math.max(1.0, 2.50 / safeP);
         safePocketRad = 0.022 * Math.pow(safePocketVolRatio, 0.3333333);
-        maskTempVec.set(0.118, 0.745, -0.038).applyMatrix4(activeSafeMesh.matrixWorld);
+        maskTempVec.set(0.118, 0.745, -0.038).applyMatrix4(activeSafeRig.headMatrix);
         bubblePositions[55 * 3] = maskTempVec.x;
         bubblePositions[55 * 3 + 1] = maskTempVec.y;
         bubblePositions[55 * 3 + 2] = maskTempVec.z;
@@ -2965,7 +2824,7 @@
 
                 // Spawn directly from the goggles skirt / temple
                 const templeSide = (bSeed2 > 0.5) ? 0.038 : -0.038;
-                maskSpawnPos.set(0.118 + (bSeed1 - 0.5) * 0.008, 0.745 + (bSeed2 - 0.5) * 0.008, templeSide).applyMatrix4(activeDeepMesh.matrixWorld);
+                maskSpawnPos.set(0.118 + (bSeed1 - 0.5) * 0.008, 0.745 + (bSeed2 - 0.5) * 0.008, templeSide).applyMatrix4(activeDeepRig.headMatrix);
                 mbX[i] = maskSpawnPos.x;
                 mbY[i] = maskSpawnPos.y;
                 mbZ[i] = maskSpawnPos.z;
@@ -3001,7 +2860,7 @@
                 mbDiverId[i] = 1;
 
                 const safeTempleSide = (bSeed2 > 0.5) ? 0.038 : -0.038;
-                maskSpawnPos.set(0.118 + (bSeed1 - 0.5) * 0.008, 0.745 + (bSeed2 - 0.5) * 0.008, safeTempleSide).applyMatrix4(activeSafeMesh.matrixWorld);
+                maskSpawnPos.set(0.118 + (bSeed1 - 0.5) * 0.008, 0.745 + (bSeed2 - 0.5) * 0.008, safeTempleSide).applyMatrix4(activeSafeRig.headMatrix);
                 mbX[i] = maskSpawnPos.x;
                 mbY[i] = maskSpawnPos.y;
                 mbZ[i] = maskSpawnPos.z;
@@ -3043,7 +2902,7 @@
                 mbDiverId[i] = 0;
 
                 const templeSide = (bSeed2 > 0.5) ? 0.038 : -0.038;
-                maskSpawnPos.set(0.118 + (bSeed1 - 0.5) * 0.008, 0.745 + (bSeed2 - 0.5) * 0.008, templeSide).applyMatrix4(activeDeepMesh.matrixWorld);
+                maskSpawnPos.set(0.118 + (bSeed1 - 0.5) * 0.008, 0.745 + (bSeed2 - 0.5) * 0.008, templeSide).applyMatrix4(activeDeepRig.headMatrix);
                 mbX[i] = maskSpawnPos.x;
                 mbY[i] = maskSpawnPos.y;
                 mbZ[i] = maskSpawnPos.z;
@@ -3084,7 +2943,7 @@
                 mbDiverId[i] = 1;
 
                 const safeTempleSide = (bSeed2 > 0.5) ? 0.038 : -0.038;
-                maskSpawnPos.set(0.118 + (bSeed1 - 0.5) * 0.008, 0.745 + (bSeed2 - 0.5) * 0.008, safeTempleSide).applyMatrix4(activeSafeMesh.matrixWorld);
+                maskSpawnPos.set(0.118 + (bSeed1 - 0.5) * 0.008, 0.745 + (bSeed2 - 0.5) * 0.008, safeTempleSide).applyMatrix4(activeSafeRig.headMatrix);
                 mbX[i] = maskSpawnPos.x;
                 mbY[i] = maskSpawnPos.y;
                 mbZ[i] = maskSpawnPos.z;
@@ -3107,12 +2966,7 @@
           const curP = 1.0 + curDepth * 0.10;
           const pRatio = Math.max(0.15, mbSpawnP[i] / curP);
           mbVol[i] = mbInitVol[i] * pRatio;
-          mbRad[i] = mbInitRad[i] * Math.pow(pRatio, 0.3333333);
-
-          // Davies-Taylor buoyant terminal velocity: v_buoy increases with sqrt(Radius)
-          // Larger bubbles have more buoyancy relative to frontal area and rise significantly faster!
-          const normR = Math.min(1.0, mbRad[i] / 0.08);
-          const buoySpeed = 0.65 + 1.15 * Math.sqrt(normR);
+          mbRad[i] = window.diverBubbleExpansion(mbInitRad[i], mbSpawnP[i], mbY[i]);
 
           // Upward wake slipstream entrainment from the ascending diver
           const dGoggles = (mbDiverId[i] === 0) ? deepGogglesPos : safeGogglesPos;
@@ -3127,15 +2981,17 @@
             wakeLift = dVelY * 0.50 * Math.exp(-Math.max(0.0, distY) / 0.75) * (1.0 - horizDist / 0.30);
           }
 
-          const targetVy = buoySpeed + wakeLift;
-          mbVy[i] += (targetVy - mbVy[i]) * Math.min(1.0, dt * 5.0);
-          // Subtle natural buoyant wobble (1.2 cm amplitude) as spherical cap rises
-          mbVx[i] = (mbVx[i] * 0.95) + Math.sin(time * 5.2 + i * 1.8) * 0.012;
-          mbVz[i] = (mbVz[i] * 0.95) + Math.cos(time * 4.8 + i * 2.1) * 0.012;
+          window.stepDiverBubbleVelocity(bubbleVelocityStep, mbRad[i], mbVx[i], mbVy[i], mbVz[i], time, i, dt, wakeLift);
+          mbVx[i] = bubbleVelocityStep[0];
+          mbVy[i] = bubbleVelocityStep[1];
+          mbVz[i] = bubbleVelocityStep[2];
 
           mbX[i] += mbVx[i] * dt;
           mbY[i] += mbVy[i] * dt;
           mbZ[i] += mbVz[i] * dt;
+
+          window.emitDiverBubbleWake(oceanBio,waterUniforms,mbX[i],mbY[i],mbZ[i],
+            mbVx[i],mbVy[i],mbVz[i],mbRad[i],i+640,time);
 
           // Burst at ocean surface waves
           if (mbY[i] >= 15.0 + waveBuoy.y - 0.04) {
@@ -3168,7 +3024,8 @@
 
             // 5b. Collision & Coalescence: merge into a single larger bubble!
             if (i < j && hDist2 < (rSum * rSum * 1.65) && Math.abs(dy) < (rSum * 1.85)) {
-              const mergedVol = mbVol[i] + mbVol[j];
+              const oldVolI = mbVol[i], oldVolJ = mbVol[j];
+              const mergedVol = oldVolI + oldVolJ;
               const mergedInitVol = mbInitVol[i] + mbInitVol[j];
               mbVol[i] = mergedVol;
               mbInitVol[i] = mergedInitVol;
@@ -3177,9 +3034,9 @@
               mbInitRad[i] = Math.pow(mergedInitVol / ((4.0 / 3.0) * Math.PI), 1.0 / 3.0) * 0.01;
 
               // Mass-weighted center of position and upward momentum surge
-              mbX[i] = (mbX[i] * mbVol[i] + mbX[j] * mbVol[j]) / mergedVol;
+              mbX[i] = (mbX[i] * oldVolI + mbX[j] * oldVolJ) / mergedVol;
               mbY[i] = Math.max(mbY[i], mbY[j]) + 0.02;
-              mbZ[i] = (mbZ[i] * mbVol[i] + mbZ[j] * mbVol[j]) / mergedVol;
+              mbZ[i] = (mbZ[i] * oldVolI + mbZ[j] * oldVolJ) / mergedVol;
               mbVy[i] += 0.14;
 
               // Deactivate absorbed bubble j
@@ -3221,6 +3078,9 @@
       lanyardPositions[5] = ropeCarabinerPoint.z;
       lanyardGeom.attributes.position.needsUpdate = true;
 
+      emitBodyDisturbance(mainDiverMesh, prevMainPos, dt, nightBioFactor);
+      emitBodyDisturbance(safetyDiverMesh, prevSafePos, dt, nightBioFactor);
+
       // 7. Active Divers State for wakes / bioluminescence
       const velDt = (dtPhase > 0.0001) ? dtPhase : 0.016;
 
@@ -3231,7 +3091,7 @@
       );
       prevMainPos.copy(mainDiverMesh.position);
       mainDiverState.position.copy(mainDiverMesh.position);
-      mainDiverState.heading.set(0.0, Math.cos(mainInertial.theta.pos), -Math.sin(mainInertial.theta.pos) * 1.0).normalize();
+      mainDiverState.heading.set(0,1,0).applyQuaternion(mainDiverMesh.quaternion).normalize();
       mainDiverState.kickAmp = monoTraj.kickAmp;
       mainDiverState.visible = group.visible;
 
@@ -3242,15 +3102,22 @@
       );
       prevSafePos.copy(safetyDiverMesh.position);
       safetyDiverState.position.copy(safetyDiverMesh.position);
-      safetyDiverState.heading.set(0.0, Math.cos(safeInertial.theta.pos), -Math.sin(safeInertial.theta.pos) * (-1.0)).normalize();
+      safetyDiverState.heading.set(0,1,0).applyQuaternion(safetyDiverMesh.quaternion).normalize();
       safetyDiverState.kickAmp = biTraj.kickAmp;
       safetyDiverState.visible = group.visible;
+
+      // Expose the same blade-tip estimates used by water disturbance, also in
+      // daylight, so sediment is emitted only when moving fins approach sand.
+      posedFinPoint(mainRig,mainDiverState.finTips[0].set(.003+Math.sin(monoKickPhase-3.4)*monoTraj.kickAmp*.25+mainUniforms.uMonoBladeFlex.value*.58,-1.71,0),1);
+      posedFinPoint(safeRig,safetyDiverState.finTips[0].set(.008+Math.sin(biKickPhase)*biTraj.kickAmp*.28+safeUniforms.uBiBladeFlexL.value*.52,-1.82,-.095),-1);
+      posedFinPoint(safeRig,safetyDiverState.finTips[1].set(.008-Math.sin(biKickPhase)*biTraj.kickAmp*.28+safeUniforms.uBiBladeFlexR.value*.52,-1.82,.095),1);
 
       lastUpdateTime = time;
     }
 
     return {
       group: group,
+      rigs: [mainRig,safeRig],
       rigX: RIG_X,
       rigZ: RIG_Z,
       ropeTopY: ROPE_TOP_Y,
@@ -3261,6 +3128,11 @@
         group.visible = Boolean(v);
         mainDiverState.visible = group.visible;
         safetyDiverState.visible = group.visible;
+        // Visibility changes must not create a long-delta wake burst.
+        lastUpdateTime = undefined;
+        hasBioMonoPrev = hasBioBiPrev = hasBioHandPrev = false;
+        prevMainPos.copy(mainDiverMesh.position);
+        prevSafePos.copy(safetyDiverMesh.position);
       },
       update: update
     };

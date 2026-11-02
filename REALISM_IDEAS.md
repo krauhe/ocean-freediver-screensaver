@@ -2,6 +2,28 @@
 
 This roadmap groups possible improvements from small visual changes to more advanced simulations. Items without an implementation status remain ideas, not committed work.
 
+## Reef-life review — 2026-11-02
+
+Implemented: a procedural king crab with six planted walking legs, unequal moving claws and a spiny shell; additional rooted vegetation on the submerged shelf; a compact reef-edge school using the existing instanced fish; sharper wave crests, sparse whitecaps and discrete crest-localized nighttime plankton flashes. These are bounded visual models, not biomechanical or fluid solvers.
+
+Follow-up implementation and remaining ideas:
+
+1. **Implemented:** eight goby-inspired bottom fish, ten shrimp and seven slowly crawling sea stars, using individual state machines and irregularly spaced rubble refuges.
+2. **Implemented:** one shared mild current for grass tips, suspended particles, jellyfish and fish advection, with a smooth sheltered region behind the wreck. Particle trajectories use an analytical displacement approximation rather than integrating each mote.
+3. **Implemented:** small settling sediment puffs at crab footfalls, bottom-fish movement and moving scuba/freediver blade tips near sand. Fin contacts use the same geometric tip estimates as the wake effects.
+4. Better crevice shading and substrate-specific growth: encrusting algae on rock, grass rooted in sediment pockets, darker sheltered cavities.
+5. Optional habitat presets separating cold-water king crabs, Mediterranean scenery and freshwater Hemmoor. The present combined scene is deliberately artistic.
+
+Individual shark and school-fish navigation now runs at a fixed 30 Hz with persistent state, per-animal random seeds and goals, acceleration limits, local separation, shelter/terrain anticipation and threat responses. White sharks have wider spacing and no alignment; hammerheads have weak grouping. Jellyfish do not use fish-like threat vision or schooling. The king crab has foraging pauses and a close-threat freeze response. No predation, reproduction, learning or calibrated energy budget is simulated. Diver choreography remains the established competition/buddy animation.
+
+Validation includes equal fish trajectories at 30/60 render updates, pause invariance, a near-threat escape trial, two minutes of shark navigation without jumps, finite bounded speeds, sediment contact gating and settling, crab freezing, slow star movement, day/night rendering and mobile controls.
+
+The first requested Argon4 consultation timed out after 1,800 seconds; the second shorter behavior review was submitted separately. Do not attribute these implementation decisions to Argon without a returned review.
+
+Behavior references: [NOAA on white shark social behavior](https://www.fisheries.noaa.gov/feature-story/cape-cod-seals-and-sharks-shared-traits-and-top-10-facts), [Australian Museum on shrimp gobies and shelter](https://australian.museum/learn/animals/fishes/what-is-a-shrimpgoby/), [NOAA on sea-star tube feet](https://oceanservice.noaa.gov/facts/starfish.html), [Monterey Bay Aquarium on jellies](https://www.montereybayaquarium.org/animals-the-ocean/animals-a-to-z/jellies). Animal depictions are generalized, not exact reconstructions of every species in these sources.
+
+Biological references: [NOAA red king crab](https://www.fisheries.noaa.gov/species/red-king-crab), [Scripps/Latz Laboratory on plankton flashes](https://latzlab.ucsd.edu/bioluminescence/dinoflagellates/dinoflagellate-bioluminescence/). References remain in development documentation, not in an on-screen photo gallery.
+
 ## 1. Shark behaviour and animation
 
 1. **Boids / schooling — expanded 2026-10-27.** Separation helps sharks avoid each other and steer smoothly clear of the vertical freediving line and training rig. Alignment and cohesion could be explored, with behaviour appropriate to each species rather than applying the same schooling rules to every shark.
