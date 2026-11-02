@@ -27,7 +27,7 @@ The scene is a procedural visual interpretation, not diving instruction. See the
 | --- | --- |
 | ![Divers beside the wreck and truck](docs/screenshots/wreck-exploration.jpg) | ![Torches illuminating the wreck at night](docs/screenshots/ocean-night.jpg) |
 
-![Wave-following pickup boat with propeller bubbles and wake](docs/screenshots/boat-wake.jpg)
+![Hammerhead over the wreck, with scuba buddies, jellyfish and the limestone reef](docs/screenshots/ocean-life.jpg)
 
 Captured from the current scene; detail views use closer cameras.
 
