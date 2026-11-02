@@ -1988,13 +1988,14 @@
   const bioAmountOutput = document.getElementById('bioluminescence-value');
   function syncBioAmount(value) {
     const numeric=Number(value);
-    oceanBioluminescence.setAmount(numeric>0?Math.max(1,Math.round(numeric)):numeric);
+    oceanBioluminescence.setAmount(numeric);
     const amount = oceanBioluminescence.getAmount();
-    // Display normalization only: physical amounts and stored values stay 0–12.
-    const percent=amount<=3?amount/3*100:100+(amount-3)/9*100;
+    // One linear scale: default amount 3 = 100%, maximum amount 12 = 400%.
+    // Persist physical amounts so existing saved preferences keep their strength.
+    const percent=amount/3*100;
     const label = amount === 0 ? 'Off' : Math.round(percent) + '%';
     if (bioAmountInput) {
-      bioAmountInput.value = String(amount);
+      bioAmountInput.value = String(percent);
       bioAmountInput.setAttribute('aria-valuetext', label);
     }
     if (bioAmountOutput) bioAmountOutput.value = label;
@@ -2006,7 +2007,7 @@
   } catch (_) { /* Direct-file browsers can disable storage. */ }
   syncBioAmount(savedBioAmount);
   if (bioAmountInput) bioAmountInput.addEventListener('input', () => {
-    syncBioAmount(bioAmountInput.value);
+    syncBioAmount(Number(bioAmountInput.value)*3/100);
     try { localStorage.setItem('ocean-bioluminescence-amount', String(oceanBioluminescence.getAmount())); } catch (_) {}
     redrawNeeded = true;
   });
