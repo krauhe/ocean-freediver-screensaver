@@ -40,6 +40,8 @@
   const camera = new T.PerspectiveCamera(58, 1, 0.1, 190);
   camera.position.set(0, 3.5, 27);
   const lookAt = new T.Vector3(0, -4.4, -15);
+  const framedLookAt = lookAt.clone();
+  let portraitFraming=0;
   const ambient = new T.HemisphereLight(0xa1d2e1, 0x102b42, 1.75);
   scene.add(ambient);
   const sun = new T.DirectionalLight(0xffe6b2, 3.5);
@@ -2593,8 +2595,11 @@
     renderer.getDrawingBufferSize(waterUniforms.resolution.value);
     if(particleUniforms && particleUniforms.pixelRatio) particleUniforms.pixelRatio.value = renderer.getPixelRatio();
     camera.aspect=width/height;
-    // Portrait layouts get a wider field of view so whole sharks remain visible.
-    camera.fov=camera.aspect<.85?68:58;
+    // Vertical FOV alone left portrait screens looking through a narrow slit.
+    // Widen and retreat moderately, then survey the site slowly in renderScene.
+    portraitFraming=1-T.MathUtils.smoothstep(camera.aspect,.55,1.1);
+    camera.fov=58+24*portraitFraming;
+    camera.position.z=27+12*portraitFraming;
     camera.updateProjectionMatrix();
     redrawNeeded=true;
   }
@@ -2836,9 +2841,11 @@
     waterUniforms.time.value=animationTime;
     particleUniforms.time.value=animationTime;
     if(!paused && !heldShark)easedPointer.lerp(pointer,.015);
-    camera.position.x=Math.sin(animationTime*.027)*.75+easedPointer.x*.65;
+    const sitePan=portraitFraming*7*Math.sin(animationTime*.018-.8);
+    camera.position.x=sitePan+Math.sin(animationTime*.027)*.75+easedPointer.x*.65;
     camera.position.y=3.5+Math.sin(animationTime*.039)*.24+easedPointer.y*.35;
-    camera.lookAt(lookAt);
+    framedLookAt.copy(lookAt);framedLookAt.x+=sitePan;
+    camera.lookAt(framedLookAt);
     camera.updateMatrixWorld();
     if(heldShark){
       raycaster.setFromCamera(dragNdc,camera);

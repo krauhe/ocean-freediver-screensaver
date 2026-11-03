@@ -7,7 +7,8 @@
     body.quaternion.setFromAxisAngle(new T.Vector3(0,0,1),-Math.PI/2);
     const env=world.environment,goal=new T.Vector3(),subject=new T.Vector3(),desired=new T.Vector3(),heading=new T.Vector3(1,0,0),flow=new T.Vector3(),avoid=new T.Vector3(),local=new T.Vector3(),probe=new T.Vector3(),before=new T.Vector3(),axis=new T.Vector3(),wave={};
     const state={phase:'surface',diveSeconds:0,target:null,visits:0,physics:body.state};
-    const handTargets=[new T.Vector3(.04,-.12,-.20),new T.Vector3(.04,-.12,.20)],handGoal=new T.Vector3();
+    const handTargets=[new T.Vector3(.06,-.14,-.20),new T.Vector3(.06,-.14,.20)],handGoal=new T.Vector3();
+    const armElevations=[3.07,3.07],armReaches=[.66,.66];
     let armPhase=0,armActivity=0,streamline=0;
     const joints=[{hip:0,knee:0,ankle:.68},{hip:0,knee:0,ankle:.68}],blades=[{x:0,v:0},{x:0,v:0}];
     const memory=new Map();let last=null,elapsed=0,accumulator=0,phaseTime=Math.random()*16,kickPhase=Math.random()*Math.PI*2,effort=0,target=null,seed=(Math.random()*4294967296)>>>0,budget=0,inspectionTime=0;
@@ -87,15 +88,15 @@
         const side=i?1:-1,phase=(stroke+i*.06)%1;
         // Efficient transport: close to thighs or narrow overhead streamline.
         const raised=streamline&&state.phase!=='inspect'&&state.phase!=='surface';
-        handGoal.set(raised?.025:.045,raised?1.23:-.12,side*(raised?.045:.20));
-        if(armActivity>.001){
-          // Outward catch, backward pull, then a tucked recovery. The same
-          // power phase supplies lateral force and a share of forward thrust.
-          let x,y,z;
-          if(phase<.45){const f=phase/.45;x=.18+.10*Math.sin(Math.PI*f);y=.95-1.03*f;z=.21+.07*Math.sin(Math.PI*f);}
-          else {const f=(phase-.45)/.55;x=.08;y=-.08+1.03*f;z=.20;}
-          handGoal.lerp(local.set(x,y,side*z),armActivity);
-        }
+        // Move the whole arm along a shoulder-centred arc. Interpolating two
+        // distant hand positions through the chest produced tightly folded,
+        // forward-pointing elbows during ordinary swimming.
+        const scull=state.phase==='inspect'?armActivity:armActivity*.12;
+        const angle=(raised?.09:3.07)*(1-scull)+(2.70+.12*Math.sin(phase*Math.PI*2))*scull;
+        armElevations[i]+=clamp(angle-armElevations[i],-dt*.95,dt*.95);
+        armReaches[i]+=((.66-.035*scull)-armReaches[i])*(1-Math.exp(-dt*4));
+        const a=armElevations[i],reach=armReaches[i];
+        handGoal.set(.015+Math.sin(a)*reach,.52+Math.cos(a)*reach,side*(.175-.12*Math.max(0,Math.cos(a))+.025*scull));
         // Brief nose touches, instead of pinning one hand there all descent.
         if(i===0&&state.phase==='descent'&&phaseTime>3){const f=(phaseTime%7)/1.3;if(f<1)handGoal.lerp(local.set(.18,.78,.025),Math.sin(Math.PI*f)**2);}
         local.subVectors(handGoal,handTargets[i]);local.clampLength(0,dt*1.25);handTargets[i].add(local);
@@ -148,6 +149,7 @@
       u.uHeadYaw.value+=(yaw-u.uHeadYaw.value)*(1-Math.exp(-dt*2));u.uHeadPitch.value+=(pitch-u.uHeadPitch.value)*(1-Math.exp(-dt*2));
       u.uBioShimmer.value=0;u.uDepthCompression.value=clamp((15-body.position.y)/55,0,.6);
       rig.pose(u,elapsed,{swimJoints:joints,handTargets,surface:state.phase==='surface'?1:0,surfaceMotion:{phase:elapsed*.65,effort:.12}});
+      rig.updateHair(dt,body.velocity,flow,elapsed);
     }
     return {group,rig,state,body,joints,blades,handTargets,update,setVisible(v){group.visible=!!v;accumulator=0;}};
   };

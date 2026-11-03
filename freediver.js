@@ -3237,7 +3237,9 @@
           if(arm.getX(i)>0){
             const t=T.MathUtils.clamp((y-.52)/.76,0,1),side=z<0?-1:1;
             const cx=.015+t*.020+Math.sin(t*Math.PI)*.012,cz=side*(.175*(1-t)+.022*t);
-            p.setXYZ(i,cx+(x-cx)*.84,y,cz+(z-cz)*.84);continue;
+            // Forearm ends at the wrist; a separate palm and fingers extend it.
+            const wristY=y>.86?.86+(y-.86)*(.32/.425):y;
+            p.setXYZ(i,cx+(x-cx)*.84,wristY,cz+(z-cz)*.84);continue;
           }
           if(y<-.25||y>.60)continue;
           const waist=Math.exp(-(((y-.14)/.13)**2)),hip=Math.exp(-(((y+.015)/.14)**2));
@@ -3245,7 +3247,27 @@
           p.setXYZ(i,x*(1-.13*waist)+(x>0?.035*bust:0),y,z*(1-.12*waist+.12*hip));
         }
         geometry.computeVertexNormals();
-        const rig=window.createFreediverRig(T,geometry,createDiverMaterial(T,uniforms,true),{articulatedFeet:true});
+        const rig=window.createFreediverRig(T,geometry,createDiverMaterial(T,uniforms,true),{articulatedFeet:true,separateHands:true});
+        const skinMaterial=new T.MeshStandardMaterial({roughness:.7});
+        skinMaterial.color.setRGB(.72,.48,.32);
+        const handGeometry=new T.SphereGeometry(1,10,8);
+        for(const arm of rig.arms){
+          // Cover the open bind-pose arm ring as the upper arm rotates down.
+          const shoulderCap=new T.Mesh(handGeometry,skinMaterial);shoulderCap.name='Shoulder contour';
+          shoulderCap.scale.set(.054,.060,.054);arm.upper.add(shoulderCap);
+          const hand=new T.Group();hand.name='Hand '+(arm.side<0?'left':'right');
+          hand.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),arm.restFore.clone().normalize());
+          arm.hand.add(hand);
+          function part(name,x,y,z,sx,sy,sz){const m=new T.Mesh(handGeometry,skinMaterial);m.name=name;m.position.set(x,y,z);m.scale.set(sx,sy,sz);hand.add(m);return m;}
+          part('Palm',0,.035,0,.018,.045,.033);
+          for(let f=0;f<4;f++){
+            const length=[.030,.038,.035,.026][f];
+            const finger=part('Finger '+f,.002,.068+length*.65,(f-1.5)*.015,.008,length,.008);
+            finger.rotation.z=-.10;
+          }
+          const thumb=part('Thumb',.006,.030,-arm.side*.041,.011,.028,.011);
+          thumb.rotation.x=-arm.side*.55;
+        }
         const beltMaterial=new T.MeshStandardMaterial({color:0x202425,roughness:.85});
         const belt=new T.Mesh(new T.TorusGeometry(.132,.018,8,32),beltMaterial);
         belt.rotation.x=Math.PI/2;belt.scale.set(.78,1.22,1);belt.position.y=.045;rig.joints.pelvis.add(belt);
@@ -3253,7 +3275,54 @@
         for(const side of [-1,1]){const weight=new T.Mesh(new T.BoxGeometry(.065,.045,.075),lead);weight.position.set(-.055,.045,side*.119);rig.joints.pelvis.add(weight);}
         const hair=new T.MeshStandardMaterial({color:0x35251b,roughness:.8});
         const cap=new T.Mesh(new T.SphereGeometry(1,16,12),hair);cap.scale.set(.084,.11,.088);cap.position.set(-.038,.105,0);rig.joints.neck.add(cap);
-        const bun=new T.Mesh(new T.SphereGeometry(.05,12,8),hair);bun.position.set(-.12,.10,0);rig.joints.neck.add(bun);
+        // Tapered 3D locks, rooted at the back of the scalp. Fixed-length links
+        // lag behind relative water flow; they are not a rigid hair helmet.
+        const locks=5,rows=9,cols=6,hairPositions=new Float32Array(locks*rows*cols*3),hairIndices=[],chains=[];
+        const hairGeometry=new T.BufferGeometry();
+        for(let l=0;l<locks;l++){
+          const chain=[];for(let r=0;r<rows;r++)chain.push(new T.Vector3(-.115-r*.007,.09-r*.058,(l-2)*.024));chains.push(chain);
+          for(let r=0;r<rows-1;r++)for(let c=0;c<cols;c++){
+            const a=(l*rows+r)*cols+c,b=(l*rows+r)*cols+(c+1)%cols;
+            hairIndices.push(a,b,a+cols,b,b+cols,a+cols);
+          }
+        }
+        hairGeometry.setAttribute('position',new T.BufferAttribute(hairPositions,3).setUsage(T.DynamicDrawUsage));hairGeometry.setIndex(hairIndices);
+        const longHair=new T.Mesh(hairGeometry,hair);longHair.name='Long flowing hair';longHair.frustumCulled=false;rig.joints.neck.add(longHair);
+        const hairFlow=new T.Vector3(),hairUp=new T.Vector3(),hairDir=new T.Vector3(),hairTarget=new T.Vector3(),hairTangent=new T.Vector3(),hairU=new T.Vector3(),hairV=new T.Vector3(),neckInverse=new T.Quaternion();
+        rig.updateHair=function(dt,velocity,current,time){
+          rig.joints.neck.getWorldQuaternion(neckInverse).invert();
+          hairFlow.copy(current).sub(velocity).applyQuaternion(neckInverse);
+          hairUp.set(0,.18,0).applyQuaternion(neckInverse);
+          const response=1-Math.exp(-Math.min(dt,.1)*8);
+          for(let l=0;l<locks;l++){
+            const chain=chains[l];
+            for(let r=1;r<rows;r++){
+              hairDir.copy(hairFlow).multiplyScalar(.6).add(hairUp).add(hairTarget.set(-.13,-.16,.035*Math.sin(time*1.2-r*.55+l*.45)));
+              // The roots leave the scalp towards the back/neck; the free
+              // lengths gradually align with the water instead of forming spikes.
+              hairDir.lerp(hairTarget.set(-.18,-.65,(l-2)*.025),Math.exp(-r*.65));
+              hairDir.normalize();
+              const link=.058*(1-.09*Math.abs(l-2));
+              hairTarget.copy(chain[r-1]).addScaledVector(hairDir,link);
+              chain[r].lerp(hairTarget,response);
+              // Keep strands behind scalp/shoulders, even on a slow reversal.
+              chain[r].x=Math.min(-.11,chain[r].x);
+              hairDir.subVectors(chain[r],chain[r-1]).normalize();chain[r].copy(chain[r-1]).addScaledVector(hairDir,link);
+            }
+            for(let r=0;r<rows;r++){
+              hairTangent.subVectors(chain[Math.min(rows-1,r+1)],chain[Math.max(0,r-1)]).normalize();
+              hairU.set(0,0,1).cross(hairTangent).normalize();hairV.crossVectors(hairTangent,hairU).normalize();
+              const radius=.025*(1-r/(rows-1))+.003;
+              for(let c=0;c<cols;c++){
+                const angle=c/cols*Math.PI*2;
+                hairTarget.copy(chain[r]).addScaledVector(hairU,Math.cos(angle)*radius).addScaledVector(hairV,Math.sin(angle)*radius);
+                hairTarget.toArray(hairPositions,((l*rows+r)*cols+c)*3);
+              }
+            }
+          }
+          hairGeometry.attributes.position.needsUpdate=true;hairGeometry.computeVertexNormals();
+        };
+        rig.updateHair(0,new T.Vector3(),new T.Vector3(),0);
         rig.mesh.scale.setScalar(DIVER_SCALE);
         return {rig,uniforms};
       },

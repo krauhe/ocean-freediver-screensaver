@@ -15,3 +15,25 @@ for(let i=0;i<=1200;i++){
  });
 }
 assert(maxBend<125.001);assert(maxStep<.06,'continuous hand paths must not flip the elbow');console.log({maxBend,maxStep});
+
+// Recreational transport uses a shoulder arc, with a shorter forearm and
+// separate hands. Test the entire overhead-to-thigh transition, not only a
+// maximum-flexion limit that could still permit a contorted swimming pose.
+const swimmer=createFreediverRig(T,g.clone(),new T.MeshStandardMaterial(),{separateHands:true});
+let swimBend=0,swimStep=0;const lastElbows=[];
+for(let k=0;k<=720;k++){
+ const angle=.09+(3.07-.09)*(1-Math.cos(k/720*Math.PI*2))/2;
+ const targets=[-1,1].map(s=>new T.Vector3(.015+Math.sin(angle)*.66,.52+Math.cos(angle)*.66,s*(.175-.12*Math.max(0,Math.cos(angle)))));
+ swimmer.pose(u,k/60,{handTargets:targets});
+ swimmer.arms.forEach((a,j)=>{
+  const s=a.upper.getWorldPosition(new T.Vector3()),e=a.fore.getWorldPosition(new T.Vector3()),h=a.hand.getWorldPosition(new T.Vector3());
+  swimBend=Math.max(swimBend,e.clone().sub(s).angleTo(h.clone().sub(e))*180/Math.PI);
+  if(lastElbows[j])swimStep=Math.max(swimStep,e.distanceTo(lastElbows[j]));lastElbows[j]=e;
+  assert(Math.abs(s.distanceTo(e)-a.restUpper.length())<1e-8);
+  assert(Math.abs(e.distanceTo(h)-a.restFore.length())<1e-8);
+  if(angle>3.06)assert(e.x<s.x,'relaxed elbow remains behind shoulder, forearm bends forwards');
+ });
+}
+assert(swimBend<25,'transport arms stay nearly extended throughout the transition');
+assert(swimStep<.02,'shoulder arc must not cause elbow flips');
+console.log({swimBend,swimStep});

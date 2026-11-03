@@ -112,4 +112,12 @@ Moon and comb jellies now have independent, slowly changing 3D orientations. Wea
 
 Scuba divers use head-up, fins-down postures for the main descent, ascent to the stop and final surfacing, with a slightly relaxed upright stop. Steep transfers between inspection locations also blend toward upright regardless of travel direction. Approaches to inspection points blend back to horizontal trim. Legs extend more naturally below the torso and propulsion remains subdued during vertical travel.
 
-Bioluminescence uses a normalized display: Off, 100% at the default internal amount 3, and 200% at the maximum internal amount 12. Intermediate labels are piecewise linear around the default. The actual effect range, slider steps and saved settings are unchanged.
+Bioluminescence uses a linear display: Off, 100% at the default internal amount 3, and 400% at the maximum internal amount 12. Saved physical strengths are preserved.
+
+### Mobile view and publishing
+
+Portrait screens use a wider view, a modest camera retreat and a slow lateral survey of the site. Landscape and desktop framing are unchanged. Low graphics reduces detail and population but retains enabled scuba divers, the recreational freediver, manta, turtle and comb jellies. Passing animals can naturally be outside the view. FPS reports measured rendered frames; device emulation is not a measurement of real phone performance.
+
+GitHub Pages serves this standalone site directly using `.nojekyll`; research Markdown does not need Jekyll conversion. The failed November 2 releases were caused by invalid UTF-8 in a research note, now repaired. This follows [GitHub's static-site publishing instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-github-pages-site).
+
+Before publishing, run `node scripts/prepare-release.cjs` and the tests in `tests/`. The preparation script versions JavaScript/CSS URLs by content and updates the build identifier in About. `tests/site-release.cjs` checks those hashes and text encoding. After pushing, check the Pages workflow succeeds AND the public About build matches; a successful Git push alone does not confirm publication.

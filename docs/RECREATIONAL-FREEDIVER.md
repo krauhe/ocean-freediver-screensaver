@@ -40,14 +40,14 @@ Elbow correction: custom swimming hand targets use an outward elbow plane, separ
 ### Loaded ascent and flexible fins (2026-11-02)
 
 The recreational diver now uses the physics actuator's stroke clock for both
-propulsion and the leg pose. Frequency scales with requested force (0.4–1.25
+propulsion and the leg pose. Frequency scales with requested force (0.4â€“1.25
 complete cycles per second per leg); alternating blades produce a bounded thrust
 pulse strongest mid-sweep. Hip travel increases with load. The previous 1.8 rad/s
 animation limit clipped vigorous strokes; the limit is now 4.5 rad/s. Blade bending
 uses squared measured foot sweep speed with a damped elastic recovery, rather than
 an unrelated sine wave. These are animation-tuned reduced dynamics, not a resolved
 fluid/fin simulation. The default weighting already produces negative buoyancy at
-20–25 m; sustained ascent therefore needs active propulsion.
+20â€“25 m; sustained ascent therefore needs active propulsion.
 
 Lung compression still uses Boyle's-law volume with a fixed surface-equivalent gas
 store. Metabolic gas exchange is not yet modeled: CO2 does not intrinsically occupy
@@ -126,7 +126,7 @@ The recreational arm pole now favors a forward/tucked bend instead of pointing
 almost entirely sideways. When needed, the IK solver searches its fixed-length
 elbow circle for a solution within 0.12 model metres outside the shoulder, while
 also enforcing the existing rear-extension bound and clearance from the torso.
-The hand catch is narrower (0.21–0.28 model metres from the centreline). Rope-diver
+The hand catch is narrower (0.21â€“0.28 model metres from the centreline). Rope-diver
 arm solving remains unchanged. A ten-minute browser regression measured maximum
 outward extension of 0.1202, rear extension of 0.0111, unchanged limb lengths and
 successful rest, streamline, arm-pull and full-dive states.
@@ -144,7 +144,7 @@ ankle bone was unused. The recreational rig now has an ankle at the existing
 foot-pocket root and a separate fin-root bone. Foot vertices blend into the ankle;
 blade vertices follow their own fin bone. The foot departs from the straight-shin
 rest mesh by roughly 39 degrees with small, smoothed stroke-dependent motion
-(allowed 30–47 degrees); the equipment angle offsets it by 28 degrees. These
+(allowed 30â€“47 degrees); the equipment angle offsets it by 28 degrees. These
 animation limits are a chosen recreational pose, not a clinical ROM measurement.
 Blade load now includes the articulated ankle's angle and angular velocity. Wake
 positions use the fin bone too. The rope divers retain their original skeleton.
@@ -161,8 +161,8 @@ material calibration and measured video-derived joint trajectories remain open.
 Actual YouTube playback was paused and stepped forward in batches of eight frames,
 not inferred from thumbnails or transcripts:
 
-- [Molchanovs, 129 m CWTB dive](https://www.youtube.com/watch?v=L9iLuZUDgww&t=48s), approximately 0:48–0:49: separated feet, curved blades whose tips approach, overlap in the camera projection, then separate/change curvature. Apparent crossing is not proof of physical contact.
-- [Alenka Artnik – Bifin Dive, FreediveInt](https://www.youtube.com/watch?v=L_EubTvpfMY&t=3s), approximately 0:03–0:04: a visibly open pair of blades progresses into a rounded outline with nearly meeting tips, then opens again. The school explicitly presents this clip as good technique.
+- [Molchanovs, 129 m CWTB dive](https://www.youtube.com/watch?v=L9iLuZUDgww&t=48s), approximately 0:48â€“0:49: separated feet, curved blades whose tips approach, overlap in the camera projection, then separate/change curvature. Apparent crossing is not proof of physical contact.
+- [Alenka Artnik â€“ Bifin Dive, FreediveInt](https://www.youtube.com/watch?v=L_EubTvpfMY&t=3s), approximately 0:03â€“0:04: a visibly open pair of blades progresses into a rounded outline with nearly meeting tips, then opens again. The school explicitly presents this clip as good technique.
 - [FreeDive International explanation](https://freediveinternational.com/freediving-fins/): discusses stiffness, bending distribution, kick amplitude and ankle control; distinguishes its good-technique example from another clip in which fins are kicked together. That separate bad-technique clip was not visually analyzed here.
 
 Conclusion: reject the earlier assumption that tips appearing drawn together are
@@ -188,7 +188,7 @@ there is no attraction, imposed crossing, or target distance between the tips.
 The hip-led kick is slightly narrower (amplitude coefficient 0.46 rather than
 0.50), and trailing knee bend is reduced (0.30 rather than 0.40). Load-dependent
 cadence and the articulated foot/pocket angle are retained. These are qualitative
-adjustments guided by the 0:03–0:04 Alenka and 0:48–0:49 Molchanov sequences above,
+adjustments guided by the 0:03â€“0:04 Alenka and 0:48â€“0:49 Molchanov sequences above,
 not a claim of motion-captured or hydrodynamically calibrated fin performance.
 The earlier recommendation to suppress tip convergence is superseded.
 
@@ -250,3 +250,30 @@ hinge-axis alignment, segment lengths, flexion and elbow continuity. Maximum elb
 step was 0.0172 model metres. A ten-minute browser simulation passed with maximum
 outward extension 0.1403, rear extension 0.0355 and unchanged limb lengths. These
 constraints are an animation model, not a complete anatomical shoulder simulation.
+
+### 2026-11-03: extended swimming arms, hands and long hair
+
+User screenshots 8c15bb3f-a89b-45cc-aa70-d3fa2288e118 and
+ a8d28449-f9b9-464b-a075-a29641214aff showed that the previous numeric joint
+limits still allowed implausibly folded swimming poses. This revision supersedes
+the recreational elbow-pole selection and tucked-target constraints above.
+
+- Hand goals now move on a shoulder-centred arc between thighs and overhead,
+  rather than cutting through the torso. Ordinary transport retains approximately
+  18-23 degrees of elbow flexion; inspection uses small sculling motions (about
+  44 degrees in the reference pose). Brief equalisation still permits greater
+  flexion. These are animation tuning values, not measured anatomical norms.
+- A shorter forearm ends at a separate wrist-mounted palm, four fingers and thumb.
+  Shoulder contours cover the open arm rings when lowered. Rope/scuba models are
+  unaffected. The elbow remains a single hinge with fixed limb lengths.
+- Five tapered 3D hair locks start behind the scalp and extend down the back.
+  Fixed-length links lag relative water flow and a small upward bias; roots retain
+  their attachment direction. This is a lightweight visual approximation, not a
+  fluid/strand collision solver. It provides a persistent back/front cue.
+
+Validation: inspected front, side and rear renders of rest, scull and streamline
+poses. A 600-second browser run covered surface, descent, inspection and ascent
+without page errors/non-finite joints. The shoulder-arc regression test checks
+near-extended arms, no elbow flips, a rearward resting elbow and fixed limb lengths.
+Maximum arc-test elbow step: 0.0047 model units. Full shoulder anatomy, individual
+finger articulation and hair self-collision are not modelled.

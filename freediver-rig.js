@@ -16,7 +16,8 @@
       const suffix=side<0?'L':'R';
       const upper=bone('shoulder'+suffix,chest,.015,.18,side*.175);
       const fore=bone('elbow'+suffix,upper,.013,.34,-side*.069);
-      const hand=bone('wrist'+suffix,fore,.007,.425,-side*.084);
+      const foreScale=options.separateHands?.32/.425:1;
+      const hand=bone('wrist'+suffix,fore,.007*foreScale,.425*foreScale,-side*.084*foreScale);
       arms.push({side,upper,fore,hand,restUpper:fore.position.clone(),restFore:hand.position.clone()});
       const hip=bone('hip'+suffix,pelvis,0,0,side*.095);
       const knee=bone('knee'+suffix,hip,0,-.48,0);
@@ -30,7 +31,7 @@
     for(let i=0;i<p.count;i++){
       const y=p.getY(i),z=p.getZ(i);
       const isArm=aw.getX(i)>0,side=sideAttribute.getX(i)<0?-1:1;
-      if(isArm){const t=T.MathUtils.clamp((y-.52)/.76,0,1);centers.push(.015+t*.020+Math.sin(t*Math.PI)*.012,y,side*(.175*(1-t)+.022*t));}
+      if(isArm){const t=options.separateHands?aw.getX(i):T.MathUtils.clamp((y-.52)/.76,0,1);centers.push(.015+t*.020+Math.sin(t*Math.PI)*.012,y,side*(.175*(1-t)+.022*t));}
       else centers.push(p.getX(i),y,z);
       if(isArm){const a=arms[side<0?0:1];if(y<.62)skin(chest,a.upper,smooth(.52,.61,y));else skin(a.upper,a.fore,smooth(.81,.91,y));}
       else if(y>.60)skin(chest,neck,smooth(.60,.73,y));
@@ -53,15 +54,16 @@
       direction.subVectors(target,shoulder);const length=direction.length(),l1=a.restUpper.length(),l2=a.restFore.length();
       const minReach=Math.sqrt(l1*l1+l2*l2+2*l1*l2*Math.cos((swimming?125:145)*Math.PI/180));
       const d=T.MathUtils.clamp(length,minReach,l1+l2-.008);direction.normalize();
-      // +X is the chest/face side. The elbow belongs behind the
-      // shoulder-to-hand line, so flexion brings the forearm forwards.
-      // Keep a small outward component, mirrored for the two arms.
-      if(swimming)pole.set(.08,-1,a.side*.15);
+      // +X is the chest/face side. Separate-hand swimming uses a consistent
+      // bending plane along the elevation arc, with elbows behind the body
+      // when lowered and slight flexion overhead. The legacy poles stay intact.
+      if(swimming&&options.separateHands)pole.set(direction.y,-direction.x,a.side*.12);
+      else if(swimming)pole.set(.08,-1,a.side*.15);
       else pole.set(-.72,-.12,a.side*.32);
       pole.addScaledVector(direction,-pole.dot(direction));
       if(pole.lengthSq()<.001){pole.set(0,0,a.side);pole.addScaledVector(direction,-pole.dot(direction));}
       pole.normalize();
-      if(swimming&&a.swimPole){
+      if(swimming&&!options.separateHands&&a.swimPole){
         elbowCandidate.copy(a.swimPole).addScaledVector(direction,-a.swimPole.dot(direction));
         if(elbowCandidate.lengthSq()>.001){
           const dt=T.MathUtils.clamp(time-(a.swimTime??time),0,.05);
@@ -69,7 +71,7 @@
         }
       }
       const along=(l1*l1-l2*l2+d*d)/(2*d),height=Math.sqrt(Math.max(0,l1*l1-along*along));
-      if(swimming&&height>1e-6){
+      if(swimming&&!options.separateHands&&height>1e-6){
         // Rotate on the IK elbow circle rather than clipping/stretching a limb.
         // Keep elbow extension behind the shoulder below 6.5 model centimetres.
         const minX=-.035,baseX=direction.x*along;
@@ -83,7 +85,7 @@
           }
         }
       }
-      if(swimming&&height>1e-6&&a.side*(direction.z*along+pole.z*height)>.075){
+      if(swimming&&!options.separateHands&&height>1e-6&&a.side*(direction.z*along+pole.z*height)>.075){
         // Select a tucked solution ON the fixed-length IK circle. Constrain
         // sideways flare together with the existing behind-the-back limit.
         elbowSide.crossVectors(direction,pole).normalize();
