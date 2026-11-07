@@ -388,13 +388,58 @@
       }
     }
 
+    function resetDiverSprings(d) {
+      d.swimHeading = null;
+      d.targetHeading = null;
+      d.swimHeadingVel = 0;
+      d.travelPitch = undefined;
+      d.travelPitchVel = 0;
+      d.postureUpright = undefined;
+      d.postureUprightVel = 0;
+      d.turnBank = undefined;
+      d.turnBankVel = 0;
+      d.headYaw = undefined;
+      d.headYawVel = 0;
+      d.headPitch = undefined;
+      d.headPitchVel = 0;
+      d.headRoll = undefined;
+      d.headRollVel = 0;
+      d.finDrive = undefined;
+      d.finDriveVel = 0;
+      d.verticalSpeed = 0;
+      d.swimSpeed = 0;
+    }
+    function stepSpring(d, valKey, velKey, target, dt, omega, maxSpeed, maxAccel, isAngle) {
+      let x = d[valKey], v = d[velKey] || 0;
+      if (x === undefined || x === null || !Number.isFinite(x)) {
+        d[valKey] = target;
+        d[velKey] = 0;
+        return target;
+      }
+      if (!(dt > 0)) return x;
+      const steps = Math.max(1, Math.ceil(dt * 120)), h = dt / steps;
+      const k = 0.5 * omega, b = 0.8 * maxAccel;
+      for (let i = 0; i < steps; i++) {
+        const err = isAngle ? Math.atan2(Math.sin(target - x), Math.cos(target - x)) : target - x;
+        const absErr = Math.abs(err);
+        const rawVel = (err < 0 ? -1 : 1) * (b / k) * (Math.sqrt(1 + 2 * (k * k / b) * absErr) - 1);
+        const desVel = T.MathUtils.clamp(rawVel, -maxSpeed, maxSpeed);
+        const accel = T.MathUtils.clamp(2 * omega * (desVel - v), -maxAccel, maxAccel);
+        v = T.MathUtils.clamp(v + accel * h, -maxSpeed, maxSpeed);
+        x += v * h;
+        if (isAngle) x = Math.atan2(Math.sin(x), Math.cos(x));
+      }
+      d[valKey] = x;
+      d[velKey] = v;
+      return x;
+    }
     function update(time, paused, speed) {
       // time is the scene's already speed-adjusted clock: never multiply it twice.
       const elapsed = lastTime === undefined ? 0 : Math.max(0, time - lastTime);
       const dt = paused || !group.visible ? 0 : Math.min(0.10, elapsed);
       // A scrub/restart has no meaningful displacement history.
       if(elapsed>.25||(lastTime!==undefined&&time<lastTime)){
-        for(const d of divers){d.hasPrevious=false;d.swimHeading=null;d.travelPitch=undefined;d.postureUpright=undefined;d.verticalSpeed=0;d.control.offset.set(0,0,0);d.control.velocity.set(0,0,0);d.control.pulse=0;d.control.effort=0;}
+        for(const d of divers){d.hasPrevious=false;resetDiverSprings(d);d.control.offset.set(0,0,0);d.control.velocity.set(0,0,0);d.control.pulse=0;d.control.effort=0;}
       }
       lastTime = time;
       if (!group.visible) return;
@@ -462,63 +507,82 @@
         // actual travel so lane corrections and the approach also require kicks.
         const navigating=!waitingInOpenWater&&(state.phase==='Explore'||state.phase==='Descend');
         let travelSpeed=0;
+        if(!d.hasPrevious)resetDiverSprings(d);
         if(dt>0&&d.hasPrevious){
           delta.subVectors(d.root.position,d.prevPosition).divideScalar(dt);
           travelSpeed=Math.min(1.5,Math.hypot(delta.x,delta.z));
           d.swimSpeed+=(travelSpeed-d.swimSpeed)*(1-Math.exp(-dt*3));
           d.verticalSpeed=(d.verticalSpeed||0)+(delta.y-(d.verticalSpeed||0))*(1-Math.exp(-dt*3));
-          if(navigating&&travelSpeed>.045){
-            const wanted=Math.atan2(-delta.z,delta.x);
-            if(d.swimHeading===null)d.swimHeading=pose.heading;
-            const difference=Math.atan2(Math.sin(wanted-d.swimHeading),Math.cos(wanted-d.swimHeading));
-            d.swimHeading+=T.MathUtils.clamp(difference,-dt*.85,dt*.85);
-            pose.heading=d.swimHeading;
-
-          }else if(!navigating)d.swimHeading=pose.heading;
         }
-        if(!d.hasPrevious){d.swimSpeed=0;d.swimHeading=pose.heading;}
-        if(navigating&&d.hasPrevious){
-          pose.heading=d.swimHeading;
-
+        if(pose.entryWeight||pose.orientation){
+          d.targetHeading=d.swimHeading=pose.heading;
+          d.swimHeadingVel=0;
+        }else{
+          if(d.targetHeading===null||d.targetHeading===undefined||!navigating){
+            d.targetHeading=pose.heading;
+          }else if(dt>0&&d.hasPrevious&&travelSpeed>.045){
+            const wanted=Math.atan2(-delta.z,delta.x);
+            const weight=T.MathUtils.smoothstep(travelSpeed,.045,.14);
+            const diff=Math.atan2(Math.sin(wanted-d.targetHeading),Math.cos(wanted-d.targetHeading));
+            d.targetHeading=Math.atan2(Math.sin(d.targetHeading+diff*weight),Math.cos(d.targetHeading+diff*weight));
+          }
+          pose.heading=stepSpring(d,'swimHeading','swimHeadingVel',d.targetHeading,dt,4.2,.85,1.8,true);
         }
         // Posture follows actual travel, not the scenario's upright flag.
         // Small hover corrections should not tip an otherwise stationary diver.
         const motionPosture=!waitingInOpenWater&&!pose.entryWeight&&
           ['Explore','Descend','Ascend to stop','Safety stop','Surface'].includes(state.phase);
-        if(motionPosture){
-          let upright=pose.upright||0,targetPitch=pose.pitch;
-          if(d.swimSpeed>.08){
-            const ratio=Math.abs(d.verticalSpeed||0)/Math.max(.08,d.swimSpeed);
-            upright=T.MathUtils.smoothstep(ratio,1.6,3.2);
-            const travelPitch=T.MathUtils.clamp(Math.atan2(d.verticalSpeed||0,d.swimSpeed),-.40,.40);
-            targetPitch=T.MathUtils.lerp(travelPitch,Math.PI/2,upright);
-          }
-          if(d.travelPitch===undefined){d.travelPitch=targetPitch;d.postureUpright=upright;}
-          if(dt>0){
-            d.travelPitch+=T.MathUtils.clamp(targetPitch-d.travelPitch,-dt*.8,dt*.8);
-            d.postureUpright+=T.MathUtils.clamp(upright-d.postureUpright,-dt*.7,dt*.7);
-          }
-          pose.pitch=d.travelPitch;pose.upright=d.postureUpright;
-        }else {d.travelPitch=undefined;d.postureUpright=undefined;}
+        let upright=pose.upright||0,targetPitch=pose.pitch;
+        if(motionPosture&&d.swimSpeed>.08){
+          const ratio=Math.abs(d.verticalSpeed||0)/Math.max(.08,d.swimSpeed);
+          upright=T.MathUtils.smoothstep(ratio,1.6,3.2);
+          const travelPitch=T.MathUtils.clamp(Math.atan2(d.verticalSpeed||0,d.swimSpeed),-.40,.40);
+          targetPitch=T.MathUtils.lerp(travelPitch,Math.PI/2,upright);
+        }
+        if(pose.entryWeight||pose.orientation){
+          d.travelPitch=pose.pitch;d.travelPitchVel=0;
+          d.postureUpright=upright;d.postureUprightVel=0;
+        }else{
+          pose.pitch=stepSpring(d,'travelPitch','travelPitchVel',targetPitch,dt,4.0,.8,1.8,false);
+          pose.upright=T.MathUtils.clamp(stepSpring(d,'postureUpright','postureUprightVel',upright,dt,3.6,.7,1.5,false),0,1);
+        }
         const heading=pose.heading;
         d.root.visible=pose.visible;
         d.root.rotation.set(0,heading,pose.pitch,'YXZ');
         if(pose.orientation)d.root.quaternion.copy(pose.orientation);
         d.activity=waitingInOpenWater?'Open-water watch':state.phase;
         if(!pose.visible){d.torch.intensity=0;d.beam.visible=false;d.hasPrevious=false;continue;}
-        if(!pose.entryWeight){d.root.rotation.z+=Math.sin(time*.09+index)*.018+c.trim;d.root.rotation.x+=c.roll;}
         // Recovery -> outward sweep -> squeeze -> long glide; buddies are out of phase.
         const propulsion=navigating?T.MathUtils.smoothstep(d.swimSpeed,.025,.32):0;
-        const period=T.MathUtils.lerp(4.2+index*.35,2.6+index*.25,propulsion)*(1+.09*Math.sin(c.clock*.19+c.seed));
+        const period=T.MathUtils.lerp(3.6+index*.30,2.6+index*.25,propulsion)*(1+.09*Math.sin(c.clock*.19+c.seed));
         if(dt>0)d.strokePhase=(d.strokePhase+dt/period)%1;
         const phase = (d.strokePhase + index * 0.24) % 1;
-        let kick;
-        if (phase < 0.23) kick = Math.sin(phase / 0.23 * Math.PI / 2);
-        else if (phase < 0.47) kick = Math.cos((phase - 0.23) / 0.24 * Math.PI / 2);
-        else kick = 0;
-        const effort=navigating?Math.max(pose.effort,.24+.64*propulsion):pose.effort;
-        kick=Math.max(kick*effort,c.effort*.30);
+        let kickWave = 0, kickRate = 0;
+        if (phase < 0.23) {
+          const u = phase / 0.23 * Math.PI;
+          kickWave = 0.5 - 0.5 * Math.cos(u);
+          kickRate = 0.5 * Math.sin(u);
+        } else if (phase < 0.47) {
+          const v = (phase - 0.23) / 0.24 * Math.PI;
+          kickWave = 0.5 + 0.5 * Math.cos(v);
+          kickRate = -0.5 * Math.sin(v);
+        }
+        const navEffort=.24+.64*propulsion;
+        const rawEffort=navigating?0.5*(pose.effort+navEffort+Math.hypot(pose.effort-navEffort,.03)):pose.effort;
+        const effort=stepSpring(d,'finDrive','finDriveVel',rawEffort,dt,4.5,1.2,2.6,false);
+        const baseKick=c.effort*.30;
+        const peakKick=0.5*(effort+baseKick+Math.hypot(effort-baseKick,.02));
+        const kick=baseKick+(peakKick-baseKick)*kickWave;
         d.kick = kick;
+        const horizWeight=1-.75*(pose.upright||0);
+        const targetBank=pose.entryWeight?0:-(d.swimHeadingVel||0)*(.24+.10*propulsion)*horizWeight;
+        const turnBank=stepSpring(d,'turnBank','turnBankVel',targetBank,dt,3.6,.55,1.4,false);
+        if(!pose.entryWeight&&!pose.orientation){
+          const strokeSway=Math.sin(phase*Math.PI*2)*effort*.022*horizWeight;
+          d.root.rotation.z+=Math.sin(time*.09+index)*.018+c.trim-(d.travelPitchVel||0)*.04+kickRate*effort*.018*horizWeight;
+          d.root.rotation.x+=c.roll+turnBank+strokeSway;
+        }
+        const finFlex = kickRate * effort * 0.09;
         for (const leg of d.legs) {
           const correction=c.effort*(.6+.4*Math.sin(c.clock*2.1+leg.side+c.seed));
           leg.hip.rotation.y = leg.side * (0.045 + kick * 0.28+correction*.09);
@@ -528,7 +592,7 @@
           leg.knee.rotation.z = T.MathUtils.lerp(0.58-kick*.62,1.15+.04*Math.sin(time*.7+index+leg.side),pose.upright||0);
           leg.fin.rotation.x = leg.side * (kick * 0.62+correction*.16);
           leg.fin.rotation.y = leg.side * kick * 0.22;
-          leg.fin.rotation.z = -leg.knee.rotation.z + 0.02 - kick * 0.08;
+          leg.fin.rotation.z = -leg.knee.rotation.z + 0.02 - kick * 0.08 + finFlex;
           if(pose.entryWeight){
             const e=pose.entryWeight;
             leg.hip.rotation.z=1.35*e;
@@ -544,9 +608,15 @@
         if(dt>0)d.torchTarget.position.lerp(attentionA,1-Math.exp(-dt*4));else if(!d.hasPrevious)d.torchTarget.position.copy(attentionA);
         d.root.updateMatrixWorld(true);
         localAttention.copy(d.torchTarget.position);d.root.worldToLocal(localAttention);
-        const yaw=T.MathUtils.clamp(-Math.atan2(localAttention.z,Math.max(.2,localAttention.x)),-.8,.8);
-        const pitch=T.MathUtils.clamp(Math.atan2(localAttention.y,Math.max(.5,Math.hypot(localAttention.x,localAttention.z))),-.55,.5);
-        d.head.rotation.set(0,yaw*.7,pitch*.65);
+        const headingLead=pose.entryWeight?0:Math.atan2(Math.sin(d.targetHeading-heading),Math.cos(d.targetHeading-heading));
+        const leadYaw=T.MathUtils.clamp(headingLead*.32+(d.swimHeadingVel||0)*.16,-.30,.30);
+        const leadPitch=pose.entryWeight?0:T.MathUtils.clamp((targetPitch-pose.pitch)*.25,-.16,.16);
+        const rawYaw=T.MathUtils.clamp(-Math.atan2(localAttention.z,Math.max(.2,localAttention.x))+leadYaw,-.8,.8);
+        const rawPitch=T.MathUtils.clamp(Math.atan2(localAttention.y,Math.max(.5,Math.hypot(localAttention.x,localAttention.z)))+leadPitch,-.55,.5);
+        const yaw=stepSpring(d,'headYaw','headYawVel',rawYaw,dt,5.4,1.35,3.0,false);
+        const pitch=stepSpring(d,'headPitch','headPitchVel',rawPitch,dt,5.0,1.1,2.5,false);
+        const headRoll=stepSpring(d,'headRoll','headRollVel',-turnBank*.35+yaw*.10,dt,4.5,.9,2.0,false);
+        d.head.rotation.set(headRoll,yaw*.7,pitch*.65);
         for(const arm of d.arms){
           const task=!waitingInOpenWater&&state.phase==='Deploy buoy'&&index===0;
           const check=(slot+index)%5===2?Math.sin(Math.PI*T.MathUtils.clamp(f/.7,0,1)):0;

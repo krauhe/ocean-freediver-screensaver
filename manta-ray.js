@@ -16,7 +16,7 @@
    position.push(x,(surface===0?1:-1)*thickness,z);
    uv.push(s/spanSegments,(surface+(x+1.4)/2.7)*.5);
    const edge=T.MathUtils.smoothstep(r,.7,1),belly=surface===1;
-   const base=belly?.78:.11,shade=belly?base-edge*.35:base+.025*Math.sin(u*7+r*5);
+   const base=belly?.92:.78,shade=belly?base-edge*.35:base+.045*Math.sin(u*7+r*5);
    color.push(shade*.88,shade*.98,shade*1.05);
   }
   for(let surface=0;surface<2;surface++)for(let s=0;s<spanSegments;s++)for(let c=0;c<chordSegments;c++){
@@ -33,19 +33,36 @@
    const c=canvas.getContext('2d');
    // Canvas top is the ventral half (UV v > .5); bottom is dorsal.
    c.fillStyle='#ece9df';c.fillRect(0,0,1024,256);
-   c.fillStyle='#9b9f9e';c.fillRect(0,256,1024,256);
+   c.fillStyle='#39464e';c.fillRect(0,256,1024,256);
    for(let side=0;side<2;side++){
     c.save();c.beginPath();c.rect(0,side*256,1024,256);c.clip();
     for(let j=0;j<220;j++){
      const x=random()*1024,y=side*256+random()*256,r=12+random()*65;
      const g=c.createRadialGradient(x,y,0,x,y,r);
-     g.addColorStop(0,side?'rgba(25,37,42,.16)':'rgba(72,84,81,.06)');g.addColorStop(1,'rgba(60,70,70,0)');
+     g.addColorStop(0,side?(j%2?'rgba(7,17,24,.32)':'rgba(139,157,164,.20)'):'rgba(72,84,81,.06)');g.addColorStop(1,'rgba(60,70,70,0)');
      c.fillStyle=g;c.fillRect(x-r,y-r,r*2,r*2);
     }
     if(side===0)for(let j=0;j<48;j++){
      const x=512+(random()-.5)*380,y=115+random()*125;
      c.fillStyle=`rgba(22,34,40,${.3+random()*.5})`;c.beginPath();
      c.ellipse(x,y,2+random()*13,2+random()*7,random()*Math.PI,0,Math.PI*2);c.fill();
+    }
+    if(side===1){
+     // Pigment lies in the skin instead of floating white shoulder meshes.
+     for(const sign of [-1,1]){
+      const x=512+sign*(58+individual*4),y=332;
+      const g=c.createLinearGradient(x,y-28,x,y+40);
+      g.addColorStop(0,'rgba(193,207,202,.82)');g.addColorStop(1,'rgba(102,127,133,.12)');
+      c.fillStyle=g;c.beginPath();c.moveTo(x-sign*13,y-27);
+      c.bezierCurveTo(x+sign*23,y-20,x+sign*34,y+5,x+sign*39,y+39);
+      c.bezierCurveTo(x+sign*12,y+24,x-sign*5,y+16,x-sign*13,y-27);c.fill();
+     }
+     // Fine, irregular skin grain remains legible in close views.
+     for(let j=0;j<5000;j++){
+      const x=random()*1024,y=258+random()*252;
+      c.strokeStyle=j%2?'rgba(155,175,180,.10)':'rgba(5,14,20,.16)';c.lineWidth=.7;
+      c.beginPath();c.moveTo(x,y);c.lineTo(x+random()*2,y+1+random()*3);c.stroke();
+     }
     }
     // Sparse healed-looking pale streaks; not damage to the silhouette.
     for(let j=0;j<(side?9:3);j++){
@@ -87,6 +104,17 @@
     shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n transformed.y+=wingY(position);');
    };
    const body=new T.Mesh(geometry,mat);body.frustumCulled=false;root.add(body);
+   const pickGeometry=geometry.clone(),basePositions=geometry.attributes.position,pickPositions=pickGeometry.attributes.position;
+   body.raycast=function(raycaster,hits){
+    for(let k=0;k<basePositions.count;k++){
+     const x=basePositions.getX(k),y=basePositions.getY(k),z=basePositions.getZ(k),r=Math.min(1,Math.abs(z)/2.8),w=Math.pow(r,1.65);
+     const phase=u.phase.value-r*.95-x*.17,effort=u.effort.value,beat=Math.sin(phase)+.16*Math.sin(phase*2-.6);
+     const bend=w*(beat*(.30+.92*effort)+.16*(1-effort))+w*x*.13*Math.cos(phase-.4)*effort+z*u.bank.value*.12;
+     pickPositions.setXYZ(k,x,y+bend,z);
+    }
+    pickGeometry.computeBoundingSphere();this.geometry=pickGeometry;
+    try{T.Mesh.prototype.raycast.call(this,raycaster,hits);}finally{this.geometry=geometry;}
+   };
    // Broad terminal mouth, lower jaw and paired cephalic lobes in front of it.
    ellipsoid(root,[.62,0,0],[.43,.145,.59],dark);
    const cavity=ellipsoid(root,[1.025,-.025,0],[.06,.1,.50],mouthMat);
@@ -103,11 +131,17 @@
     for(let g=0;g<5;g++){
      tube([[.48-g*.18,-.183,side*.15],[.46-g*.18,-.20,side*.34],[.40-g*.18,-.17,side*.52]],.012,mouthMat,root);
     }
-    // Pale dorsal shoulder flashes; restrained relief rather than painted logos.
-    ellipsoid(root,[.50,.162,side*.31],[.28,.014,.10],ivory);
    }
    const tail=tube([[-1.2,0,0],[-1.8,.01,0],[-2.7,.04,.02],[-3.8,.1,.08]],.025,dark,root);
-   const dorsal=new T.Mesh(new T.ConeGeometry(.14,.31,3),dark);dorsal.position.set(-1,.2,0);dorsal.rotation.x=Math.PI/2;root.add(dorsal);
+   // A low swept fin, joined at the tail base, with a rounded thickness profile.
+   const dp=[],di=[],rings=8,sides=10;
+   for(let r=0;r<=rings;r++)for(let j=0;j<=sides;j++){
+    const t=r/rings,a=j/sides*Math.PI*2,width=.23*Math.pow(1-t,.8)+.001;
+    dp.push(-1.07-.13*t+Math.cos(a)*width,.055+.24*t,Math.sin(a)*(.032*(1-t)+.001));
+   }
+   for(let r=0;r<rings;r++)for(let j=0;j<sides;j++){const a=r*(sides+1)+j,b=a+sides+1;di.push(a,b,a+1,b,b+1,a+1);}
+   const dorsalGeometry=new T.BufferGeometry();dorsalGeometry.setAttribute('position',new T.Float32BufferAttribute(dp,3));dorsalGeometry.setIndex(di);dorsalGeometry.computeVertexNormals();
+   root.add(new T.Mesh(dorsalGeometry,dark));
    // Batch fixed facial/gill details by material; keep only moving parts separate.
    const batches=new Map();
    for(const mesh of [...root.children]){

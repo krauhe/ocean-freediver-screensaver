@@ -58,6 +58,9 @@
           if(state.phase==='descent'&&body.position.distanceTo(goal)<3){enter('inspect');state.visits++;}
           if(state.phase==='inspect'){
             goal.x+=1.1*Math.sin(phaseTime*.15);goal.z+=.8*Math.sin(phaseTime*.21);
+            // Being carried away from a subject requires a swimming approach,
+            // not the slow observation pace over the entire return distance.
+            if(!rig.mesh.userData.grabbed&&body.position.distanceTo(goal)>5)enter('descent');
             if(phaseTime>inspectionTime){if(budget>reserve+35&&choose())enter('descent');else enter('ascent');}
           }
         }
@@ -136,8 +139,8 @@
     function update(time){
       const dt=last===null?0:clamp(time-last,0,.2);last=time;if(!group.visible)return;
       accumulator+=dt;while(accumulator+1e-9>=1/60){step(1/60);accumulator=Math.max(0,accumulator-1/60);}
-      if(rig.mesh.userData.applyInteraction)rig.mesh.userData.applyInteraction(time);
       rig.mesh.position.copy(body.position);rig.mesh.quaternion.copy(body.quaternion);
+      if(rig.mesh.userData.applyInteraction)rig.mesh.userData.applyInteraction(time);
       u.uTime.value=elapsed;u.uKickPhase.value=kickPhase;u.uKickAmp.value=effort;
       u.uBiBladeFlexL.value=blades[0].x;u.uBiBladeFlexR.value=blades[1].x;
       u.uBiBladeMidL.value=blades[0].mid||0;u.uBiBladeMidR.value=blades[1].mid||0;

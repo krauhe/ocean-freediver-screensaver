@@ -17,6 +17,12 @@
       transform.updateMatrix();
       let g = geometry.index ? geometry.toNonIndexed() : geometry.clone();
       g.applyMatrix4(transform.matrix); if (parentMatrix) g.applyMatrix4(parentMatrix);
+      if(material.userData.rockTint){
+        const v=Math.sin(position[0]*19.7+position[1]*5.1+position[2]*13.3)*43758.5,t=v-Math.floor(v);
+        const palette=[[1.12,1.03,.84],[.72,.77,.73],[.96,.81,.62],[.88,.96,.85],[1.06,1.09,1.04]],tint=palette[Math.min(4,Math.floor(t*5))];
+        const colors=[];for(let i=0;i<g.attributes.position.count;i++)colors.push(...tint);
+        g.setAttribute('color',new T.Float32BufferAttribute(colors,3));
+      }
       if (!batches.has(material)) batches.set(material, []); batches.get(material).push(g);
     }
     function material(color, kind) {
@@ -53,14 +59,23 @@
             siteRelief=ripple*.025*(1.-silt)+(siteGrain-.5)*.008*siteDetail;
           ` : ''}
           ${kind === 'rock' ? `
-            float layer=abs(fract((siteWorld.y+siteFbm(siteWorld*.45)*.45)*1.65)-.5);
-            float seam=(1.-smoothstep(.018,.075,layer))*smoothstep(.24,.55,siteMottle);
-            float fissure=(1.-smoothstep(.012,.06,abs(siteNoise(siteWorld*1.3)-.48)))*smoothstep(.44,.6,siteBroad);
+            float bedding=siteNoise(vec3(siteWorld.x*.12,siteWorld.y*.52+siteBroad*.65,siteWorld.z*.12));
+            float seam=(1.-smoothstep(.018,.065,abs(bedding-.47)))*smoothstep(.25,.58,siteMottle);
+            float joints=siteNoise(vec3(siteWorld.x*.2,siteWorld.y*.035,siteWorld.z*.8));
+            float fissure=(1.-smoothstep(.012,.045,abs(joints-.51)))*smoothstep(.44,.66,siteMottle);
             float pits=smoothstep(.68,.83,siteNoise(siteWorld*7.))*siteDetail;
-            vec3 chalk=mix(vec3(.28,.36,.31),vec3(.72,.68,.52),smoothstep(.24,.74,siteMottle));
-            diffuseColor.rgb=chalk*(1.-seam*.24-fissure*.27-pits*.14);
-            diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.17,.25,.16),smoothstep(.57,.72,siteBroad)*.52);
-            siteRelief=siteMottle*.045-seam*.012-fissure*.018-pits*.004;
+            vec3 chalk=mix(vec3(.36,.39,.32),vec3(.72,.68,.54),smoothstep(.18,.82,siteBroad*.55+siteMottle*.45));
+            float mineral=siteFbm(siteWorld*.42+vec3(35.,7.,12.));
+            chalk=mix(chalk,vec3(.57,.39,.22),smoothstep(.56,.76,mineral)*.55);
+            #ifdef USE_COLOR
+              chalk*=vColor;
+            #endif
+            diffuseColor.rgb=chalk*(1.-seam*.22-fissure*.34-pits*.12);
+            float encrust=smoothstep(.58,.76,siteFbm(siteWorld*.65+21.));
+            diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.24,.30,.20),encrust*.35);
+            float basalSilt=(1.-smoothstep(-23.7,-21.,siteWorld.y))*(.45+.3*siteBroad);
+            diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.52,.52,.40),basalSilt);
+            siteRelief=siteMottle*.025-seam*.006-fissure*.012-pits*.003;
           ` : ''}
           ${kind === 'steel' ? `
             float flakes=smoothstep(.42,.59,siteFbm(siteWorld*3.4));
@@ -88,10 +103,12 @@
           #include <opaque_fragment>
           ${kind === 'sand' ? 'gl_FragColor.a*=1.-smoothstep(70.,135.,length(vViewPosition));' : ''}`);
       };
-      mat.customProgramCacheKey = () => 'dive-site-weathered-v2-' + kind;
+      mat.customProgramCacheKey = () => 'dive-site-weathered-v3-' + kind;
       return mat;
     }
     const sand = material(0x9eaa99, 'sand'), limestone = material(0x718980, 'rock');
+    const blockStone=material(0x718980,'rock');blockStone.vertexColors=true;blockStone.userData.rockTint=true;
+    const cliffBlocks=[];
     sand.transparent=true; sand.depthWrite=false;
     const steel = material(0x697a70, 'steel'), edge = material(0x8b9180, 'steel');
     const dark = material(0x263e40, 'steel');
@@ -102,31 +119,138 @@
     const fp = floor.attributes.position;
     for (let i=0;i<fp.count;i++) { const x=fp.getX(i),z=fp.getZ(i); fp.setY(i,sandHeight(x,z-32)-FLOOR); }
     floor.computeVertexNormals(); add(floor,sand,[0,FLOOR,-32]); floor.dispose();
-    // A scalloped limestone wall, ending 18 units below the water surface.
-    const verts=[], indices=[], rows=15, cols=32;
+    // Coherent, non-repeating erosion at several scales. Shared by rendering
+    // and collision so animals follow the visible face rather than the old wall.
+    function rockNoise(x,y){
+      const ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy;
+      const sx=fx*fx*(3-2*fx),sy=fy*fy*(3-2*fy);
+      const hash=(a,b)=>{const v=Math.sin(a*127.1+b*311.7)*43758.5453;return v-Math.floor(v);};
+      return T.MathUtils.lerp(T.MathUtils.lerp(hash(ix,iy),hash(ix+1,iy),sx),T.MathUtils.lerp(hash(ix,iy+1),hash(ix+1,iy+1),sx),sy);
+    }
+    function fracturedNoise(x,y){
+      const i=Math.floor(x),j=Math.floor(y),u=x-i,v=y-j;
+      const a=rockNoise(i,j),b=rockNoise(i+1,j),c=rockNoise(i,j+1),d=rockNoise(i+1,j+1);
+      return u+v<1?a+(b-a)*u+(c-a)*v:d+(c-d)*(1-u)+(b-d)*(1-v);
+    }
+    const lipHeight=z=>-3.4+.8*(fracturedNoise(z*.24,8)-.5)+.8*(fracturedNoise(z*.92,6)-.5);
+    const edgePosition=z=>21.6+2.4*(fracturedNoise(z*.19,3)-.5)+1.3*(fracturedNoise(z*.73,9)-.5);
+    function wallPosition(f,z){
+      const facets=(fracturedNoise(z*.28,f*6.3)-.5)*3.4+(fracturedNoise(z*.8,f*18)-.5)*.8;
+      return edgePosition(z)-6.3*Math.pow(1-f,2.4)+facets*Math.sin(Math.PI*f);
+    }
+    const verts=[], indices=[], rows=56, cols=128,zStep=108.8/cols;
     for(let j=0;j<=rows;j++)for(let i=0;i<=cols;i++) {
-      const z=-75+i*3.4, f=j/rows;
-      const lip=-3.4+.55*Math.sin(z*.23)+.25*Math.sin(z*.81);
-      const x=20.8+Math.sin(z*.19)*1.8+Math.sin(z*.67)*.55+(1-f)*4+Math.sin(f*24+z*.14)*.6;
+      const z=-75+i*zStep, f=j/rows;
+      const lip=lipHeight(z),x=wallPosition(f,z);
       verts.push(x,FLOOR+(lip-FLOOR)*f,z);
     }
     for(let j=0;j<rows;j++)for(let i=0;i<cols;i++){const a=j*(cols+1)+i,b=a+cols+1;indices.push(a,a+1,b,b,a+1,b+1);}
     const cliff=new T.BufferGeometry();cliff.setAttribute('position',new T.Float32BufferAttribute(verts,3));cliff.setIndex(indices);cliff.computeVertexNormals();
     limestone.side=T.DoubleSide;add(cliff,limestone,[0,0,0]);cliff.dispose();
-    // Broad horizontal shelf behind the lip, rather than a wall rising out of frame.
-    const shelfVertices=[],shelfIndices=[];
-    for(let i=0;i<=cols;i++){
-      const z=-75+i*3.4, lip=-3.4+.55*Math.sin(z*.23)+.25*Math.sin(z*.81);
-      const x=20.8+Math.sin(z*.19)*1.8+Math.sin(z*.67)*.55+Math.sin(24+z*.14)*.6;
-      shelfVertices.push(x,lip,z,65,lip-.2,z);
+    // Uneven weathered shelf with sediment pockets instead of a flat lid.
+    const shelfVertices=[],shelfIndices=[],shelfCols=24;
+    for(let i=0;i<=cols;i++)for(let j=0;j<=shelfCols;j++){
+      const z=-75+i*zStep,u=j/shelfCols,x=T.MathUtils.lerp(edgePosition(z),65,u);
+      const y=lipHeight(z)-u*.2+(fracturedNoise(x*.55,z*.48)-.5)*1.15*Math.min(1,u*10);
+      shelfVertices.push(x,y,z);
     }
-    for(let i=0;i<cols;i++){const a=i*2;shelfIndices.push(a,a+2,a+1,a+1,a+2,a+3);}
+    for(let i=0;i<cols;i++)for(let j=0;j<shelfCols;j++){const a=i*(shelfCols+1)+j,b=a+shelfCols+1;shelfIndices.push(a,b,a+1,a+1,b,b+1);}
+    function shelfHeight(x,z){
+      const row=T.MathUtils.clamp((z+75)/zStep,0,cols-.00001),i=Math.floor(row),v=row-i;
+      const edge=T.MathUtils.lerp(shelfVertices[i*(shelfCols+1)*3],shelfVertices[(i+1)*(shelfCols+1)*3],v);
+      const col=T.MathUtils.clamp((x-edge)/(65-edge)*shelfCols,0,shelfCols-.00001),j=Math.floor(col),u=col-j;
+      const a=(i*(shelfCols+1)+j)*3,b=a+(shelfCols+1)*3;
+      return T.MathUtils.lerp(T.MathUtils.lerp(shelfVertices[a+1],shelfVertices[a+4],u),T.MathUtils.lerp(shelfVertices[b+1],shelfVertices[b+4],u),v);
+    }
     const shelf=new T.BufferGeometry();shelf.setAttribute('position',new T.Float32BufferAttribute(shelfVertices,3));shelf.setIndex(shelfIndices);shelf.computeVertexNormals();add(shelf,limestone,[0,0,0]);shelf.dispose();
+    // Broken, bevelled slabs give real silhouettes and dark recesses between
+    // faces. Irregular sizes/tilts and missing blocks avoid a masonry grid.
+    const outlineRock=new T.Shape();outlineRock.moveTo(-.5,-.34);outlineRock.lineTo(-.32,-.5);outlineRock.lineTo(.35,-.46);outlineRock.lineTo(.5,-.24);outlineRock.lineTo(.46,.36);outlineRock.lineTo(.24,.5);outlineRock.lineTo(-.4,.43);outlineRock.closePath();
+    const slab=new T.ExtrudeGeometry(outlineRock,{depth:.75,bevelEnabled:true,bevelThickness:.12,bevelSize:.1,bevelSegments:1,steps:1});
+    slab.translate(0,0,-.375);slab.rotateY(Math.PI/2);slab.computeBoundingBox();
+    function placeSlab(x,y,z,sx,sy,sz){
+      const rotation=[(random()-.5)*.28,(random()-.5)*.35,(random()-.5)*.24];
+      const fragment=slab.clone(),p=fragment.attributes.position,seed= random()*100;
+      for(let i=0;i<p.count;i++){
+        const px=p.getX(i),py=p.getY(i),pz=p.getZ(i);
+        p.setXYZ(i,px+.09*Math.sin(py*7+pz*5+seed),py+.065*Math.sin(pz*8+seed),pz+.055*Math.sin(py*9+seed*2));
+      }
+      fragment.computeVertexNormals();fragment.computeBoundingBox();
+      add(fragment,blockStone,[x,y,z],[sx,sy,sz],rotation);
+      const bounds=fragment.boundingBox.clone().applyMatrix4(transform.matrix);fragment.dispose();
+      cliffBlocks.push({lo:bounds.min.toArray(),hi:bounds.max.toArray()});
+    }
+    for(let i=0;i<155;i++){
+      const z=-73+random()*105,f=.12+random()*.8,y=FLOOR+(lipHeight(z)-FLOOR)*f;
+      if(rockNoise(z*.34,f*8)<.25)continue;
+      const sx=1+random()*1.2,sy=1.1+random()*2.8,sz=2.3+random()*4.8;
+      let backing=wallPosition(f,z);
+      for(const dy of [-sy*.4,sy*.4])for(const dz of [-sz*.4,sz*.4]){
+        const zz=z+dz,ff=T.MathUtils.clamp((y+dy-FLOOR)/(lipHeight(zz)-FLOOR),0,1);
+        backing=Math.max(backing,wallPosition(ff,zz));
+      }
+      placeSlab(backing+.12,y,z,sx,sy,sz);
+    }
+    for(let i=0;i<100;i++){
+      const z=-74+random()*107,x=edgePosition(z)+.2+random()*1.8;
+      placeSlab(x,shelfHeight(x,z)-.12,z,1+random()*1.4,.45+random()*1.05,.7+random()*2.1);
+    }
+    const reefBlocks=[];
+    let reefSeed=4917;
+    const reefRandom=()=>{reefSeed=(1664525*reefSeed+1013904223)>>>0;return reefSeed/4294967296;};
+    function placeReefSlab(mat,x,y,z,sx,sy,sz,rx,ry,rz){
+      const fragment=new T.IcosahedronGeometry(1,1),p=fragment.attributes.position,s=reefRandom()*97;
+      for(let i=0;i<p.count;i++){
+        const px=p.getX(i),py=p.getY(i),pz=p.getZ(i),step=Math.sin(py*9+s)*.05;
+        p.setXYZ(i,px*.57+.09*Math.sin(py*6+pz*5+s),py*.52+step+.05*Math.cos(px*7+s),pz*.57+.08*Math.sin(py*8+px*5+s*1.7));
+      }
+      fragment.computeVertexNormals();
+      add(fragment,mat,[x,y,z],[sx,sy,sz],[rx,ry,rz]);fragment.dispose();
+      const list=batches.get(mat),g=list[list.length-1];
+      g.computeBoundingBox();
+      reefBlocks.push({lo:g.boundingBox.min.toArray(),hi:g.boundingBox.max.toArray()});
+    }
+    [
+      [blockStone,-25.8,-23.4,-17.4,3.4,2.2,3.8,.06,.55,-.05],
+      [blockStone,-25.1,-22.5,-17.0,2.5,2.3,2.8,-.08,1.15,.07],
+      [blockStone,-25.6,-21.9,-17.5,1.9,2.6,2.1,.1,-.4,.08],
+      [blockStone,-21.5,-23.4,-16.4,3.1,2.1,3.3,-.05,-.65,.06],
+      [limestone,-21.2,-22.6,-16.8,2.1,2.3,2.4,.09,.85,-.07],
+      [blockStone,-23.8,-23.5,-19.0,3.1,2.0,2.3,.07,.25,-.06],
+      [limestone,-24.3,-22.8,-18.7,2.0,2.1,1.8,-.08,-1.1,.05],
+      [blockStone,-23.5,-23.6,-14.9,2.9,1.8,2.2,-.06,1.35,.05],
+      [limestone,-27.5,-23.6,-16.8,2.1,1.9,2.3,.08,-.9,-.09],
+      [blockStone,-19.9,-23.7,-17.2,1.8,1.7,2.1,-.07,.45,.08]
+    ].forEach(c=>placeReefSlab(...c));
+    for(let i=0;i<14;i++){
+      const rock=new T.IcosahedronGeometry(1,1),p=rock.attributes.position,s=reefRandom()*63;
+      for(let k=0;k<p.count;k++){
+        const x=p.getX(k),y=p.getY(k),z=p.getZ(k),d=1+.14*Math.sin(x*7+z*5+y*4+s);
+        p.setXYZ(k,x*d,(y<0?y*.65:y)*d,z*d);
+      }
+      rock.computeVertexNormals();
+      const a=i*2.39996+reefRandom()*.35,dist=1.4+reefRandom()*3.3;
+      const rx=-24+Math.cos(a)*dist*1.35,rz=-17+Math.sin(a)*dist*.95;
+      const r=.32+reefRandom()*.52,ry=sandHeight(rx,rz)+r*.24,mat=i%2?blockStone:limestone;
+      add(rock,mat,[rx,ry,rz],[r*1.18,r*.7,r*.94],[reefRandom()*.3,reefRandom()*6.28,reefRandom()*.3]);rock.dispose();
+      const list=batches.get(mat),g=list[list.length-1];
+      g.computeBoundingBox();
+      reefBlocks.push({lo:g.boundingBox.min.toArray(),hi:g.boundingBox.max.toArray()});
+    }
+    slab.dispose();
+    const apronVertices=[],apronIndices=[],apronCols=8;
+    for(let i=0;i<=cols;i++)for(let j=0;j<=apronCols;j++){
+      const z=-75+i*zStep,u=j/apronCols,x=wallPosition(0,z)-4.8*(1-u);
+      const y=sandHeight(x,z)+.025+Math.sin(Math.PI*u)*(.22+.22*rockNoise(z*.4,4));
+      apronVertices.push(x,y,z);
+    }
+    for(let i=0;i<cols;i++)for(let j=0;j<apronCols;j++){const a=i*(apronCols+1)+j,b=a+apronCols+1;apronIndices.push(a,b,a+1,a+1,b,b+1);}
+    const apron=new T.BufferGeometry();apron.setAttribute('position',new T.Float32BufferAttribute(apronVertices,3));apron.setIndex(apronIndices);apron.computeVertexNormals();add(apron,sand,[0,0,0]);apron.dispose();
     for(let i=0;i<85;i++){
       const rock=new T.IcosahedronGeometry(1,1), p=rock.attributes.position;
       for(let k=0;k<p.count;k++){const x=p.getX(k),y=p.getY(k),z=p.getZ(k),d=1+.12*Math.sin(x*8+z*5+y*4);p.setXYZ(k,x*d,y*d,z*d);}rock.computeVertexNormals();
-      const nearCliff=i<60, x=nearCliff?17+random()*12:-29+random()*47, z=-65+random()*75;
-      const r=nearCliff?.8+random()*2.6:.2+random()*.7;
+      const nearCliff=i<60,z=-65+random()*75,x=nearCliff?wallPosition(0,z)-random()*4:-29+random()*47;
+      const r=nearCliff?.35+Math.pow(random(),2)*1.7:.2+random()*.7;
       add(rock,limestone,[x,FLOOR+r*.38,z],[r,r*.65,r*.83],[random(),random()*6,random()]);rock.dispose();
     }
     // Vessel coordinates: X bow direction, Y height above keel, Z across beam.
@@ -223,9 +347,9 @@
     }
     pebble.dispose();
     for(const [mat,geometries] of batches){
-      const positions=[],normals=[];
-      for(const g of geometries){for(const n of g.attributes.position.array)positions.push(n);for(const n of g.attributes.normal.array)normals.push(n);g.dispose();}
-      const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(positions,3));g.setAttribute('normal',new T.Float32BufferAttribute(normals,3));g.computeBoundingSphere();
+      const positions=[],normals=[],colors=[];
+      for(const g of geometries){for(const n of g.attributes.position.array)positions.push(n);for(const n of g.attributes.normal.array)normals.push(n);if(g.attributes.color)for(const n of g.attributes.color.array)colors.push(n);g.dispose();}
+      const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(positions,3));g.setAttribute('normal',new T.Float32BufferAttribute(normals,3));if(colors.length)g.setAttribute('color',new T.Float32BufferAttribute(colors,3));g.computeBoundingSphere();
       const mesh=new T.Mesh(g,mat);mesh.name='Dive site '+mat.uuid;group.add(mesh);
     }
     // Rooted ribbon leaves share one draw call. Only their free tips bend with
@@ -254,8 +378,9 @@
       const radius=.5+random()*1.3,shade=random();
       for(let n=0;n<22;n++){
         const a=random()*Math.PI*2,r=Math.sqrt(random())*radius,x=px+Math.cos(a)*r,z=pz+Math.sin(a)*r;
-        const height=.55+random()*1.25;
-        leaf(x,sandHeight(x,z)-.03,z,height,random()*6.28,shade);
+        const height=.55+random()*1.25,angle=random()*6.28;
+        if(reefBlocks.some(b=>x>b.lo[0]-.12&&x<b.hi[0]+.12&&z>b.lo[2]-.12&&z<b.hi[2]+.12))continue;
+        leaf(x,sandHeight(x,z)-.03,z,height,angle,shade);
       }
     }
     // Separate pockets on the submerged shelf, rooted on its actual triangles.
@@ -264,13 +389,10 @@
       const pz=-47+random()*53,px=22.8+random()*9,shade=random();
       for(let n=0;n<18;n++){
         const x=px+(random()-.5)*1.8,z=pz+(random()-.5)*1.8;
-        const i=Math.max(0,Math.min(cols-1,Math.floor((z+75)/3.4)));
-        const f=(z-(-75+i*3.4))/3.4;
-        const a=i*6,b=(i+1)*6;
-        const edgeX=shelfVertices[a]*(1-f)+shelfVertices[b]*f;
+        const edgeX=edgePosition(z);
         if(x<edgeX+.18)continue;
-        const lip=shelfVertices[a+1]*(1-f)+shelfVertices[b+1]*f;
-        const y=lip-.2*(x-edgeX)/(65-edgeX);
+        const y=shelfHeight(x,z);
+        if(cliffBlocks.some(b=>x>b.lo[0]&&x<b.hi[0]&&z>b.lo[2]&&z<b.hi[2]&&y<b.hi[1]))continue;
         leaf(x,y-.025,z,.35+random()*1.05,random()*6.28,shade);
         if(n===0&&x>edgeX+2.5)grazingPatches.push(new T.Vector3(x,y,z));
       }
@@ -321,14 +443,29 @@
       // Match the submerged wall profile instead of an oversized box that
       // kept swimmers several metres away from the visible limestone.
       if(position.z>-78-radius&&position.z<34+radius){
-        const z=position.z,lip=-3.4+.55*Math.sin(z*.23)+.25*Math.sin(z*.81);
+        const z=position.z,lip=lipHeight(z);
         const f=T.MathUtils.clamp((position.y-FLOOR)/(lip-FLOOR),0,1);
-        const wallX=20.8+Math.sin(z*.19)*1.8+Math.sin(z*.67)*.55+(1-f)*4+Math.sin(f*24+z*.14)*.6;
+        const wallX=wallPosition(f,z);
         if(position.y<lip+radius&&position.x>wallX-radius-.25){
           if(position.y>lip)position.y=lip+radius;
           else position.x=wallX-radius-.25;
         }
       }
+      // Exposed slabs are attached to the cliff: push toward open water rather
+      // than choosing a box face that could send an actor into the backing rock.
+      for(const block of cliffBlocks){
+        const lo=block.lo,hi=block.hi;
+        if(position.x>lo[0]-radius&&position.x<hi[0]+radius&&position.y>lo[1]-radius&&position.y<hi[1]+radius&&position.z>lo[2]-radius&&position.z<hi[2]+radius)
+          position.x=lo[0]-radius;
+      }
+      // Resolve overlapping layers as a union instead of re-entering an earlier slab.
+      for(const block of reefBlocks)pushBox(position,block.lo,block.hi,radius);
+      let trapped=false,roof=position.y;
+      for(const b of reefBlocks)if(position.x>b.lo[0]-radius&&position.x<b.hi[0]+radius&&position.z>b.lo[2]-radius&&position.z<b.hi[2]+radius){
+        if(position.y>b.lo[1]-radius&&position.y<b.hi[1]+radius)trapped=true;
+        roof=Math.max(roof,b.hi[1]+radius);
+      }
+      if(trapped)position.y=roof;
       collisionPoint.copy(position).applyMatrix4(inverseVessel);
       pushBox(collisionPoint,[-14,0,-2.6],[14,4.1,2.6],radius);
       pushBox(collisionPoint,[-7.3,3.7,-2.5],[5.3,6.6,2.5],radius);
@@ -338,7 +475,7 @@
       before.subVectors(position,before);
       if(before.lengthSq()>1e-10){offset.add(before);before.normalize();const inward=velocity.dot(before);if(inward<0)velocity.addScaledVector(before,-inward);}
     }
-    return {group,grazingPatches,setDetail(amount){leaves.setDrawRange(0,Math.max(1,Math.round(leafCount*amount))*42);},floorY:FLOOR,wreckMatrix:vessel.matrix.clone(),constrain,setVisible(value){group.visible=!!value;}};
+    return {group,grazingPatches,terrain:{wallPosition,lipHeight,shelfHeight,cliffBlocks,reefBlocks},setDetail(amount){leaves.setDrawRange(0,Math.max(1,Math.round(leafCount*amount))*42);},floorY:FLOOR,wreckMatrix:vessel.matrix.clone(),constrain,setVisible(value){group.visible=!!value;}};
   };
 })();
 

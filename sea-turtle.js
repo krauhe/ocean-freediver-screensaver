@@ -47,15 +47,37 @@
   }
   const texture=atlas(true),skinTexture=atlas(false);
   const shellMat=new T.MeshStandardMaterial({map:texture,bumpMap:texture,bumpScale:.012,roughness:.66}),skin=new T.MeshStandardMaterial({map:skinTexture,bumpMap:skinTexture,bumpScale:.005,roughness:.8}),belly=new T.MeshStandardMaterial({color:0xb8b18a,roughness:.8}),black=new T.MeshStandardMaterial({color:0x101510,roughness:.25});
-  const shellGeometry=new T.SphereGeometry(1,40,24);
-  for(let i=0;i<shellGeometry.attributes.position.count;i++)shellGeometry.attributes.uv.setXY(i,.5+shellGeometry.attributes.position.getX(i)*.49,.5+shellGeometry.attributes.position.getZ(i)*.49);
+  // Domed carapace with a distinct bevel and shallow scalloped marginal rim.
+  const sp=[],su=[],si=[],shellSegments=72;
+  function shellSection(profile){
+   const start=sp.length/3;
+   for(const [r,y] of profile)for(let j=0;j<=shellSegments;j++){
+    const angle=j/shellSegments*Math.PI*2;
+    const scallop=1-.014*Math.pow(r,8)*(1-Math.cos(angle*24));
+    const x=.77*r*Math.cos(angle)*scallop,z=.57*r*Math.sin(angle)*scallop;
+    sp.push(x,y,z);su.push(.5+x/.77*.49,.5+z/.57*.49);
+   }
+   for(let r=0;r<profile.length-1;r++)for(let j=0;j<shellSegments;j++){
+    const a=start+r*(shellSegments+1)+j,b=a+shellSegments+1;si.push(a,a+1,b,b,a+1,b+1);
+   }
+  }
+  const dome=[];for(let i=0;i<=16;i++){const r=i/16;dome.push([r,.018+.27*Math.pow(Math.max(0,1-r*r),.72)]);}
+  shellSection(dome);
+  // Separate rim vertices retain the crisp change of surface normal.
+  shellSection([[1,.018],[1.005,-.025],[.96,-.075],[.68,-.12],[0,-.14]]);
+  const shellGeometry=new T.BufferGeometry();shellGeometry.setAttribute('position',new T.Float32BufferAttribute(sp,3));shellGeometry.setAttribute('uv',new T.Float32BufferAttribute(su,2));shellGeometry.setIndex(si);shellGeometry.computeVertexNormals();
   // Cambered, thick shoulder narrowing into a swept, flexible distal blade.
   const fp=[],fn=[],fu=[],fi=[],rows=24,cols=12;
   for(let r=0;r<=rows;r++){
    const t=r/rows,chord=(.10+.19*Math.sin(Math.PI*Math.pow(t,.7)))*(1-.72*t)+.006;
-   for(let j=0;j<=cols;j++){const a=j/cols*Math.PI*2;fp.push(-.38*t+Math.cos(a)*chord,Math.sin(a)*(.045*(1-t)+.004),t*1.05);fu.push(j/cols,t);}
+   for(let j=0;j<=cols;j++){const a=j/cols*Math.PI*2;fp.push(-.38*t+Math.cos(a)*chord,Math.sin(a)*(.075*Math.pow(1-t,.8)+.009),t*1.05);fu.push(j/cols,t);}
   }
-  for(let r=0;r<rows;r++)for(let j=0;j<cols;j++){const a=r*(cols+1)+j,b=a+cols+1;fi.push(a,b,a+1,b,b+1,a+1);}
+  for(let r=0;r<rows;r++)for(let j=0;j<cols;j++){const a=r*(cols+1)+j,b=a+cols+1;fi.push(a,a+1,b,b,a+1,b+1);}
+  // Closed tips and shoulders: never show the inside of a paper-thin blade.
+  for(const row of [0,rows]){
+   const center=fp.length/3,t=row/rows;fp.push(-.38*t,0,t*1.05);fu.push(.5,t);
+   for(let j=0;j<cols;j++){const a=row*(cols+1)+j;if(row===0)fi.push(center,a+1,a);else fi.push(center,a,a+1);}
+  }
   const flipperGeometry=new T.BufferGeometry();flipperGeometry.setAttribute('position',new T.Float32BufferAttribute(fp,3));flipperGeometry.setAttribute('uv',new T.Float32BufferAttribute(fu,2));flipperGeometry.setIndex(fi);flipperGeometry.computeVertexNormals();
   function flexibleSkin(uniforms){
    const mat=skin.clone();mat.onBeforeCompile=shader=>{
@@ -76,7 +98,7 @@
   function oval(parent,p,s,material){const m=new T.Mesh(sphere,material);m.position.set(...p);m.scale.set(...s);parent.add(m);return m;}
   for(let i=0;i<2;i++){
    const root=new T.Group();root.position.set(-32+Math.random()*42,1+Math.random()*9,-8-Math.random()*40);group.add(root);
-   const shell=new T.Mesh(shellGeometry,shellMat);shell.scale.set(.77,.28,.57);root.add(shell);oval(root,[.02,-.14,0],[.7,.13,.52],belly);
+   const shell=new T.Mesh(shellGeometry,shellMat);root.add(shell);oval(root,[.02,-.14,0],[.7,.10,.52],belly);
    oval(root,[.65,-.02,0],[.30,.14,.17],skin);
    const head=new T.Group();head.position.set(.94,.01,0);root.add(head);oval(head,[0,0,0],[.25,.17,.19],skin);
    for(const side of [-1,1]){oval(head,[.10,.065,side*.155],[.048,.045,.025],belly);oval(head,[.11,.068,side*.175],[.027,.029,.016],black);}
@@ -85,7 +107,7 @@
    for(const side of [-1,1]){
     const pivot=new T.Group();pivot.position.set(.38,-.08,side*.4);root.add(pivot);
     const blade=new T.Mesh(flipperGeometry,finMaterial);blade.scale.z=side;pivot.add(blade);
-    flippers.push({pivot,side});const rear=oval(root,[-.66,-.10,side*.43],[.29,.045,.18],skin);rear.rotation.y=-side*.4;rearFlippers.push({mesh:rear,side});
+    flippers.push({pivot,side});const rear=oval(root,[-.66,-.10,side*.43],[.29,.065,.18],skin);rear.rotation.y=-side*.4;rearFlippers.push({mesh:rear,side});
    }
    oval(root,[-.8,-.1,0],[.19,.045,.055],skin);
    const heading=Math.random()*Math.PI*2;root.rotation.y=heading;

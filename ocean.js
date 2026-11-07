@@ -1576,6 +1576,7 @@
     animalCrabCount=1+Math.round(animalDensity*2*currentQuality.population);
     combJellies.setCount(1+Math.round(animalDensity*2*currentQuality.population));
     mantaRays.setDensity(animalDensity,currentQuality.population);
+    predatoryFish.setDensity(animalDensity,currentQuality.population);
     seaTurtles.setDensity(animalDensity,currentQuality.population);
     benthicLife.setDensity((.25+.75*animalDensity)*currentQuality.population);
     redrawNeeded=true;
@@ -2055,7 +2056,7 @@
       for (let j = 0; j < sides; j++) {
         const a = i * (sides + 1) + j;
         const b = a + sides + 1;
-        indices.push(a, a + 1, b, b, a + 1, b + 1);
+        indices.push(a, b, a + 1, b, b + 1, a + 1);
       }
     }
 
@@ -2108,24 +2109,59 @@
     shader.uniforms.daylight = waterUniforms.daylight;
     shader.uniforms.fishSun = waterUniforms.lightDirection;
     shader.uniforms.fishSunPower = waterUniforms.sunPower;
+    shader.uniforms.fishSunColor = waterUniforms.sunColor;
+    shader.uniforms.causticMap = oceanOptics.causticMap;
+    shader.uniforms.causticMultiTap = oceanOptics.causticMultiTap;
+    shader.uniforms.activeSharkCount = oceanOptics.activeSharkCount;
+    shader.uniforms.animalStates = oceanOptics.animalStates;
+    shader.uniforms.animalHeadings = oceanOptics.animalHeadings;
     shader.vertexShader = `uniform float time;
+      uniform vec3 fishSun;
       attribute float fishPhase;
-      varying vec3 vFishWorld;varying vec3 vFishNormal;varying vec3 vFishLocal;
+      varying vec3 vFishWorld;
+      varying vec3 vFishNormal;
+      varying vec3 vFishLocal;
+      varying vec4 vFishFlank;
+      varying float vFishSeed;
+      ${solarOcclusionGLSL}
       ${shader.vertexShader}`;
     shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>',
       `#include <beginnormal_vertex>
       float tailW = clamp((.10 - position.x) / .45, 0., 1.);
-      float wave = sin(fishPhase + position.x * 11.5) * tailW * tailW * .058;
-      float slope = cos(fishPhase + position.x * 11.5) * 11.5 * tailW * tailW * .058;
-      objectNormal.x -= slope * objectNormal.z;`);
+      float tailArg = fishPhase + position.x * 11.5;
+      float tailSin = sin(tailArg);
+      float tailCos = cos(tailArg);
+      float wave = tailSin * tailW * tailW * .058;
+      float dTailW = (tailW > 0. && tailW < 1.) ? (-1. / .45) : 0.;
+      float slope = (tailCos * 11.5 * tailW * tailW + tailSin * 2. * tailW * dTailW) * .058;
+      objectNormal = normalize(vec3(objectNormal.x - slope * objectNormal.z, objectNormal.y, objectNormal.z));`);
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
       `#include <begin_vertex>
-      float tailW2 = clamp((.10 - position.x) / .45, 0., 1.);
-      float wave2 = sin(fishPhase + position.x * 11.5) * tailW2 * tailW2 * .058;
-      transformed.z += wave2;
+      transformed.z += wave;
+      mat3 instRot = mat3(modelMatrix) * mat3(instanceMatrix);
       vFishWorld = (modelMatrix * instanceMatrix * vec4(transformed, 1.)).xyz;
-      vFishNormal=normalize(mat3(modelMatrix)*mat3(instanceMatrix)*objectNormal);vFishLocal=position;`);
-    shader.fragmentShader = `varying vec3 vFishWorld;varying vec3 vFishNormal;varying vec3 vFishLocal;uniform vec3 fishSun;uniform float fishSunPower;
+      vFishNormal = normalize(instRot * objectNormal);
+      vFishLocal = position;
+      float instSeed = fract(sin(float(gl_InstanceID) * 12.9898 + 78.233) * 43758.5453);
+      vFishSeed = instSeed;
+      vec3 localPlatelet = normalize(vec3(
+        objectNormal.x + (fract(instSeed * 31.7) - .5) * .08,
+        objectNormal.y * .28 + .16 + (instSeed - .5) * .14,
+        objectNormal.z
+      ));
+      float solarVis = clamp(sharkSolarOcclusion(vFishWorld, normalize(fishSun), vec3(9999.)), 0., 1.);
+      vFishFlank = vec4(normalize(instRot * localPlatelet), solarVis);`);
+    shader.fragmentShader = `varying vec3 vFishWorld;
+      varying vec3 vFishNormal;
+      varying vec3 vFishLocal;
+      varying vec4 vFishFlank;
+      varying float vFishSeed;
+      uniform float daylight;
+      uniform vec3 fishSun;
+      uniform float fishSunPower;
+      uniform vec3 fishSunColor;
+      uniform sampler2D causticMap;
+      uniform float causticMultiTap;
       ${shader.fragmentShader}`;
     shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
       float eye=1.-smoothstep(.006,.012,length(vFishLocal.xy-vec2(.185,.018)));
@@ -2133,14 +2169,55 @@
       spots*=step(-.16,vFishLocal.x)*step(vFishLocal.x,.10);
       diffuseColor.rgb*=1.-max(eye*.94,spots*.43);`);
     shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>',
-      `vec3 sideNormal=normalize(vFishNormal);
-      vec3 toEye=normalize(cameraPosition-vFishWorld),toSun=normalize(fishSun);
-      vec3 halfAngle=normalize(toSun+toEye);
-      float flank=1.-smoothstep(.035,.070,abs(vFishLocal.y));
-      float glint=pow(max(0.,dot(sideNormal,halfAngle)),72.)*max(0.,dot(sideNormal,toSun))*flank;
-      outgoingLight+=vec3(.72,.91,1.)*glint*fishSunPower*3.5;
+      `float faceSign = gl_FrontFacing ? 1. : -1.;
+      vec3 sideNormal = normalize(vFishNormal) * faceSign;
+      float flank = 1. - smoothstep(.032, .072, abs(vFishLocal.y));
+      float bellyMask = smoothstep(-.065, .025, vFishLocal.y);
+      vec3 scaleNormal = normalize(mix(sideNormal, normalize(vFishFlank.xyz) * faceSign, flank * .85));
+      vec3 toEye = normalize(cameraPosition - vFishWorld);
+      vec3 toSun = normalize(fishSun);
+      vec3 halfAngle = normalize(toSun + toEye);
       float waterDepth = max(0., 15. - vFishWorld.y);
       float viewDist = length(vViewPosition);
+      float solarFactor = clamp(fishSunPower, 0., 1.2) * clamp(daylight, 0., 1.) * vFishFlank.w;
+      vec2 causticUv = (vFishWorld.xz + toSun.xz * waterDepth / max(.2, toSun.y) - vec2(0., -32.)) / 128. + .5;
+      vec2 causticEdge = min(causticUv, 1. - causticUv);
+      float causticBounds = smoothstep(0., .08, min(causticEdge.x, causticEdge.y));
+      vec3 cSample = texture2D(causticMap, causticUv).rgb;
+      if (causticMultiTap > .5) {
+        vec2 cOff = vec2(.0022, -.0016);
+        cSample = .5 * cSample + .25 * texture2D(causticMap, causticUv + cOff).rgb + .25 * texture2D(causticMap, causticUv - cOff.yx).rgb;
+      }
+      cSample *= 16.;
+      float cDepthMix = mix(
+        mix(cSample.r, cSample.g, clamp((waterDepth - 5.) / 10., 0., 1.)),
+        cSample.b,
+        clamp((waterDepth - 15.) / 15., 0., 1.)
+      );
+      float causticFade = causticBounds * smoothstep(.1, 1.4, waterDepth) * exp(-waterDepth * .026);
+      float causticFocused = (cDepthMix / (1. + cDepthMix * .52)) * causticFade;
+      float causticStripe = smoothstep(.16, 1.05, cDepthMix) * causticFade;
+      vec3 causticDir = normalize(vec3(toSun.x * .45, max(.35, toSun.y), toSun.z * .45));
+      float causticFacing = smoothstep(-.18, .72, dot(sideNormal, causticDir));
+      vec3 dNdx = dFdx(scaleNormal);
+      vec3 dNdy = dFdy(scaleNormal);
+      float normalVar = clamp(dot(dNdx, dNdx) + dot(dNdy, dNdy), 0., .65);
+      vec3 skyHalf = normalize(normalize(vec3(toSun.x * .38, max(.62, toSun.y), toSun.z * .38)) + toEye);
+      float specH = max(dot(scaleNormal, halfAngle), dot(scaleNormal, skyHalf) * .94);
+      float sunFacing = smoothstep(-.12, .45, max(dot(scaleNormal, toSun), dot(sideNormal, causticDir)));
+      float viewGrazing = .65 + .35 * pow(1. - clamp(abs(dot(sideNormal, toEye)), 0., 1.), 2.);
+      float sheenExp = 10. / (1. + normalVar * 5.);
+      float glintExp = 68. / (1. + normalVar * 20.);
+      float glintAa = 1. / (1. + normalVar * 2.1);
+      float distReadability = mix(1., 1.38, smoothstep(16., 58., viewDist));
+      float broadSheen = pow(max(0., specH), sheenExp) * (.35 + .65 * flank) * bellyMask * viewGrazing;
+      float narrowGlint = pow(max(0., dot(scaleNormal, halfAngle)), glintExp) * glintAa * flank * distReadability;
+      float causticBoost = .65 + .95 * causticStripe + .35 * causticFocused;
+      float silverFlash = (broadSheen * .48 + narrowGlint * 2.65 * causticBoost) * sunFacing * solarFactor * (.88 + .24 * vFishSeed);
+      silverFlash = silverFlash / (1. + silverFlash * .32);
+      vec3 silverTint = mix(vec3(.74, .91, 1.), clamp(fishSunColor, vec3(.65), vec3(1.15)), .32);
+      vec3 causticTint = mix(diffuseColor.rgb, silverTint, .42) * clamp(fishSunColor, vec3(.6), vec3(1.15));
+      outgoingLight += causticTint * causticFocused * causticFacing * solarFactor * .78 + silverTint * silverFlash;
       vec3 verticalAbsorption = exp(-vec3(.020, .007, .0015) * max(0., waterDepth - 11.));
       vec3 pathAbsorption = exp(-vec3(.014, .004, .0008) * viewDist);
       outgoingLight *= mix(vec3(1.), verticalAbsorption * pathAbsorption, .78);
@@ -2398,10 +2475,11 @@
   const hemmoorTruck = window.createHemmoorTruck ? window.createHemmoorTruck(T, scene, waterUniforms) : null;
   const scubaDivers = window.createScubaDivers
     ? window.createScubaDivers(T, scene, waterUniforms, oceanOptics, oceanBioluminescence, diveSite) : null;
-  const marineEnvironment=window.createMarineEnvironment(T,diveSite,hemmoorTruck);
+  const marineEnvironment=window.createMarineEnvironment(T,diveSite,hemmoorTruck,camera);
   marineEnvironment.setRig(freedivers);
   window.marineEnvironment=marineEnvironment;
   const marineAgents=window.createMarineAgents(T,marineEnvironment,fishSeeds,sharks,camera);
+  const predatoryFish=window.createPredatoryFish(T,scene,waterUniforms,marineEnvironment,marineAgents.schools);
   const benthicLife=window.createBenthicLife(T,scene,waterUniforms,marineEnvironment);
   const combJellies=window.createCombJellies(T,scene,waterUniforms,marineEnvironment);
   const seaTurtles=window.createSeaTurtles(T,scene,waterUniforms,marineEnvironment);
@@ -2409,7 +2487,7 @@
   const recreationalDiver=window.createRecreationalFreediver(T,scene,freedivers,diveSite,{environment:marineEnvironment,truck:hemmoorTruck,turtles:seaTurtles,crabs:kingCrabs,schools:marineAgents.schools});
   const marineWakes=window.createMarineWakes(T,oceanBioluminescence,waterUniforms,marineEnvironment,recreationalDiver,seaTurtles,marineAgents,mantaRays);
   const behaviorThreats=[];
-  for (const [id, feature] of [['show-turtles',seaTurtles], ['show-recreational',recreationalDiver], ['show-mantas',mantaRays], ['show-scuba', scubaDivers], ['show-crab', kingCrab], ['show-bottom-life',benthicLife], ['show-comb-jellies',combJellies], ['show-dive-site', diveSite]]) {
+  for (const [id, feature] of [['show-predators',predatoryFish], ['show-turtles',seaTurtles], ['show-recreational',recreationalDiver], ['show-mantas',mantaRays], ['show-scuba', scubaDivers], ['show-crab', kingCrab], ['show-bottom-life',benthicLife], ['show-comb-jellies',combJellies], ['show-dive-site', diveSite]]) {
     const input = document.getElementById(id);
     if (input && feature) input.addEventListener('change', () => { feature.setVisible(input.checked); if(id==='show-dive-site'&&hemmoorTruck)hemmoorTruck.setVisible(input.checked); redrawNeeded = true; });
   }
@@ -2497,7 +2575,18 @@
   const inverseRotation=new T.Quaternion();
   let gripDepth=0,depthDirection=0,gripTorque=0;
   let heldShark=null,heldPointer=null,lastSharkGrab=-Infinity;
+  const ballastDragPlane=new T.Plane(new T.Vector3(0,1,0),0);
   const interactions=window.createAnimalInteraction(T,camera,marineEnvironment);
+  const rigProbe=new T.Vector3(),rigCorrected=new T.Vector3(),rigVelocity=new T.Vector3();
+  freedivers.setRopeCollider(p=>{rigVelocity.set(0,0,0);marineEnvironment.constrain(p,.05,rigVelocity,Infinity);});
+  freedivers.setRigMoveValidator((x,z)=>{
+    // Test the weight itself; the flexible line has its own node collisions.
+    rigProbe.set(x,freedivers.ropeBottomY,z);rigCorrected.copy(rigProbe);rigVelocity.set(0,0,0);
+    marineEnvironment.constrain(rigCorrected,.85,rigVelocity,Infinity);
+    if(rigCorrected.distanceToSquared(rigProbe)>1e-6)return false;
+    rigProbe.set(x,freedivers.ropeBottomY,z).project(camera);
+    return Math.abs(rigProbe.x)<.9&&rigProbe.z<1;
+  });
   let pendingTouch=null;
   const animalEntries=[];
   function addGrab(options){
@@ -2506,39 +2595,48 @@
     options.onRelease=safety=>{options.root.userData.grabbed=false;if(onRelease)onRelease(safety);};
     const e=interactions.register(options);animalEntries.push(e);return e;
   }
-  for(const a of mantaRays.animals)addGrab({root:a.root,kind:'manta',radius:2.5,nativeVelocity:a.v,
+  for(const a of mantaRays.animals)addGrab({root:a.root,kind:'manta',radius:2.5,cameraRadius:4.2,rotatable:true,nativeVelocity:a.v,
     react(e,held){if(held){a.u.effort.value=1;a.feed=0;}}});
-  for(const a of seaTurtles.animals)addGrab({root:a.root,kind:'turtle',radius:.9,nativeVelocity:a.velocity,
+  for(const a of predatoryFish.pool)addGrab({root:a.root,kind:'predator',radius:a.radius,cameraRadius:a.radius,rotatable:true,nativeVelocity:a.velocity});
+  for(const a of seaTurtles.animals)addGrab({root:a.root,kind:'turtle',radius:.9,cameraRadius:1.7,rotatable:true,nativeVelocity:a.velocity,
     breathes:true,maxHold:12,canGrab:()=>!['ascend','breathe','dive'].includes(a.mode),
     onGrab(){a.mode='cruise';a.nextFeed=a.elapsed+25;},
     onSafety(){a.mode='ascend';a.modeTime=0;},canRecover:()=>a.mode==='cruise',
     react(e,held){if(held)a.finUniforms.effort.value=1;}});
   combJellies.animals.forEach((a,i)=>addGrab({root:a.root,kind:'jelly',radius:.5,maxSpeed:1.3,
+    baseScale:a.root.scale.clone(),cameraRadius:a.root.scale.x*.8,compression:0,
     nativeVelocity:a.velocity,onGrab:()=>combJellies.stimulate(i,.7,animationTime),
-    react(e,held){a.root.scale.set(1,held?.97:1,1);}}));
+    react(e,held,dt){e.compression+=((held?.03:0)-e.compression)*(1-Math.exp(-dt*8));
+      a.root.scale.copy(e.baseScale);a.root.scale.y*=1-e.compression;}}));
   for(const c of kingCrabs)addGrab({root:c.group,kind:'crab',radius:.7,maxSpeed:1.4,cruiseSpeed:.5,ground:c.ground,
     read:p=>p.set(c.behavior.position.x,c.ground(c.behavior.position.x,c.behavior.position.z)+.36+(c.behavior.lift||0),c.behavior.position.z),
-    write(p,v){c.behavior.position.set(p.x,0,p.z);c.behavior.lift=Math.max(0,p.y-c.ground(p.x,p.z)-.36);c.behavior.velocity.set(v.x,0,v.z);},
+    write(p,v){c.behavior.position.set(p.x,0,p.z);c.behavior.lift=Math.max(0,p.y-c.ground(p.x,p.z)-.36);c.behavior.velocity.set(v.x,0,v.z);c.group.position.set(p.x,c.behavior.lift,p.z);},
     onGrab(){c.behavior.mode='freeze';c.behavior.timer=30;},
     onSettled(){c.behavior.lift=0;c.relocate();c.behavior.mode='forage';c.behavior.timer=2;}});
-  const recreationGrab=addGrab({root:recreationalDiver.rig.mesh,kind:'diver',radius:.75,
+  const recreationGrab=addGrab({root:recreationalDiver.rig.mesh,kind:'diver',radius:.75,cameraRadius:3,rotatable:true,nativeRelease:true,
     nativeVelocity:recreationalDiver.body.velocity,breathes:true,maxHold:8,maxSpeed:1.4,
     read:p=>p.copy(recreationalDiver.body.position),
     write(p,v){recreationalDiver.body.position.copy(p);recreationalDiver.body.velocity.copy(v);recreationalDiver.rig.mesh.position.copy(p);},
+    writeOrientation(q,w){recreationalDiver.body.quaternion.copy(q);recreationalDiver.body.angularVelocity.copy(w);},
     canGrab:recreationalDiver.canGrab,onSafety:recreationalDiver.forceAscent,canRecover:recreationalDiver.recovered,
     react(e,held){if(held)recreationalDiver.state.armActivity=Math.max(.3,recreationalDiver.state.armActivity||0);}});
   const ropeGrabs=freedivers.rigs.map((rig,i)=>addGrab({root:rig.mesh,kind:'diver',kinematic:true,
-    radius:.75,maxSpeed:1.4,cruiseSpeed:1,breathes:true,forceSurface:true,maxHold:8,
-    canGrab:()=>freedivers.activeDivers[i].velocity.y<.12,
+    radius:.75,cameraRadius:3,maxSpeed:1.4,cruiseSpeed:1,breathes:true,forceSurface:true,maxHold:8,
+    // The lanyard limits sideways travel; sustained tension shifts the whole rig.
+    constrain:(p,v,dt,held)=>freedivers.constrainTether(p,v,dt,held,interactions.target),
     safetyNeeded:e=>!e.safetyHandled&&e.airAge>12&&e.position.y<14.1,
     react(e,held){if(held||e.protected)rig.mesh.userData.interactionEffort=.7;else rig.mesh.userData.interactionEffort=0;}}));
   const scubaGrabs=scubaDivers.divers.map((d,i)=>addGrab({root:d.root,kind:'scuba',kinematic:true,
-    radius:.9,maxSpeed:1.2,cruiseSpeed:.8,breathes:true,maxHold:18,
-    canGrab:()=>['Explore','Descend'].includes(scubaDivers.playback.state.phase)||d.activity==='Open-water watch',
+    radius:.9,cameraRadius:2.2,maxSpeed:1.2,cruiseSpeed:.8,breathes:true,maxHold:18,
+    canGrab:()=>!['Boat arrival','Board boat','Boat departure'].includes(d.activity),
     onSafety:()=>scubaDivers.playback.finishDive(animationTime),
     canRecover:()=>scubaDivers.playback.state.phase==='Explore',
     react(e,held){if(held){d.control.effort=Math.max(.4,d.control.effort);}}}));
-  for(const pair of [ropeGrabs,scubaGrabs])pair.forEach((e,i)=>{
+  const ballastGrab=addGrab({root:freedivers.ballast,kind:'ballast',kinematic:true,radius:1,
+    maxSpeed:2,cruiseSpeed:0,maxHold:60,
+    write(p){freedivers.shiftRig(p.x-freedivers.ballast.position.x,p.z-freedivers.ballast.position.z);p.copy(freedivers.ballast.position);},
+    constrain(p,v){p.y=freedivers.ballast.position.y;v.y=0;}});
+  for(const pair of [scubaGrabs])pair.forEach((e,i)=>{
     const begin=e.onGrab;e.onGrab=()=>{begin();interactions.follow(pair[1-i],e);};
   });
   const startRecreation=recreationGrab.onGrab;
@@ -2550,19 +2648,23 @@
   function fishEntry(index){
     if(!grabbedFish.has(index)){
       const a=marineAgents.fish[index],root=new T.Object3D();
-      const e=interactions.register({root,kind:'fish',radius:.18,maxSpeed:1.7,nativeVelocity:a.v,
+      const e=interactions.register({root,kind:'fish',radius:.18,maxSpeed:1.7,maxGripSpeed:8,nativeVelocity:a.v,nativeRelease:true,
         canGrab:()=>fish.visible&&index<fish.count,read:p=>p.copy(a.p),write(p,v){a.p.copy(p);a.v.copy(v);},
-        onGrab(){a.alert=3;},onRelease(){a.alert=3;}});
+        onGrab(){a.interactionHeld=true;a.alert=3;},onRelease(){
+          a.interactionHeld=false;a.alert=3;
+          // A tiny fish resumes swimming, rather than retaining distant-pull speed.
+          e.velocity.clampLength(0,e.maxSpeed);a.v.copy(e.velocity);
+        }});
       grabbedFish.set(index,e);
     }
     return grabbedFish.get(index);
   }
 
 
-  // Three scene units represent the requested approximate three-metre gap.
+  // Four scene units represent the requested approximate four-metre gap.
   // Protect the whole animal, not just its origin: a head, fin or bent tail
   // must not enter the camera bubble when a shark rotates or is pulled closer.
-  const minimumCameraClearance=3;
+  const minimumCameraClearance=4;
   const clearanceCentre=new T.Vector3(),clearanceNormal=new T.Vector3();
   function keepSharkAwayFromCamera(shark,elapsed){
     const geometry=shark.mesh.geometry,u=shark.uniforms;
@@ -2622,6 +2724,38 @@
     const roots=legacy.map(s=>s.pickMesh||s.mesh).concat(animalEntries.filter(e=>interactions.allowed(e)).map(e=>e.root));
     if(fish.visible)roots.push(fish);
     const hits=raycaster.intersectObjects(roots,true);
+    // Generous body hit areas follow the current skeleton, including poses whose
+    // skinned bounds no longer match the bind pose. They also help on touch.
+    const pickPoint=new T.Vector3(),pickSphere=new T.Sphere();
+    if(fish.visible){
+      const rect=canvas.getBoundingClientRect(),tolerance=event.pointerType==='touch'?22:14;
+      let nearest=-1,best=tolerance*tolerance;
+      for(let i=0;i<Math.min(fish.count,marineAgents.fish.length);i++){
+        pickPoint.copy(marineAgents.fish[i].p).applyMatrix4(fish.matrixWorld).project(camera);
+        if(pickPoint.z<-1||pickPoint.z>1)continue;
+        const dx=(pickPoint.x-dragNdc.x)*rect.width*.5,dy=(pickPoint.y-dragNdc.y)*rect.height*.5,d=dx*dx+dy*dy;
+        if(d<best){best=d;nearest=i;}
+      }
+      if(nearest>=0){pickPoint.copy(marineAgents.fish[nearest].p).applyMatrix4(fish.matrixWorld);
+        hits.push({object:fish,instanceId:nearest,point:pickPoint.clone(),distance:pickPoint.distanceTo(camera.position),softPick:true});}
+    }
+    if(interactions.allowed(ballastGrab)){
+      ballastGrab.root.getWorldPosition(pickSphere.center);
+      const distance=pickSphere.center.distanceTo(camera.position);
+      // The actual weight is only a few pixels wide at its normal depth.
+      pickSphere.radius=Math.min(1.2,Math.max(.4,distance*Math.tan(camera.fov*Math.PI/360)*28/canvas.getBoundingClientRect().height));
+      if(raycaster.ray.intersectSphere(pickSphere,pickPoint))hits.push({object:ballastGrab.root,point:pickPoint.clone(),distance:pickPoint.distanceTo(camera.position)});
+    }
+    for(const e of animalEntries){
+      if(!['diver','scuba'].includes(e.kind)||!interactions.allowed(e))continue;
+      const rig=freedivers.rigs.find(r=>r.mesh===e.root)||(e===recreationGrab?recreationalDiver.rig:null);
+      const nodes=rig?[rig.joints.pelvis,rig.joints.chest,rig.joints.neck]:[e.root];
+      for(const node of nodes){
+        node.getWorldPosition(pickSphere.center);pickSphere.radius=rig?.48:.65;
+        if(raycaster.ray.intersectSphere(pickSphere,pickPoint))hits.push({object:e.root,point:pickPoint.clone(),distance:pickPoint.distanceTo(camera.position)});
+      }
+    }
+    hits.sort((a,b)=>(Number(!!a.softPick)-Number(!!b.softPick))||a.distance-b.distance);
     for(const hit of hits){
       if(!interactions.visible(hit.object))continue;
       // Light cones and helper meshes are not animal anatomy.
@@ -2642,6 +2776,7 @@
     if(entry&&!interactions.grab(entry,hit.point))return;
     heldShark=old||null;heldPointer=event.pointerId;lastSharkGrab=performance.now();
     dragTarget.copy(hit.point);gripDepth=hit.distance;
+    if(entry===ballastGrab)ballastDragPlane.constant=-hit.point.y;
     if(old){gripLocal.copy(hit.point);old.mesh.worldToLocal(gripLocal);
       gripTorque=old.isJellyfish?T.MathUtils.smoothstep(Math.hypot(gripLocal.x,gripLocal.y-.3,gripLocal.z),.2,.8):T.MathUtils.smoothstep(gripLocal.length(),.8,1.55);}
     depthDirection=event.pointerType==='touch'?-1:event.button===2?-1:1;
@@ -2797,7 +2932,8 @@
     // Force at the contact point moves the body and produces torque
     // r cross F. An elongated body has less inertia around its longitudinal axis.
     // Small substeps and water resistance damp both translation and rotation.
-    const steps=Math.max(1,Math.ceil(elapsed*120)),dt=elapsed/steps;
+    const interactionElapsed=shark===heldShark?elapsed*speed:elapsed;
+    const steps=Math.max(1,Math.ceil(interactionElapsed*120)),dt=interactionElapsed/steps;
     for(let step=0;step<steps;step++){
       shark.mesh.quaternion.copy(baseRotation).premultiply(shark.rotationOffset);
       if(shark===heldShark){
@@ -2807,9 +2943,10 @@
         appliedForce.x-=x+shark.offset.x;
         appliedForce.y-=y+shark.offset.y;
         appliedForce.z-=z+shark.offset.z;
-        appliedForce.multiplyScalar(45).addScaledVector(gripVelocity,-9).clampLength(0,80);
+        const gripDistance=shark.mesh.position.distanceTo(camera.position);
+        interactions.gripForce(appliedForce,shark.velocity,gripDistance,appliedForce);
         shark.velocity.addScaledVector(appliedForce,dt);
-        shark.velocity.clampLength(0,40);
+        shark.velocity.clampLength(0,interactions.gripSpeed(gripDistance));
         appliedTorque.crossVectors(gripArm,appliedForce).multiplyScalar(gripTorque);
         inverseRotation.copy(shark.mesh.quaternion).invert();
         appliedTorque.applyQuaternion(inverseRotation);
@@ -2927,8 +3064,16 @@
     camera.updateMatrixWorld();
     if(heldPointer!==null){
       raycaster.setFromCamera(dragNdc,camera);
-      gripDepth=T.MathUtils.clamp(gripDepth+depthDirection*4*elapsed,8,135);
-      raycaster.ray.at(gripDepth,dragTarget);
+      if(interactions.held===ballastGrab){
+        // The weight follows the pointer on its horizontal plane. Holding a
+        // button alone must not push it into an obstacle or a travel limit.
+        raycaster.ray.intersectPlane(ballastDragPlane,dragTarget);
+        interactions.pulling=false;
+      }else{
+        gripDepth=interactions.advanceGripDepth(gripDepth,depthDirection,elapsed);
+        interactions.pulling=depthDirection<0;
+        raycaster.ray.at(gripDepth,dragTarget);
+      }
       interactions.target.copy(dragTarget);
     }
     lightShafts.visible=waterUniforms.sunPower.value>0;
@@ -2939,6 +3084,8 @@
     if(scubaDivers&&scubaDivers.group.visible)for(const d of scubaDivers.divers)if(d.root.visible)behaviorThreats.push({p:d.root.position,kind:'diver',radius:1});
     if(recreationalDiver.group.visible)behaviorThreats.push({p:recreationalDiver.body.position,kind:"diver",radius:1});
     if(interactions.held)behaviorThreats.push({p:interactions.held.position,kind:"diver",radius:2});
+    predatoryFish.update(animationTime,behaviorThreats);
+    if(predatoryFish.group.visible)for(const a of predatoryFish.animals)if(a.root.visible)behaviorThreats.push({kind:'predator',p:a.root.position,v:a.velocity,radius:a.radius});
     marineAgents.update(animationTime,behaviorThreats,fish.count,heldShark);
     for(const e of grabbedFish.values())interactions.step(e,animationTime);
     combJellies.update(animationTime,behaviorThreats,scubaDivers);
@@ -3232,6 +3379,7 @@
     renderer.render(background,backgroundCamera);
     renderer.clearDepth();
     oceanBioluminescence.update(animationTime);
+    for(const e of animalEntries)interactions.keepCameraClear(e);
     renderer.render(scene,camera);
   }
   function frame(now){

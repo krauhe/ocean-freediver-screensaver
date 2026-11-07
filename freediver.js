@@ -1158,12 +1158,14 @@
   // ---------------------------------------------------------------------------
   window.createFreedivers = function(T, scene, waterUniforms, oceanOptics, oceanBioluminescence) {
     const oceanBio = oceanBioluminescence || window.oceanBioluminescence;
-    const RIG_X = -13.5;
-    const RIG_Z = -20.0;
+    let RIG_X = -13.5;
+    let RIG_Z = -20.0;
     const ROPE_TOP_Y = 15.0;
     const ROPE_BOTTOM_Y = -21.0;
     const PLATE_Y = -17.5;
     const BALLAST_Y = -21.0;
+    const ropePhysics=window.createDiveRope(T,RIG_X,RIG_Z,BALLAST_Y,ROPE_TOP_Y);
+    let ropeCollider=null;
     const DIVER_SCALE = 1.35;
     const CYCLE_PERIOD = 50.0;
     const BUOY_ROPE_OFFSET = -0.04; // Dive line carabiner attachment at bottom of buoy
@@ -1840,7 +1842,7 @@
     const biFinLState = { pos: 0, vel: 0 };
     const biFinRState = { pos: 0, vel: 0 };
 
-    function stepInertial(state, targetPos, omegaN, zeta, dt) {
+    function stepInertial(state, targetPos, omegaN, zeta, dt, maxSpeed=Infinity) {
       if (dt <= 0.0) return state.pos;
       if (!Number.isFinite(state.pos) || !Number.isFinite(state.vel)) {
         state.pos = targetPos;
@@ -1851,6 +1853,7 @@
       const oo = omegaN * omegaN;
       const denom = 1.0 + 2.0 * clampedDt * zeta * omegaN + clampedDt * clampedDt * oo;
       state.vel = (state.vel + clampedDt * oo * (targetPos - state.pos)) / denom;
+      state.vel=T.MathUtils.clamp(state.vel,-maxSpeed,maxSpeed);
       state.pos += clampedDt * state.vel;
       return state.pos;
     }
@@ -1900,27 +1903,7 @@
 
     // Helper: Evaluates coupled wave propagation and diver rope tug at nominal rope Y
     function evalRopePoint(nominalY, time, tugAmount, outVec) {
-      const u = Math.max(0.0, Math.min(1.0, (15.0 - nominalY) / 36.0));
-      const tDelayed = time - u * 2.4;
-      const tHeave = time - u * 0.45;
-
-      evalWaveField(RIG_X, RIG_Z, tDelayed, ropeWaveDelayed);
-      evalWaveField(RIG_X, RIG_Z, tHeave, ropeWaveHeave);
-
-      const horizX = ropeWaveDelayed.x * (1.0 - 0.38 * u) + 0.18 * Math.sin(u * 4.5 - time * 1.5) * u;
-      const horizZ = ropeWaveDelayed.z * (1.0 - 0.38 * u) + 0.12 * Math.cos(u * 3.8 - time * 1.3) * u;
-      const whipX = Math.sin(u * Math.PI * 2.0) * tugAmount * 0.35;
-
-      // Surface buoy vertical position matches local wave height + carabiner offset;
-      // smoothly transitions down the rope with phase delay and tension dip:
-      const surfaceHeave = waveBuoy.y + BUOY_ROPE_OFFSET - tugAmount * 0.02;
-      const vertHeave = surfaceHeave * (1.0 - u) + ropeWaveHeave.y * (1.0 - 0.12 * u) * u;
-      const ropeTugDip = tugAmount * (u * 0.45);
-      const vertY = nominalY + vertHeave - ropeTugDip;
-
-      outVec.x = RIG_X + horizX + whipX;
-      outVec.y = vertY;
-      outVec.z = RIG_Z + horizZ;
+      return ropePhysics.sample(nominalY,outVec);
     }
 
     const MAIN_DIVER_BASE_YAW = -0.74; // -42.4 deg (broadside 3/4 view displaying full 76cm monofin span)
@@ -2356,8 +2339,42 @@
     // -------------------------------------------------------------------------
     // Update Loop
     // -------------------------------------------------------------------------
+    const tetherPoint=new T.Vector3();
+    const nativeVisualY=[null,null];
+    let pendingRigX=0,pendingRigZ=0;
+    let rigMoveAllowed=()=>true;
+    function shiftRig(dx,dz){
+      if(dx===0&&dz===0)return;
+      // Only a small horizontal adjustment around the installed dive line.
+      let x=RIG_X+dx,z=RIG_Z+dz;
+      const radius=Math.hypot(x+13.5,z+20);
+      if(radius>12){x=-13.5+(x+13.5)*12/radius;z=-20+(z+20)*12/radius;}
+      dx=x-RIG_X;dz=z-RIG_Z;
+      const steps=Math.max(1,Math.ceil(Math.hypot(dx,dz)/.2));
+      for(let i=1;i<=steps;i++)if(!rigMoveAllowed(RIG_X+dx*i/steps,RIG_Z+dz*i/steps))return;
+      RIG_X+=dx;RIG_Z+=dz;
+      ballastGroup.position.x+=dx;ballastGroup.position.z+=dz;
+      ropePhysics.nodes[0].set(RIG_X,BALLAST_Y,RIG_Z);
+    }
+    function constrainTether(p,v,dt,held,target){
+      evalRopePoint(p.y,lastUpdateTime||0,0,tetherPoint);
+      const dx=p.x-tetherPoint.x,dz=p.z-tetherPoint.z,distance=Math.hypot(dx,dz),slack=2;
+      if(distance<=slack)return;
+      const nx=dx/distance,nz=dz/distance;
+      // Limited stretch transfers force to heavy ballast; no teleporting the diver.
+      if(held){const tension=target?Math.max(0,Math.hypot(target.x-tetherPoint.x,target.z-tetherPoint.z)-slack):distance-slack;
+        const travel=Math.min(3,tension*3)*dt;pendingRigX+=nx*travel;pendingRigZ+=nz*travel;}
+      p.x=tetherPoint.x+nx*slack;p.z=tetherPoint.z+nz*slack;
+      const outward=v.x*nx+v.z*nz;if(outward>0){v.x-=nx*outward;v.z-=nz*outward;}
+    }
     function update(time, paused, speed) {
       if (!group.visible) return;
+      if(!paused){shiftRig(pendingRigX,pendingRigZ);pendingRigX=pendingRigZ=0;}
+      if(ballastGroup.userData.applyInteraction)ballastGroup.userData.applyInteraction(time);
+      const ropeDt=paused||lastUpdateTime===undefined?0:Math.max(0,Math.min(.1,time-lastUpdateTime));
+      const buoyNode=ropePhysics.nodes[ropePhysics.nodes.length-1];
+      evalWaveField(buoyNode.x,buoyNode.z,time,waveBuoy);
+      ropePhysics.update(ropeDt,RIG_X,RIG_Z,15+waveBuoy.y,ropeCollider);
 
       const cycle = ((time % CYCLE_PERIOD) + CYCLE_PERIOD) % CYCLE_PERIOD;
       const diveIndex = Math.floor((time + 8.0) / CYCLE_PERIOD);
@@ -2381,15 +2398,15 @@
 
       // 2. Coupled Buoy, Rope, Bottom Plate & Ballast Motion
       evalWaveField(RIG_X, RIG_Z, time, ropeWaveDelayed);
-      const buoyX = RIG_X + ropeWaveDelayed.x;
-      const buoyZ = RIG_Z + ropeWaveDelayed.z;
+      const buoyX = buoyNode.x;
+      const buoyZ = buoyNode.z;
 
       // Evaluate EXACT water height and slopes at the displaced buoy position (buoyX, buoyZ)
       evalWaveField(buoyX, buoyZ, time, waveBuoy);
 
       // Buoy origin rests exactly at the local undulating water surface
       const ropeTugDip = tugAmount * 0.02;
-      buoyPos.set(buoyX, 15.0 + waveBuoy.y - ropeTugDip, buoyZ);
+      buoyPos.copy(buoyNode);
       buoyGroup.position.copy(buoyPos);
 
       // Align buoy tilt directly with the local water surface normal
@@ -2411,6 +2428,7 @@
         }
       }
       ropePosAttr.needsUpdate = true;
+      ropeGeom.computeBoundingSphere();
 
       // Bottom Plate at y = -17.5 m
       evalRopePoint(PLATE_Y, time, tugAmount, platePos);
@@ -2447,6 +2465,9 @@
 
       const monoTraj = isMonofinDeep ? deepTraj : safeTraj;
       const biTraj = isMonofinDeep ? safeTraj : deepTraj;
+      // The scene starts at a random cycle phase. Start at that phase's depth,
+      // rather than racing from the surface to catch up on the first frames.
+      if(lastUpdateTime===undefined){mainInertial.y.pos=monoTraj.y;safeInertial.y.pos=biTraj.y;mainInertial.y.vel=safeInertial.y.vel=0;}
 
       // Couple divers' horizontal positions to the local dive rope at their depths
       evalRopePoint(mainInertial.y.pos, time, tugAmount, diverRopePosMono);
@@ -2472,12 +2493,7 @@
         }
       }
 
-      let dt = 0.016;
-      if (lastUpdateTime === undefined) {
-        dt = 0.016;
-      } else if (time > lastUpdateTime) {
-        dt = Math.min(time - lastUpdateTime, 0.05);
-      }
+      let dt = lastUpdateTime===undefined?0:Math.max(0,Math.min(time-lastUpdateTime,.05));
       if (paused) dt = 0.0;
       const dtPhase = dt;
 
@@ -2513,7 +2529,7 @@
 
       // 2nd-Order Inertial Tracking for Monofin Diver
       stepInertial(mainInertial.theta, monoTraj.theta, 9.0, 1.1, dtPhase);
-      stepInertial(mainInertial.y, monoTraj.y, 14.0, 1.05, dtPhase);
+      stepInertial(mainInertial.y, monoTraj.y, 14.0, 1.05, dtPhase,3);
       stepInertial(mainInertial.x, monoTargetX, 8.0, 1.15, dtPhase);
       stepInertial(mainInertial.z, monoTargetZ, 8.0, 1.15, dtPhase);
       stepInertial(mainInertial.pike, monoTraj.pikeAngle, 10.0, 1.1, dtPhase);
@@ -2530,7 +2546,7 @@
 
       // 2nd-Order Inertial Tracking for Bi-Fin Diver
       stepInertial(safeInertial.theta, biTraj.theta, 9.0, 1.1, dtPhase);
-      stepInertial(safeInertial.y, biTraj.y, 14.0, 1.05, dtPhase);
+      stepInertial(safeInertial.y, biTraj.y, 14.0, 1.05, dtPhase,3);
       stepInertial(safeInertial.x, biTargetX, 8.0, 1.15, dtPhase);
       stepInertial(safeInertial.z, biTargetZ, 8.0, 1.15, dtPhase);
       stepInertial(safeInertial.pike, biTraj.pikeAngle, 10.0, 1.1, dtPhase);
@@ -2617,6 +2633,12 @@
 
       followSurface(mainRig,monoTraj,time,0,dtPhase);
       followSurface(safeRig,biTraj,time,1,dtPhase);
+      // Surface support is another positional correction; bound its result too.
+      [mainRig,safeRig].forEach((rig,i)=>{
+        if(lastUpdateTime!==undefined&&nativeVisualY[i]!==null)
+          rig.mesh.position.y=T.MathUtils.clamp(rig.mesh.position.y,nativeVisualY[i]-3*dtPhase,nativeVisualY[i]+3*dtPhase);
+        nativeVisualY[i]=rig.mesh.position.y;
+      });
       for(const rig of [mainRig,safeRig])if(rig.mesh.userData.applyInteraction)rig.mesh.userData.applyInteraction(time);
       updateArticulatedRig(mainRig,mainUniforms,isMonofinDeep,cycle,time,tugAmount);
       updateArticulatedRig(safeRig,safeUniforms,!isMonofinDeep,cycle,time,tugAmount);
@@ -3171,7 +3193,7 @@
       // 6. Lanyard Line (Follows active Deep Diver)
       diverLanyardPoint.set(0.10, 0.08, 0.0).applyMatrix4(activeDeepMesh.matrixWorld);
 
-      const activeDeepY = isMonofinDeep ? mainInertial.y.pos : safeInertial.y.pos;
+      const activeDeepY = activeDeepMesh.position.y;
       evalRopePoint(activeDeepY, time, tugAmount, ropeCarabinerPoint);
 
       lanyardPositions[0] = diverLanyardPoint.x;
@@ -3329,8 +3351,9 @@
         rig.mesh.scale.setScalar(DIVER_SCALE);
         return {rig,uniforms};
       },
-      rigX: RIG_X,
-      rigZ: RIG_Z,
+      get rigX(){return RIG_X;},
+      get rigZ(){return RIG_Z;},
+      ballast:ballastGroup,buoy:buoyGroup,ropePhysics,shiftRig,constrainTether,setRigMoveValidator(fn){rigMoveAllowed=fn;},setRopeCollider(fn){ropeCollider=fn;},
       ropeTopY: ROPE_TOP_Y,
       ropeBottomY: ROPE_BOTTOM_Y,
       plateY: PLATE_Y,

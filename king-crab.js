@@ -65,7 +65,7 @@
     function update(time,context={}){
       const dt=behavior.lastTime===undefined?0:Math.max(0,Math.min(.25,time-behavior.lastTime));behavior.lastTime=time;
       if(!group.visible)return;
-      if(dt>0){
+      if(dt>0&&!group.userData.grabbed&&!(behavior.lift>.015)){
         behavior.timer-=dt;behavior.alarmCooldown=Math.max(0,behavior.alarmCooldown-dt);
         worldCenter.copy(behavior.position);worldCenter.y=ground(worldCenter.x,worldCenter.z)+.36;
         const danger=(context.threats||[]).some(t=>worldCenter.distanceTo(t.p)<(t.radius||0)+.8);
@@ -85,8 +85,17 @@
         behavior.walk+=moving*dt/.20+Math.abs(turn)*.65+(moving<.002&&landing?dt*.22:0);
       }
       if(group.userData.applyInteraction)group.userData.applyInteraction(time);
+      // A carried crab keeps searching with its legs. Ease the response out
+      // after release/landing rather than switching between frozen poses.
+      const airborne=(behavior.lift||0)>.03,held=!!group.userData.grabbed;
+      const limbTarget=held?1:airborne?.65:0;
+      behavior.limbActivity=(behavior.limbActivity||0)+(limbTarget-(behavior.limbActivity||0))*(1-Math.exp(-dt*4));
+      behavior.legPhase=(behavior.legPhase||0)+dt*(held?4.2:airborne?2.7:1.5);
       jointCount=boneCount=spineCount=0;
-      group.position.set(behavior.position.x,behavior.lift||0,behavior.position.z);group.rotation.y=behavior.heading;
+      group.position.set(behavior.position.x,behavior.lift||0,behavior.position.z);
+      // Quaternion writes can represent yaw > 90° using flipped X/Z Euler
+      // angles. Reset the full ground pose, not just its Y component.
+      group.rotation.set(0,behavior.heading,0);
       const c=new T.Vector3(0,ground(behavior.position.x,behavior.position.z)+.36,0);
       body.position.copy(c);body.rotation.set(.025*Math.sin(time*.6+index),0,.018*Math.sin(time*.9+index));
       shadow.position.set(0,c.y-.348,0);shadow.visible=!(behavior.lift>.03);
@@ -95,14 +104,22 @@
       for(let side=-1;side<=1;side+=2)for(let row=0;row<3;row++){
         const index=(side+1)/2*3+row,offset=((row+(side===1?1:0))%2)*.5;
         const cycle=behavior.walk+offset,phase=cycle-Math.floor(cycle),state=footStates[index];
-        if(!state.ready){state.anchor.copy(footAt(time,side,row));state.to.copy(state.anchor);state.ready=true;}
+        if(held||(behavior.lift||0)>0||behavior.limbActivity>.01)state.ready=false;
+        if(!state.ready){state.anchor.copy(footAt(time,side,row));state.from.copy(state.anchor);state.to.copy(state.anchor);state.phase=phase;state.ready=true;}
         if(phase>.67&&state.phase<=.67){state.from.copy(state.anchor);state.to.copy(footAt(time,side,row)).addScaledVector(behavior.velocity,2.0);state.to.y=ground(state.to.x,state.to.z)+.018;}
         if(phase<state.phase){state.anchor.copy(state.to);if(context.sediment)context.sediment.emit(state.anchor,1);}
         const foot=feet[index];foot.copy(state.anchor);
         if(phase>.67){const f=(phase-.67)/.33,s=f*f*(3-2*f);foot.copy(state.from).lerp(state.to,s);foot.y+=Math.sin(f*Math.PI)*.09;}
         state.phase=phase;
         localFoot.copy(foot).sub(group.position).applyAxisAngle(rotationAxis,-behavior.heading);
-        if(behavior.lift>.03){localFoot.set(side*.40,c.y-.22,(row-1)*.23);state.ready=false;}
+        // Blend continuously into a tucked pose; never reuse an old swing origin
+        // after landing. Reset world anchors while carried sideways as well.
+        const tuck=Math.max(T.MathUtils.smoothstep(behavior.lift||0,0,.18),behavior.limbActivity*.65);
+        const reach=behavior.legPhase+row*1.8+side*1.2,activity=behavior.limbActivity;
+        localFoot.lerp(b.set(side*(.40+.065*Math.sin(reach)*activity),
+          c.y-.22+.075*Math.cos(reach)*activity,(row-1)*.23+.055*Math.sin(reach+.8)*activity),tuck);
+        if(group.userData.grabbed||tuck>0)state.ready=false;
+        foot.copy(localFoot).applyAxisAngle(rotationAxis,behavior.heading).add(group.position);
         const hip=new T.Vector3(c.x+side*.21,c.y-.025,c.z+(row-1)*.16);
         // Equal-length two-bone IK; elevated knee forms the characteristic arch.
         const delta=localFoot.clone().sub(hip),length=delta.length(),half=delta.multiplyScalar(.5);

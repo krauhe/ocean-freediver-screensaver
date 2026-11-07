@@ -1,5 +1,7 @@
 # Green sea turtle
 
+2026-11-07 close-view revision: a separate beveled shell rim with shallow scalloping, thicker closed foreflippers with corrected outward triangle winding, and fuller rear flippers. Off-centre grabs rotate the entire animal. Top/side WebGL previews and geometry checks are in `validation/manta-turtle-detail.cjs`; shape dimensions remain artistic approximations.
+
 First procedural implementation of **Chelonia mydas**. One turtle at normal density; two at high density and sufficient graphics quality. The Sea turtles control hides the species independently.
 
 ## Evidence and approximations

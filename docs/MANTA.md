@@ -1,5 +1,7 @@
 # Manta implementation and reference review
 
+2026-11-07 close-view revision: richer dorsal mottling and fine grain, shoulder pigment baked into the atlas instead of raised white meshes, and a low swept fin replacing the sideways triangular cone. Picking follows the animated wing surface. Off-centre grabs now rotate the entire animal with damped release. These are visual/interaction corrections from user feedback, not new biological measurements. WebGL top/side previews: `validation/manta-turtle-detail.cjs`.
+
 Implemented plan:
 1. Build a closed, volumetric body with flexible pectoral wings, tail and integrated head.
 2. Deform wings with spanwise/chordwise phase delays and corrected normals; alternate strokes with gliding.
