@@ -39,6 +39,8 @@ If you enjoy this free, open-source project, you are welcome to contribute towar
 
 ## Credits and license
 
+Underwater audio: **“Underwater Ambience.wav” by Tim_Verberne**, from [Freesound](https://freesound.org/people/Tim_Verberne/sounds/482167/), released under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). The original two-minute stereo loop is bundled in `audio/underwater-ambience.wav`; its CC0 dedication remains separate from the code license. Enable and adjust it under **Sound**; 0% is off. The default volume is 15%; playback starts on the first click, tap or key press.
+
 Created by **Kristian Rauhe Harreby**, with AI-assisted development using OpenAI Codex and Google Gemini.
 
 Copyright © 2026 Kristian Rauhe Harreby. Licensed under [GNU GPLv3](LICENSE). Bundled Three.js retains its [MIT license](THREE-LICENSE).
