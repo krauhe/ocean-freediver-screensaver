@@ -2497,6 +2497,67 @@
   const inverseRotation=new T.Quaternion();
   let gripDepth=0,depthDirection=0,gripTorque=0;
   let heldShark=null,heldPointer=null,lastSharkGrab=-Infinity;
+  const interactions=window.createAnimalInteraction(T,camera,marineEnvironment);
+  let pendingTouch=null;
+  const animalEntries=[];
+  function addGrab(options){
+    const onGrab=options.onGrab,onRelease=options.onRelease;
+    options.onGrab=()=>{options.root.userData.grabbed=true;if(onGrab)onGrab();};
+    options.onRelease=safety=>{options.root.userData.grabbed=false;if(onRelease)onRelease(safety);};
+    const e=interactions.register(options);animalEntries.push(e);return e;
+  }
+  for(const a of mantaRays.animals)addGrab({root:a.root,kind:'manta',radius:2.5,nativeVelocity:a.v,
+    react(e,held){if(held){a.u.effort.value=1;a.feed=0;}}});
+  for(const a of seaTurtles.animals)addGrab({root:a.root,kind:'turtle',radius:.9,nativeVelocity:a.velocity,
+    breathes:true,maxHold:12,canGrab:()=>!['ascend','breathe','dive'].includes(a.mode),
+    onGrab(){a.mode='cruise';a.nextFeed=a.elapsed+25;},
+    onSafety(){a.mode='ascend';a.modeTime=0;},canRecover:()=>a.mode==='cruise',
+    react(e,held){if(held)a.finUniforms.effort.value=1;}});
+  combJellies.animals.forEach((a,i)=>addGrab({root:a.root,kind:'jelly',radius:.5,maxSpeed:1.3,
+    nativeVelocity:a.velocity,onGrab:()=>combJellies.stimulate(i,.7,animationTime),
+    react(e,held){a.root.scale.set(1,held?.97:1,1);}}));
+  for(const c of kingCrabs)addGrab({root:c.group,kind:'crab',radius:.7,maxSpeed:1.4,cruiseSpeed:.5,ground:c.ground,
+    read:p=>p.set(c.behavior.position.x,c.ground(c.behavior.position.x,c.behavior.position.z)+.36+(c.behavior.lift||0),c.behavior.position.z),
+    write(p,v){c.behavior.position.set(p.x,0,p.z);c.behavior.lift=Math.max(0,p.y-c.ground(p.x,p.z)-.36);c.behavior.velocity.set(v.x,0,v.z);},
+    onGrab(){c.behavior.mode='freeze';c.behavior.timer=30;},
+    onSettled(){c.behavior.lift=0;c.relocate();c.behavior.mode='forage';c.behavior.timer=2;}});
+  const recreationGrab=addGrab({root:recreationalDiver.rig.mesh,kind:'diver',radius:.75,
+    nativeVelocity:recreationalDiver.body.velocity,breathes:true,maxHold:8,maxSpeed:1.4,
+    read:p=>p.copy(recreationalDiver.body.position),
+    write(p,v){recreationalDiver.body.position.copy(p);recreationalDiver.body.velocity.copy(v);recreationalDiver.rig.mesh.position.copy(p);},
+    canGrab:recreationalDiver.canGrab,onSafety:recreationalDiver.forceAscent,canRecover:recreationalDiver.recovered,
+    react(e,held){if(held)recreationalDiver.state.armActivity=Math.max(.3,recreationalDiver.state.armActivity||0);}});
+  const ropeGrabs=freedivers.rigs.map((rig,i)=>addGrab({root:rig.mesh,kind:'diver',kinematic:true,
+    radius:.75,maxSpeed:1.4,cruiseSpeed:1,breathes:true,forceSurface:true,maxHold:8,
+    canGrab:()=>freedivers.activeDivers[i].velocity.y<.12,
+    safetyNeeded:e=>!e.safetyHandled&&e.airAge>12&&e.position.y<14.1,
+    react(e,held){if(held||e.protected)rig.mesh.userData.interactionEffort=.7;else rig.mesh.userData.interactionEffort=0;}}));
+  const scubaGrabs=scubaDivers.divers.map((d,i)=>addGrab({root:d.root,kind:'scuba',kinematic:true,
+    radius:.9,maxSpeed:1.2,cruiseSpeed:.8,breathes:true,maxHold:18,
+    canGrab:()=>['Explore','Descend'].includes(scubaDivers.playback.state.phase)||d.activity==='Open-water watch',
+    onSafety:()=>scubaDivers.playback.finishDive(animationTime),
+    canRecover:()=>scubaDivers.playback.state.phase==='Explore',
+    react(e,held){if(held){d.control.effort=Math.max(.4,d.control.effort);}}}));
+  for(const pair of [ropeGrabs,scubaGrabs])pair.forEach((e,i)=>{
+    const begin=e.onGrab;e.onGrab=()=>{begin();interactions.follow(pair[1-i],e);};
+  });
+  const startRecreation=recreationGrab.onGrab;
+  recreationGrab.onGrab=()=>{startRecreation();
+    const escort=ropeGrabs.find(e=>e.root.position.y>8&&!e.protected);
+    if(escort)interactions.follow(escort,recreationGrab);
+  };
+  const grabbedFish=new Map();
+  function fishEntry(index){
+    if(!grabbedFish.has(index)){
+      const a=marineAgents.fish[index],root=new T.Object3D();
+      const e=interactions.register({root,kind:'fish',radius:.18,maxSpeed:1.7,nativeVelocity:a.v,
+        canGrab:()=>fish.visible&&index<fish.count,read:p=>p.copy(a.p),write(p,v){a.p.copy(p);a.v.copy(v);},
+        onGrab(){a.alert=3;},onRelease(){a.alert=3;}});
+      grabbedFish.set(index,e);
+    }
+    return grabbedFish.get(index);
+  }
+
 
   // Three scene units represent the requested approximate three-metre gap.
   // Protect the whole animal, not just its origin: a head, fin or bent tail
@@ -2548,46 +2609,62 @@
     raycaster.setFromCamera(dragNdc,camera);
   }
   function releaseShark(){
-    const wasHeld=heldShark!==null;
-    const pointerId=heldPointer;
-    heldShark=null;heldPointer=null;
+    if(pendingTouch){clearTimeout(pendingTouch.timer);pendingTouch=null;}
+    const wasHeld=heldShark!==null||!!interactions.held,pointerId=heldPointer;
+    heldShark=null;heldPointer=null;interactions.release();
     canvas.classList.remove('grabbing','pushing');
-    if(pointerId!==null && canvas.hasPointerCapture(pointerId))canvas.releasePointerCapture(pointerId);
+    if(pointerId!==null&&canvas.hasPointerCapture(pointerId))canvas.releasePointerCapture(pointerId);
     if(wasHeld)revealControls();
   }
+  function pickAnimal(event){
+    pointerRay(event);scene.updateMatrixWorld(true);
+    const legacy=sharks.concat(jellyfish.group.visible?jellyfish.animals:[]).filter(s=>s.mesh.visible);
+    const roots=legacy.map(s=>s.pickMesh||s.mesh).concat(animalEntries.filter(e=>interactions.allowed(e)).map(e=>e.root));
+    if(fish.visible)roots.push(fish);
+    const hits=raycaster.intersectObjects(roots,true);
+    for(const hit of hits){
+      if(!interactions.visible(hit.object))continue;
+      // Light cones and helper meshes are not animal anatomy.
+      if(hit.object.material?.uniforms?.strength)continue;
+      if(hit.object===fish&&hit.instanceId!==undefined)return {entry:fishEntry(hit.instanceId),hit};
+      for(let root=hit.object;root;root=root.parent){
+        const old=legacy.find(s=>(s.pickMesh||s.mesh)===root);
+        if(old)return {old,hit};
+        const entry=animalEntries.find(e=>e.root===root);
+        if(entry)return {entry,hit};
+      }
+    }
+    return null;
+  }
+  function beginGrab(event,pick){
+    if(paused||contextLost||!pick)return;
+    const {entry,old,hit}=pick;
+    if(entry&&!interactions.grab(entry,hit.point))return;
+    heldShark=old||null;heldPointer=event.pointerId;lastSharkGrab=performance.now();
+    dragTarget.copy(hit.point);gripDepth=hit.distance;
+    if(old){gripLocal.copy(hit.point);old.mesh.worldToLocal(gripLocal);
+      gripTorque=old.isJellyfish?T.MathUtils.smoothstep(Math.hypot(gripLocal.x,gripLocal.y-.3,gripLocal.z),.2,.8):T.MathUtils.smoothstep(gripLocal.length(),.8,1.55);}
+    depthDirection=event.pointerType==='touch'?-1:event.button===2?-1:1;
+    canvas.setPointerCapture(event.pointerId);canvas.classList.add('grabbing');
+    canvas.classList.toggle('pushing',depthDirection>0);redrawNeeded=true;
+  }
   canvas.addEventListener('pointerdown',event=>{
-    if(![0,2].includes(event.button) || heldShark || contextLost)return;
-    pointerRay(event);
-    const candidates=sharks.concat(jellyfish.group.visible?jellyfish.animals:[]).filter(s=>s.mesh.visible);
-    const hits=raycaster.intersectObjects(candidates.map(s=>s.pickMesh||s.mesh),false);
-    if(!hits.length)return;
-    heldShark=candidates.find(s=>(s.pickMesh||s.mesh)===hits[0].object);
-    heldPointer=event.pointerId;lastSharkGrab=performance.now();
-    dragTarget.copy(hits[0].point);
-    gripLocal.copy(hits[0].point);heldShark.mesh.worldToLocal(gripLocal);
-    gripDepth=hits[0].distance;
-    depthDirection=event.pointerType==='touch'?0:(event.button===2?-1:1);
-    // A soft zone around the body centre makes translation easy, while
-    // the head, tail and fins provide clear lever arms for torque.
-    gripTorque=heldShark.isJellyfish
-      ? T.MathUtils.smoothstep(Math.hypot(gripLocal.x,gripLocal.y-.3,gripLocal.z),.2,.8)
-      : T.MathUtils.smoothstep(gripLocal.length(),.8,1.55);
-    canvas.setPointerCapture(event.pointerId);
-    canvas.classList.add('grabbing');
-    canvas.classList.toggle('pushing',depthDirection>0);
-    event.preventDefault();redrawNeeded=true;
+    if(![0,2].includes(event.button)||heldPointer!==null||pendingTouch||paused||contextLost)return;
+    const pick=pickAnimal(event);if(!pick)return;
+    if(event.pointerType==='touch'){
+      const press={pointerId:event.pointerId,clientX:event.clientX,clientY:event.clientY,pointerType:'touch',button:0};
+      pendingTouch={...press,timer:setTimeout(()=>{pendingTouch=null;beginGrab(press,pick);},280)};
+    }else beginGrab(event,pick);
+    event.preventDefault();
   });
   canvas.addEventListener('pointermove',event=>{
-    if(event.pointerId!==heldPointer)return;
-    pointerRay(event);
-    redrawNeeded=true;
+    if(pendingTouch&&event.pointerId===pendingTouch.pointerId&&Math.hypot(event.clientX-pendingTouch.clientX,event.clientY-pendingTouch.clientY)>12){clearTimeout(pendingTouch.timer);pendingTouch=null;}
+    if(event.pointerId!==heldPointer)return;pointerRay(event);redrawNeeded=true;
   });
-  // The browser menu would interrupt right-button dragging. Controls outside
-  // the ocean canvas retain normal browser context menus.
   canvas.addEventListener('contextmenu',event=>event.preventDefault());
-  for(const eventName of ['pointerup','pointercancel','lostpointercapture']){
-    canvas.addEventListener(eventName,event=>{if(event.pointerId===heldPointer)releaseShark();});
-  }
+  for(const name of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(name,event=>{
+    if(event.pointerId===heldPointer||event.pointerId===pendingTouch?.pointerId)releaseShark();
+  });
   window.addEventListener('blur',releaseShark);
   function resize(){
     const width=innerWidth,height=innerHeight;
@@ -2833,6 +2910,7 @@
   }
 
   function renderScene(elapsed=0){
+    if(interactions.held&&!interactions.allowed(interactions.held))interactions.release(!!interactions.held.breathes);
     oceanBioluminescence.beginFrame(animationTime, elapsed);
     jellyfish.update(animationTime,heldShark);
     if (freedivers) freedivers.update(animationTime, paused, speed);
@@ -2840,17 +2918,18 @@
     if (scubaDivers) scubaDivers.update(animationTime, paused, speed);
     waterUniforms.time.value=animationTime;
     particleUniforms.time.value=animationTime;
-    if(!paused && !heldShark)easedPointer.lerp(pointer,.015);
+    if(!paused && heldPointer===null)easedPointer.lerp(pointer,.015);
     const sitePan=portraitFraming*7*Math.sin(animationTime*.018-.8);
     camera.position.x=sitePan+Math.sin(animationTime*.027)*.75+easedPointer.x*.65;
     camera.position.y=3.5+Math.sin(animationTime*.039)*.24+easedPointer.y*.35;
     framedLookAt.copy(lookAt);framedLookAt.x+=sitePan;
     camera.lookAt(framedLookAt);
     camera.updateMatrixWorld();
-    if(heldShark){
+    if(heldPointer!==null){
       raycaster.setFromCamera(dragNdc,camera);
       gripDepth=T.MathUtils.clamp(gripDepth+depthDirection*4*elapsed,8,135);
       raycaster.ray.at(gripDepth,dragTarget);
+      interactions.target.copy(dragTarget);
     }
     lightShafts.visible=waterUniforms.sunPower.value>0;
 
@@ -2859,10 +2938,13 @@
     if(freedivers&&freedivers.group.visible)for(const d of freedivers.activeDivers)if(d.visible)behaviorThreats.push({p:d.position,kind:'diver',radius:1});
     if(scubaDivers&&scubaDivers.group.visible)for(const d of scubaDivers.divers)if(d.root.visible)behaviorThreats.push({p:d.root.position,kind:'diver',radius:1});
     if(recreationalDiver.group.visible)behaviorThreats.push({p:recreationalDiver.body.position,kind:"diver",radius:1});
+    if(interactions.held)behaviorThreats.push({p:interactions.held.position,kind:"diver",radius:2});
     marineAgents.update(animationTime,behaviorThreats,fish.count,heldShark);
+    for(const e of grabbedFish.values())interactions.step(e,animationTime);
     combJellies.update(animationTime,behaviorThreats,scubaDivers);
     mantaRays.update(animationTime,behaviorThreats);
     seaTurtles.update(animationTime,behaviorThreats);
+    if(heldPointer!==null&&!heldShark&&!interactions.held)releaseShark();
     marineWakes.update(animationTime,paused,fish.count);
     const bottomVisible=document.getElementById('show-bottom-life').checked && diveSite.group.visible;
     if(benthicLife.group.visible!==bottomVisible)benthicLife.setVisible(bottomVisible);
@@ -3143,6 +3225,8 @@
     }
     fishGeometry.attributes.fishPhase.needsUpdate=true;
     fish.instanceMatrix.needsUpdate=true;
+    if(window.oceanSound){const playback=scubaDivers.playback;
+      window.oceanSound.setBoatMotion(playback.boatWater.stats.speed,!paused&&scubaDivers.group.visible&&playback.boat.visible,playback.boat.position.distanceTo(camera.position));}
     renderer.clear();
     updateCaustics();
     renderer.render(background,backgroundCamera);
@@ -3167,7 +3251,7 @@
         || (s.finTurnInteraction && s.finTurnInteraction.lengthSq()>0)
         || (s.burstPower>0)
         || s.rotationOffset.x!==0 || s.rotationOffset.y!==0 || s.rotationOffset.z!==0);
-    const interacting=heldShark || sharks.some(isInteracting) || (jellyfish.group.visible && jellyfish.animals.some(isInteracting));
+    const interacting=heldShark || interactions.held || sharks.some(isInteracting) || (jellyfish.group.visible && jellyfish.animals.some(isInteracting));
     if(!paused || redrawNeeded || interacting){
       renderScene(elapsed);redrawNeeded=false;
       if(!paused&&!document.hidden){
@@ -3212,7 +3296,7 @@
     pauseButton.setAttribute('aria-label',paused?'Resume animation':'Pause animation');
     pauseButton.setAttribute('aria-pressed',String(paused));
   }
-  function togglePause(){paused=!paused;lastLightingUpdate=-Infinity;redrawNeeded=true;updatePauseButton();revealControls();}
+  function togglePause(){releaseShark();paused=!paused;lastLightingUpdate=-Infinity;redrawNeeded=true;updatePauseButton();revealControls();}
   pauseButton.addEventListener('click',togglePause);
   updatePauseButton();
 
@@ -3280,7 +3364,7 @@
   // Animal picking runs first. Only an un-dragged primary tap in open water
   // minimizes the menu; grabbing, pulling and the controls keep their gestures.
   canvas.addEventListener('pointerdown',event=>{
-    backgroundPress=event.button===0 && event.isPrimary && !heldShark
+    backgroundPress=event.button===0 && event.isPrimary && heldPointer===null && !pendingTouch
       ? {id:event.pointerId,x:event.clientX,y:event.clientY} : null;
   },{passive:true});
   document.addEventListener('pointerup',event=>{
@@ -3298,7 +3382,7 @@
     document.body.classList.remove('immersed');
     clearTimeout(hideTimer);
     hideTimer=setTimeout(()=>{
-      if(heldShark || !errorBox.hidden)return;
+      if(heldPointer!==null || pendingTouch || !errorBox.hidden)return;
       document.body.classList.add('immersed');
     },5000);
   }

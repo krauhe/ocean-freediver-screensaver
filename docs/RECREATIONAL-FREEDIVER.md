@@ -277,3 +277,7 @@ without page errors/non-finite joints. The shoulder-arc regression test checks
 near-extended arms, no elbow flips, a rearward resting elbow and fixed limb lengths.
 Maximum arc-test elbow step: 0.0047 model units. Full shoulder anatomy, individual
 finger articulation and hair self-collision are not modelled.
+
+## User interaction (2026-11-07)
+
+Bounded dragging and release recovery now reuse this locomotion controller. Reactions and automatic release are simulation design choices, not new biological observations. See [interaction implementation and validation](INTERACTIONS.md). The research provenance above is unchanged.

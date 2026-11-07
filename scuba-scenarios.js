@@ -159,7 +159,11 @@
       }
       return state;
     }
+    function finishDive(time=lastTime){
+      const s=timeline(time);
+      if(['Descend','Explore'].includes(state.phase))epoch-=40+s.descent+s.explore-state.local;
+    }
     function restart(value=selected,start=lastTime){selected=value;epoch=start;}
-    return {update,updateAttachments,sample,state,stories,boat,boatWater,buoy,line,spool,restart,total};
+    return {update,updateAttachments,sample,state,stories,boat,boatWater,buoy,line,spool,restart,finishDive,total};
   };
 })();

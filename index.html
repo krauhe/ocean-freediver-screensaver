@@ -9,7 +9,7 @@
   <meta name="theme-color" content="#031b35">
   <title>Ocean Freediver Screensaver</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="ocean.css?v=b21e4fe1009a">
+  <link rel="stylesheet" href="ocean.css?v=b2816b1df48e">
 </head>
 <body>
   <main id="ocean" aria-label="Ocean Freediver Screensaver - 3D ocean screensaver with freedivers, sharks and jellyfish">
@@ -69,11 +69,12 @@
             <option value="clock">Local clock</option>
             <option value="custom">Custom time</option>
           </select>
-          <label class="time-slider" for="light-time">
+          <label class="time-heading" for="light-time">Time of day</label>
+          <div class="time-slider">
             <span class="time-endpoint" aria-hidden="true">00:00</span>
             <input id="light-time" type="range" min="0" max="1439" step="1" value="720" aria-label="Time of day" aria-valuetext="12:00">
             <span class="time-endpoint" aria-hidden="true">23:59</span>
-          </label>
+          </div>
           <output id="light-time-value" for="light-time" aria-label="Selected time">12:00</output>
         </div>
         <div class="bioluminescence-controls">
@@ -111,7 +112,7 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
       <span>Menu</span>
     </button>
-    <p class="chrome hint">Left: push · Right: pull · Grab away from the centre to turn</p>
+    <p class="chrome hint"><span class="mouse-hint">Grab an animal or diver · Left: push · Right: pull · Drag to steer</span><span class="touch-hint">Hold an animal or diver to pull closer · Drag to steer · Lift to release</span></p>
     <div id="notice" role="status" aria-live="polite"></div>
     <dialog id="about-dialog" aria-labelledby="about-title">
       <div class="about-card">
@@ -121,7 +122,7 @@
           <button id="close-about" type="button" aria-label="Close dialog">✕</button>
         </header>
         <p class="about-tagline">An underwater scene with a Gozo-inspired ferry wreck, the Hemmoor truck, freedivers, scuba buddies, sharks, jellyfish and motion-activated bioluminescence.</p>
-        <p class="settings-note">Build <span id="build-version">a37f2e4047bb</span></p>
+        <p class="settings-note">Build <span id="build-version">e743e3ce2481</span></p>
         <div class="about-credits">
           <h3>Credits & Open Source</h3>
           <p><strong>Creator & Developer:</strong> Kristian Rauhe Harreby</p>
@@ -140,24 +141,25 @@
   <script src="jellyfish.js?v=c7f4458bac82"></script>
   <script src="diver-bubbles.js?v=69abdf1180a6"></script>
   <script src="freediver-rig.js?v=66f9cd594052"></script>
-  <script src="freediver.js?v=2f4c42f3510f"></script>
+  <script src="freediver.js?v=c400cb422dd2"></script>
   <script src="seabed.js?v=8113cd3170ab"></script>
   <script src="marine-behavior.js?v=9eff32a612e9"></script>
   <script src="hemmoor-truck.js?v=c9f9e66a6e64"></script>
   <script src="boat-water.js?v=a146fd1191f7"></script>
-  <script src="scuba-scenarios.js?v=013458d52b85"></script>
-  <script src="scuba.js?v=6b81f962d095"></script>
-  <script src="king-crab.js?v=df9528ba9522"></script>
+  <script src="scuba-scenarios.js?v=0342367ca269"></script>
+  <script src="scuba.js?v=6343e9c053c9"></script>
+  <script src="king-crab.js?v=f15654513491"></script>
   <script src="benthic-life.js?v=af1768ac5ffe"></script>
-  <script src="comb-jelly.js?v=793dfa7ab952"></script>
-  <script src="sea-turtle.js?v=475ce7d70c40"></script>
-  <script src="manta-ray.js?v=279393a67e87"></script>
+  <script src="comb-jelly.js?v=46a47334a511"></script>
+  <script src="sea-turtle.js?v=d0318612d857"></script>
+  <script src="manta-ray.js?v=6527c4c2b703"></script>
   <script src="adaptive-quality.js?v=193436d9c993"></script>
   <script src="freediver-physics.js?v=803c55611213"></script>
-  <script src="recreational-freediver.js?v=5c48513449fe"></script>
+  <script src="recreational-freediver.js?v=4bb109790cd2"></script>
   <script src="marine-wakes.js?v=56b450acef8d"></script>
-  <script src="ocean.js?v=844bc9db82fd"></script>
-  <script src="ambient-audio.js?v=dc76a427f8f5"></script>
+  <script src="animal-interaction.js?v=d9d5c0251a81"></script>
+  <script src="ocean.js?v=5d635b858b19"></script>
+  <script src="ambient-audio.js?v=068267c1f300"></script>
   <script src="site-analytics.js?v=32921ecdd347"></script>
 </body>
 </html>

@@ -173,6 +173,7 @@
     a.head.rotation.z=.035*Math.sin(localTime*.3+i)-a.feedBlend*(.35+.09*bite)+a.breathBlend*.40;
     a.head.position.y=.01-a.feedBlend*(.22+.06*bite)+a.breathBlend*.22;
     a.jaw.position.y=-.085-a.feedBlend*.025*bite;
+    if(a.root.userData.applyInteraction)a.root.userData.applyInteraction(time);
     if(breathing){
      a.root.updateMatrixWorld(true);nose.set(.21,.09,0);a.head.localToWorld(nose);
      let noseSurface=15;if(window.sampleOceanWaves){window.sampleOceanWaves(nose.x,nose.z,time,wave);noseSurface+=wave.y;}

@@ -153,10 +153,11 @@
     a.v.set(Math.cos(a.heading)*Math.cos(a.pitch),Math.sin(a.pitch),-Math.sin(a.heading)*Math.cos(a.pitch)).multiplyScalar(speed);
     a.p.addScaledVector(a.v,dt);environment.current(a.p,time,flow);a.p.addScaledVector(flow,dt*.3);
     a.root.rotation.set(a.bank,a.heading,a.pitch,'YXZ');
-    if(outOfView(a)&&a.p.x*travel>45){a.root.visible=false;a.pass++;a.returnAt=time+65+Math.random()*145;stats.departures++;}
+    if(a.root.userData.applyInteraction)a.root.userData.applyInteraction(time);
+    if(!a.root.userData.grabbed&&outOfView(a)&&a.p.x*travel>45){a.root.visible=false;a.pass++;a.returnAt=time+65+Math.random()*145;stats.departures++;}
     // Tip lag and chord twist are in the vertex shader. Short glide intervals.
     const glide=Math.pow(Math.max(0,Math.sin(time*.11+i*2)),8);
-    a.phase+=dt*(1.0+speed*.9);a.u.phase.value=a.phase;a.u.effort.value=.75-glide*.65;a.u.bank.value=a.bank;
+    a.phase+=dt*(1.0+speed*.9);a.u.phase.value=a.phase;a.u.effort.value=a.root.userData.grabbed?1:.75-glide*.65;a.u.bank.value=a.bank;
     a.cavity.scale.y=.018+.11*a.feed;a.jaw.position.y=-.045-.14*a.feed;
     a.lobes.forEach((lobe,j)=>{const side=j?1:-1;lobe.rotation.x=side*(1-a.feed)*1.1;lobe.rotation.z=-.10*a.feed;});
     a.tail.rotation.y=.025*Math.sin(a.phase*.5);a.body.visible=true;

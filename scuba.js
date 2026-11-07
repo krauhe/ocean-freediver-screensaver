@@ -457,6 +457,7 @@
             c.offset.add(delta.subVectors(d.root.position,before));
           }
         }
+        if(d.root.userData.applyInteraction)d.root.userData.applyInteraction(time);
         // Route dwell and locomotion used to run on unrelated clocks. Measure
         // actual travel so lane corrections and the approach also require kicks.
         const navigating=!waitingInOpenWater&&(state.phase==='Explore'||state.phase==='Descend');

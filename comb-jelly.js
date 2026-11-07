@@ -97,10 +97,11 @@
      a.velocity.copy(flow).add(a.swimVelocity);a.velocity.y+=.012*Math.sin(time*.13+a.phase);
      a.velocity.y+=Math.max(0,-12-a.position.y)*.02-Math.max(0,a.position.y-10)*.02;
      a.position.addScaledVector(a.velocity,dt);
-     if(a.position.x>Math.max(24,(27-a.position.z)*1.7)){a.root.visible=false;a.nextArrival=time+4+Math.random()*16;continue;}
+     if(!a.root.userData.grabbed&&a.position.x>Math.max(24,(27-a.position.z)*1.7)){a.root.visible=false;a.nextArrival=time+4+Math.random()*16;continue;}
      for(const t of movingThreats){const d=a.position.distanceTo(t.p);if(d<(t.radius||0)+1.15)stimulate(i,.65,time);}
     }
     a.root.quaternion.copy(a.orientation.quaternion);
+    if(a.root.userData.applyInteraction)a.root.userData.applyInteraction(time);
     a.lobes.forEach((lobe,j)=>{lobe.rotation.z=(j===0?-1:1)*(.12+.035*Math.sin(time*.45+a.phase));});
     let illumination=water.daylight.value*.95;
     if(scuba&&scuba.group.visible)for(const diver of scuba.divers){

@@ -1969,9 +1969,11 @@
       motion.curvature=T.MathUtils.clamp((bodyWaves[0].y+bodyWaves[2].y-2*bodyWaves[1].y)*.25,-.10,.10);
     }
     function updateArticulatedRig(rig,u,deep,cycle,time,tug){
-      const grip=deep?smoothstep(22.7,23.8,cycle)*(1-smoothstep(26.1,27.0,cycle)):0;
-      const tag=deep?smoothstep(23.1,23.9,cycle)*(1-smoothstep(24.25,24.8,cycle)):0;
-      const turn=deep?smoothstep(23.9,24.6,cycle)*(1-smoothstep(26.0,27.2,cycle)):0;
+      const displaced=!!rig.mesh.userData.interactionEffort;
+      if(displaced){u.uKickAmp.value=Math.max(u.uKickAmp.value,.7);u.uArmRelaxL.value=.9;u.uArmRelaxR.value=.9;}
+      const grip=deep&&!displaced?smoothstep(22.7,23.8,cycle)*(1-smoothstep(26.1,27.0,cycle)):0;
+      const tag=deep&&!displaced?smoothstep(23.1,23.9,cycle)*(1-smoothstep(24.25,24.8,cycle)):0;
+      const turn=deep&&!displaced?smoothstep(23.9,24.6,cycle)*(1-smoothstep(26.0,27.2,cycle)):0;
       evalRopePoint(PLATE_Y+1.15,time,tug,gripPoint);
       const tagAngle=(deep&&rig===mainRig?2*Math.PI/3:0)+.35;
       tagPoint.set(Math.cos(tagAngle)*.105,-.056,Math.sin(tagAngle)*.105)
@@ -2615,6 +2617,7 @@
 
       followSurface(mainRig,monoTraj,time,0,dtPhase);
       followSurface(safeRig,biTraj,time,1,dtPhase);
+      for(const rig of [mainRig,safeRig])if(rig.mesh.userData.applyInteraction)rig.mesh.userData.applyInteraction(time);
       updateArticulatedRig(mainRig,mainUniforms,isMonofinDeep,cycle,time,tugAmount);
       updateArticulatedRig(safeRig,safeUniforms,!isMonofinDeep,cycle,time,tugAmount);
 

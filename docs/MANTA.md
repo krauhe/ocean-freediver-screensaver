@@ -33,3 +33,7 @@ Later visit-frequency adjustment: the second manta's first arrival is staggered,
 Tuned parameters: feeding speed 0.52 and cruising speed 0.82 scene units/s; wing phase advances by `1.0 + speed * 0.9` rad/s. Gliding and feeding schedules use procedural oscillations. These are simulation choices, not sourced measurements. A precise manta species/life-stage calibration has not yet been recorded.
 
 Validation: no WebGL errors; feeding blend spans 0–1; pause holds position; visibility and density work. A 20-minute simulation observed departure and re-entry with maximum continuous step 0.084 m at time steps up to 0.1 s.
+
+## User interaction (2026-11-07)
+
+Bounded dragging and release recovery now reuse this locomotion controller. Reactions and automatic release are simulation design choices, not new biological observations. See [interaction implementation and validation](INTERACTIONS.md). The research provenance above is unchanged.

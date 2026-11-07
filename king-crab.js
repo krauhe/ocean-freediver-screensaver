@@ -39,7 +39,7 @@
     // Separate sand patches: foreground, middle distance, and beyond the stern.
     // Jitter within each patch preserves clearance from the wreck and truck.
     const sites=[[-9,-10],[9,-15],[-31,-33]],site=sites[index%sites.length];
-    const homeX=site[0]+(Math.random()-.5)*4,homeZ=site[1]+(Math.random()-.5)*4;
+    let homeX=site[0]+(Math.random()-.5)*4,homeZ=site[1]+(Math.random()-.5)*4;
     const initialHeading=Math.random()*Math.PI*2;
     const behavior={position:new T.Vector3(homeX,0,homeZ),velocity:new T.Vector3(),target:new T.Vector3(),mode:'walk',timer:15+Math.random()*35,seed:(Math.random()*4294967296)>>>0,walk:Math.random(),heading:initialHeading,lastTime:undefined,alarmCooldown:0};
     const random=()=>{behavior.seed=(1664525*behavior.seed+1013904223)>>>0;return behavior.seed/4294967296;};
@@ -84,11 +84,12 @@
         const moving=behavior.velocity.length(),landing=footStates.some(f=>f.phase>.67);
         behavior.walk+=moving*dt/.20+Math.abs(turn)*.65+(moving<.002&&landing?dt*.22:0);
       }
+      if(group.userData.applyInteraction)group.userData.applyInteraction(time);
       jointCount=boneCount=spineCount=0;
-      group.position.set(behavior.position.x,0,behavior.position.z);group.rotation.y=behavior.heading;
+      group.position.set(behavior.position.x,behavior.lift||0,behavior.position.z);group.rotation.y=behavior.heading;
       const c=new T.Vector3(0,ground(behavior.position.x,behavior.position.z)+.36,0);
       body.position.copy(c);body.rotation.set(.025*Math.sin(time*.6+index),0,.018*Math.sin(time*.9+index));
-      shadow.position.set(0,c.y-.348,0);
+      shadow.position.set(0,c.y-.348,0);shadow.visible=!(behavior.lift>.03);
       // Each foot is anchored in world space during stance. Alternating tripods
       // lift only on the return stroke; body movement never drags planted toes.
       for(let side=-1;side<=1;side+=2)for(let row=0;row<3;row++){
@@ -101,6 +102,7 @@
         if(phase>.67){const f=(phase-.67)/.33,s=f*f*(3-2*f);foot.copy(state.from).lerp(state.to,s);foot.y+=Math.sin(f*Math.PI)*.09;}
         state.phase=phase;
         localFoot.copy(foot).sub(group.position).applyAxisAngle(rotationAxis,-behavior.heading);
+        if(behavior.lift>.03){localFoot.set(side*.40,c.y-.22,(row-1)*.23);state.ready=false;}
         const hip=new T.Vector3(c.x+side*.21,c.y-.025,c.z+(row-1)*.16);
         // Equal-length two-bone IK; elevated knee forms the characteristic arch.
         const delta=localFoot.clone().sub(hip),length=delta.length(),half=delta.multiplyScalar(.5);
@@ -143,6 +145,6 @@
       for(const m of [joints,bones,spines,eyes])m.instanceMatrix.needsUpdate=true;
     }
     update(0);
-    return {group,body,feet,ground,behavior,update,setVisible(v){group.visible=!!v;}};
+    return {group,body,feet,ground,behavior,update,relocate(){homeX=behavior.position.x;homeZ=behavior.position.z;chooseTarget();for(const f of footStates)f.ready=false;},setVisible(v){group.visible=!!v;}};
   };
 })();

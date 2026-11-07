@@ -71,7 +71,7 @@
         if(env){env.steer(body.position,body.velocity,1.25,avoid);desired.addScaledVector(avoid,.65);desired.clampLength(0,1.15);}
         heading.copy(desired);if(heading.lengthSq()<.025)heading.subVectors(subject,body.position);heading.normalize();
       }
-      const correcting=state.phase!=='surface'&&(state.phase==='inspect'||body.state.angularSpeed>.12||body.state.scullEffort>.55);
+      const correcting=rig.mesh.userData.grabbed||state.phase!=='surface'&&(state.phase==='inspect'||body.state.angularSpeed>.12||body.state.scullEffort>.55);
       armActivity+=((correcting?Math.max(.3,body.state.scullEffort||0):0)-armActivity)*(1-Math.exp(-dt*2));
       armPhase+=dt*(.85+armActivity*.65);
       const stroke=(armPhase/(Math.PI*2))%1,pull=stroke<.45?Math.sin(Math.PI*stroke/.45)**2:0;
@@ -136,6 +136,7 @@
     function update(time){
       const dt=last===null?0:clamp(time-last,0,.2);last=time;if(!group.visible)return;
       accumulator+=dt;while(accumulator+1e-9>=1/60){step(1/60);accumulator=Math.max(0,accumulator-1/60);}
+      if(rig.mesh.userData.applyInteraction)rig.mesh.userData.applyInteraction(time);
       rig.mesh.position.copy(body.position);rig.mesh.quaternion.copy(body.quaternion);
       u.uTime.value=elapsed;u.uKickPhase.value=kickPhase;u.uKickAmp.value=effort;
       u.uBiBladeFlexL.value=blades[0].x;u.uBiBladeFlexR.value=blades[1].x;
@@ -151,6 +152,10 @@
       rig.pose(u,elapsed,{swimJoints:joints,handTargets,surface:state.phase==='surface'?1:0,surfaceMotion:{phase:elapsed*.65,effort:.12}});
       rig.updateHair(dt,body.velocity,flow,elapsed);
     }
-    return {group,rig,state,body,joints,blades,handTargets,update,setVisible(v){group.visible=!!v;accumulator=0;}};
+    return {group,rig,state,body,joints,blades,handTargets,update,
+      canGrab:()=>state.phase!=="ascent"&&(state.phase!=="surface"||phaseTime>18)&&budget>Math.max(0,15-body.position.y)/.7+28,
+      forceAscent(){if(state.phase!=="surface")enter("ascent");else if(body.position.y<14)enter("ascent");},
+      recovered:()=>state.phase==="surface"&&phaseTime>18,
+      setVisible(v){group.visible=!!v;accumulator=0;}};
   };
 })();

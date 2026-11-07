@@ -58,3 +58,7 @@ Grazing validation: two 20-minute Chrome/WebGL runs reached 3 and 6 feeding visi
 Cruise speed was approximately doubled in response to the user's observation; near-grass and feeding speeds remain low. The fixed y=14.25 ceiling was removed because it prevented the nose reaching air. Surface heave follows sampled waves with bounded vertical adjustment, and a breath completes only after measured above-water nose time.
 
 Validation: 20 minutes with both turtles produced 7 and 6 surface visits, including descent afterward and further feeding. Maximum position step 0.054 m, maximum orientation step 0.008 rad at 30 Hz. Pause/hidden states, habitat removal and oscillating-threat tests at 15/30/60 Hz passed. Local script: `validation/turtle-breathing-check.cjs`; rendered surface pose inspected.
+
+## User interaction (2026-11-07)
+
+Bounded dragging and release recovery now reuse this locomotion controller. Reactions and automatic release are simulation design choices, not new biological observations. See [interaction implementation and validation](INTERACTIONS.md). The research provenance above is unchanged.
